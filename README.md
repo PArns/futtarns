@@ -30,7 +30,7 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 
 | Login                                    | Friday                                   | Dish                                        | Calendar                           |
 | ---------------------------------------- | ---------------------------------------- | ------------------------------------------- | ---------------------------------- |
-| ![](docs/screenshots/login-1-nummer.png) | ![](docs/screenshots/freitag-1-oben.png) | ![](docs/screenshots/freitag-3-gericht.png) | ![](docs/screenshots/kalender.png) |
+| ![](docs/screenshots/login-1-nummer.jpg) | ![](docs/screenshots/freitag-1-oben.jpg) | ![](docs/screenshots/freitag-3-gericht.jpg) | ![](docs/screenshots/kalender.jpg) |
 
 ## Development
 

@@ -6,7 +6,8 @@ import { handleIncoming } from '@/lib/services/incoming';
 
 function authorized(request: Request): boolean {
   const expected = process.env.BOT_TOKEN;
-  if (!expected) return false;
+  // A short or example token would make this endpoint guessable; refuse to use it.
+  if (!expected || expected.length < 24) return false;
   const given = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
   const a = Buffer.from(given);
   const b = Buffer.from(expected);

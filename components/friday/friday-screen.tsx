@@ -22,6 +22,8 @@ import { AnswerControl } from '@/components/friday/answer-control';
 import { AnswerSelect } from '@/components/friday/answer-select';
 import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
+import { DrinksToggle } from '@/components/friday/drinks-toggle';
+import { ExtrasForm } from '@/components/friday/extras-form';
 import { FlatForm } from '@/components/friday/flat-form';
 import {
   CancelToggle,
@@ -41,6 +43,8 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
+import { DRINKS_FEE_CENTS } from '@/lib/balance';
+import { AUTO_TIP_PERCENT } from '@/lib/pricing';
 import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
@@ -158,6 +162,15 @@ export async function FridayScreen({
   );
   const allItems = view.participants.flatMap((participant) => participant.items);
   const sheet = buildOrderSheet(allItems, nameOf);
+  const hungry = closed
+    ? []
+    : view.participants.filter(
+        (entry) =>
+          entry.attendance.status === 'in' &&
+          entry.items.length === 0 &&
+          !entry.projectedDefault &&
+          entry.member.id !== hostId
+      );
   const amHost = viewer.id === hostId;
   const myOpen = me?.money.openCents ?? 0;
   const title = view.cancelled
@@ -270,6 +283,7 @@ export async function FridayScreen({
               date={date}
               memberId={viewer.id}
               status={me.attendance.status}
+              answered={me.attendance.reason === 'answered'}
               disabled={!editable(me)}
               hasItems={me.items.length > 0}
             />
@@ -290,6 +304,15 @@ export async function FridayScreen({
                     ? 'Schluss ist vorbei. Änderungen nur noch über den Gastgeber.'
                     : `Ändern geht bis ${formatTime(view.deadline)} Uhr.`}
             </p>
+            {me.attendance.status !== 'out' && view.drinksFeeCents > 0 && !amHost && (
+              <DrinksToggle
+                date={date}
+                memberId={viewer.id}
+                feeCents={view.drinksFeeCents}
+                on={!me.drinksOptOut}
+                disabled={!editable(me)}
+              />
+            )}
           </div>
         )}
 
@@ -297,13 +320,14 @@ export async function FridayScreen({
           <div className="hero-item mt-5">
             <PayBox
               date={date}
-              openCents={myOpen}
+              memberId={viewer.id}
+              money={me.money}
               payeeName={view.host.name}
               paypalMe={view.host.paypalMe}
             />
           </div>
         )}
-        {!view.cancelled && me && view.host && !amHost && myOpen < 0 && (
+        {me && view.host && !amHost && myOpen < 0 && (
           <p className="hero-item border-primary/40 bg-primary/10 mt-5 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm">
             <Undo2 className="text-primary size-4 shrink-0" />
             Du hast {formatEuro(-myOpen)} zu viel gezahlt. {view.host.name} gibt dir das zurück.
@@ -317,30 +341,36 @@ export async function FridayScreen({
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Wallet className="text-warning size-4" /> Von früheren Freitagen
             </div>
-            {otherBalances.map((balance) => (
-              <div key={balance.fridayDate}>
-                <Link
-                  href={`/freitag/${balance.fridayDate}`}
-                  className="hover:text-primary mb-2 block text-sm"
-                >
-                  {formatDayShort(balance.fridayDate)} · {balance.title}
-                </Link>
-                {balance.money.openCents > 0 && balance.payee ? (
-                  <PayBox
-                    date={balance.fridayDate}
-                    openCents={balance.money.openCents}
-                    payeeName={balance.payee.name}
-                    paypalMe={balance.payee.paypalMe}
-                    label="Noch offen"
-                  />
-                ) : (
-                  <p className="text-muted-foreground text-sm">
-                    Du bekommst {formatEuro(-balance.money.openCents)} von{' '}
-                    {balance.payee?.name ?? 'dem Gastgeber'} zurück.
-                  </p>
-                )}
-              </div>
-            ))}
+            {otherBalances.map((balance) => {
+              const forGuest = balance.member.id !== viewer.id;
+              return (
+                <div key={`${balance.fridayDate}-${balance.member.id}`}>
+                  <Link
+                    href={`/freitag/${balance.fridayDate}`}
+                    className="hover:text-primary mb-2 block text-sm"
+                  >
+                    {formatDayShort(balance.fridayDate)} · {balance.title}
+                    {forGuest && ` · für ${balance.member.name}`}
+                  </Link>
+                  {balance.money.openCents > 0 && balance.payee ? (
+                    <PayBox
+                      date={balance.fridayDate}
+                      memberId={balance.member.id}
+                      money={balance.money}
+                      payeeName={balance.payee.name}
+                      paypalMe={balance.payee.paypalMe}
+                      label={forGuest ? `Noch offen für ${balance.member.name}` : 'Noch offen'}
+                    />
+                  ) : (
+                    <p className="text-muted-foreground text-sm">
+                      {forGuest ? `${balance.member.name} bekommt` : 'Du bekommst'}{' '}
+                      {formatEuro(-balance.money.openCents)} von{' '}
+                      {balance.payee?.name ?? 'dem Gastgeber'} zurück.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </GlassCard>
         )}
 
@@ -384,7 +414,7 @@ export async function FridayScreen({
                         <span className="text-muted-foreground">
                           {view.settled
                             ? 'Dein Betrag'
-                            : 'Mit deinem Anteil an Liefer- und Servicegebühr'}
+                            : 'Mit deinem Anteil an Liefer-, Servicegebühr und Trinkgeld'}
                         </span>
                         <span className="text-lg font-extrabold tabular-nums">
                           {formatEuro(me.share.totalCents)}
@@ -464,7 +494,11 @@ export async function FridayScreen({
                           {participant.member.kind === 'guest'
                             ? `Gast${participant.addedById ? ` von ${nameOf(participant.addedById)}` : ''}`
                             : (reason ??
-                              (participant.hasDefault && !flat ? 'hat einen Standard' : ''))}
+                              (participant.drinksOptOut && participant.attendance.status !== 'out'
+                                ? 'ohne Getränkepauschale'
+                                : participant.hasDefault && !flat
+                                  ? 'hat einen Standard'
+                                  : ''))}
                         </div>
                       </div>
                       {canEdit && participant.member.id !== viewer.id ? (
@@ -497,13 +531,28 @@ export async function FridayScreen({
                           isHost={isHost}
                           canManage={manage}
                         />
-                        {participant.share && (
+                        {!isHost && participant.money.dueCents > 0 && (
                           <span className="shrink-0 font-extrabold tabular-nums">
-                            {formatEuro(participant.share.totalCents)}
+                            {formatEuro(participant.money.dueCents)}
                           </span>
                         )}
                       </div>
                     )}
+                    {canEdit &&
+                      participant.member.id !== viewer.id &&
+                      !isHost &&
+                      participant.attendance.status !== 'out' &&
+                      view.drinksFeeCents > 0 && (
+                        <div className="mt-2">
+                          <DrinksToggle
+                            date={date}
+                            memberId={participant.member.id}
+                            feeCents={view.drinksFeeCents}
+                            on={!participant.drinksOptOut}
+                            compact
+                          />
+                        </div>
+                      )}
                   </GlassCard>
                 );
               })}
@@ -565,6 +614,12 @@ export async function FridayScreen({
                             </dd>
                           </div>
                         )}
+                        <div className="flex justify-between">
+                          <dt className="text-muted-foreground">
+                            Trinkgeld{view.estimate.tipIsAuto ? ` (${AUTO_TIP_PERCENT} %)` : ''}
+                          </dt>
+                          <dd className="tabular-nums">{formatEuro(view.estimate.tipCents)}</dd>
+                        </div>
                         <div className="border-border/60 flex justify-between border-t pt-2 font-bold">
                           <dt>{view.finalTotalCents !== null ? 'Geschätzt' : 'Summe'}</dt>
                           <dd className="tabular-nums">{formatEuro(view.estimate.totalCents)}</dd>
@@ -578,10 +633,13 @@ export async function FridayScreen({
                       </>
                     )
                   )}
-                  {view.drinksCents > 0 && (
+                  {view.drinksTotalCents > 0 && (
                     <div className="text-muted-foreground flex justify-between pt-2">
-                      <dt>Getränkekasse</dt>
-                      <dd className="tabular-nums">{formatEuro(view.drinksCents)}</dd>
+                      <dt>
+                        Getränkepauschale ({view.drinksTotalCents / view.drinksFeeCents} ×{' '}
+                        {formatEuro(view.drinksFeeCents)})
+                      </dt>
+                      <dd className="tabular-nums">{formatEuro(view.drinksTotalCents)}</dd>
                     </div>
                   )}
                 </dl>
@@ -597,47 +655,55 @@ export async function FridayScreen({
                   )}
               </GlassCard>
               <GlassCard variant="tile" className="p-5">
-                {view.shares.length === 0 ? (
+                {view.shares.length === 0 && view.drinksTotalCents === 0 ? (
                   <p className="text-muted-foreground text-sm">Noch ist niemand mit Essen dabei.</p>
                 ) : (
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-muted-foreground text-left text-xs">
                         <th className="pb-2 font-medium">Wer</th>
-                        <th className="pb-2 text-right font-medium">{flat ? 'Betrag' : 'Essen'}</th>
-                        {!flat && <th className="pb-2 text-right font-medium">Anteil</th>}
+                        <th className="pb-2 text-right font-medium">
+                          {flat ? 'Pauschale' : 'Essen'}
+                        </th>
+                        <th className="pb-2 text-right font-medium">Getränke</th>
                         <th className="pb-2 text-right font-medium">Offen</th>
                       </tr>
                     </thead>
                     <tbody className="divide-border/50 divide-y">
-                      {view.shares.map((entry) => {
-                        const money = view.participants.find(
-                          (p) => p.member.id === entry.memberId
-                        )?.money;
-                        return (
-                          <tr key={entry.memberId}>
-                            <td className="py-2 font-medium">{nameOf(entry.memberId)}</td>
-                            <td className="py-2 text-right tabular-nums">
-                              {formatEuro(entry.itemsCents)}
+                      {view.participants
+                        .filter((p) => p.share || p.money.dueCents !== 0 || p.money.paidCents !== 0)
+                        .map((p) => (
+                          <tr key={p.member.id}>
+                            <td className="py-2 font-medium">
+                              {p.member.name}
+                              {p.projectedDefault && (
+                                <span className="text-muted-foreground block text-[11px] font-normal">
+                                  Standard: {p.projectedDefault.name}
+                                </span>
+                              )}
                             </td>
-                            {!flat && (
-                              <td className="text-muted-foreground py-2 text-right tabular-nums">
-                                {entry.sharedCents >= 0 ? '+' : ''}
-                                {formatEuro(entry.sharedCents)}
-                              </td>
-                            )}
+                            <td className="py-2 text-right tabular-nums">
+                              {p.share ? formatEuro(p.share.totalCents) : '–'}
+                              {p.share && !flat && p.share.sharedCents !== 0 && (
+                                <span className="text-muted-foreground block text-[11px]">
+                                  davon {formatEuro(p.share.sharedCents)} Gebühren
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-muted-foreground py-2 text-right tabular-nums">
+                              {p.money.drinksCents ? formatEuro(p.money.drinksCents) : '–'}
+                            </td>
                             <td
                               className={cn(
                                 'py-2 text-right font-bold tabular-nums',
-                                money && money.openCents > 0 && 'text-warning',
-                                money && money.openCents < 0 && 'text-primary'
+                                p.money.openCents > 0 && 'text-warning',
+                                p.money.openCents < 0 && 'text-primary'
                               )}
                             >
-                              {entry.memberId === hostId ? '–' : formatEuro(money?.openCents ?? 0)}
+                              {p.member.id === hostId ? 'Gastgeber' : formatEuro(p.money.openCents)}
                             </td>
                           </tr>
-                        );
-                      })}
+                        ))}
                     </tbody>
                   </table>
                 )}
@@ -694,6 +760,14 @@ export async function FridayScreen({
                     .filter((member) => member.active)
                     .map(({ id, name }) => ({ id, name }))}
                 />
+                {!view.cancelled && (
+                  <ExtrasForm
+                    date={date}
+                    tipCents={view.fixedTipCents}
+                    drinksFeeCents={view.customDrinksFeeCents}
+                    defaultDrinksFeeCents={DRINKS_FEE_CENTS}
+                  />
+                )}
                 <NoteEditor date={date} note={view.note} />
                 <CancelToggle date={date} cancelled={view.cancelled} reason={view.cancelReason} />
               </GlassCard>
@@ -706,6 +780,14 @@ export async function FridayScreen({
                     </h3>
                     {sheet.length > 0 && <CopyButton text={orderSheetText(sheet)} />}
                   </div>
+                  {hungry.length > 0 && (
+                    <p className="border-warning/40 bg-warning/10 rounded-xl border p-3 text-xs">
+                      <strong className="text-warning">
+                        Bekommen nichts, wenn sie nichts wählen:
+                      </strong>{' '}
+                      {hungry.map((entry) => entry.member.name).join(', ')}
+                    </p>
+                  )}
                   {sheet.length === 0 ? (
                     <p className="text-muted-foreground text-sm">Noch nichts bestellt.</p>
                   ) : (

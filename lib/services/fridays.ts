@@ -1,6 +1,6 @@
-import { and, asc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { effectiveAttendance, type EffectiveAttendance } from '@/lib/attendance';
-import { moneyFor, type Money } from '@/lib/balance';
+import { DRINKS_FEE_CENTS, moneyFor, type Money } from '@/lib/balance';
 import {
   addWeeks,
   currentFriday,
@@ -15,6 +15,7 @@ import {
   attendance,
   charges,
   dishes,
+  drinksOptOuts,
   fridays,
   memberDefaults,
   members,
@@ -27,11 +28,16 @@ import {
   type FridayMode,
   type Member,
   type OrderItem,
-  type PaymentPurpose,
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
-import { estimateFees, splitTotal, type FeeEstimate, type MemberShare } from '@/lib/pricing';
+import {
+  autoTipCents,
+  estimateFees,
+  splitTotal,
+  type FeeEstimate,
+  type MemberShare,
+} from '@/lib/pricing';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -84,16 +90,23 @@ async function requireOpen(tx: Tx, date: IsoDate) {
   return row!;
 }
 
-/** Picks the restaurant. Switching to another one drops the orders placed so far. */
+/**
+ * Picks the restaurant. Switching drops the orders placed so far. After the deadline the
+ * host may still switch (the first choice turned out to be closed); everyone who counts
+ * as coming then gets their default from the new restaurant.
+ */
 export async function setRestaurant(db: Db, date: IsoDate, restaurantId: number | null) {
   await db.transaction(async (tx) => {
-    const row = await requireOpen(tx, date);
-    if (row.mode === 'delivery' && row.restaurantId === restaurantId) return;
+    await ensureFridayRow(tx, date);
+    const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
+    if (row!.settledAt) throw new ServiceError('Schon abgerechnet – erst die Abrechnung öffnen');
+    if (row!.mode === 'delivery' && row!.restaurantId === restaurantId) return;
     await tx.delete(orderItems).where(eq(orderItems.fridayDate, date));
     await tx
       .update(fridays)
       .set({ mode: 'delivery', restaurantId, updatedAt: new Date() })
       .where(eq(fridays.date, date));
+    if (row!.lockedAt && restaurantId) await applyDefaults(tx, date, restaurantId);
   });
 }
 
@@ -148,9 +161,12 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
   if (!isPastDeadline(date, now)) return false;
   return db.transaction(async (tx) => {
     await ensureFridayRow(tx, date);
+    // The host is written down at the lock, so payments keep going to whoever hosted even
+    // if the default host changes later.
+    const hostId = (await getDefaultHost(tx))?.id ?? null;
     const [row] = await tx
       .update(fridays)
-      .set({ lockedAt: now, updatedAt: now })
+      .set({ lockedAt: now, updatedAt: now, hostId: sql`coalesce(${fridays.hostId}, ${hostId})` })
       .where(and(eq(fridays.date, date), isNull(fridays.lockedAt), eq(fridays.cancelled, false)))
       .returning();
     if (!row) return false;
@@ -233,7 +249,8 @@ export async function settleFriday(db: Db, date: IsoDate, totalCents: number, no
     if (row.mode === 'flat')
       throw new ServiceError('Bei einer Pauschale gibt es nichts abzurechnen');
     const items = await tx.select().from(orderItems).where(eq(orderItems.fridayDate, date));
-    const shares = splitTotal(items, totalCents);
+    const subtotal = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+    const shares = splitTotal(items, totalCents, row.tipCents ?? autoTipCents(subtotal));
     if (shares.length === 0) throw new ServiceError('Es wurde nichts bestellt');
     await tx.delete(charges).where(eq(charges.fridayDate, date));
     await tx.insert(charges).values(
@@ -260,35 +277,42 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
 
 export async function recordPayment(
   db: Db,
-  input: {
-    date: IsoDate;
-    memberId: number;
-    amountCents: number;
-    purpose: PaymentPurpose;
-    recordedById: number;
-  }
+  input: { date: IsoDate; memberId: number; amountCents: number; recordedById: number }
 ) {
   if (input.amountCents === 0) return;
   await db.insert(payments).values({
     fridayDate: input.date,
     memberId: input.memberId,
     amountCents: input.amountCents,
-    purpose: input.purpose,
     recordedById: input.recordedById,
   });
 }
 
-/** Forgets every food payment of one person for a Friday, for when one was a mistake. */
-export async function clearFoodPayments(db: Db, date: IsoDate, memberId: number) {
+/** Forgets every payment of one person for a Friday, for when one was a mistake. */
+export async function clearPayments(db: Db, date: IsoDate, memberId: number) {
   await db
     .delete(payments)
-    .where(
-      and(
-        eq(payments.fridayDate, date),
-        eq(payments.memberId, memberId),
-        eq(payments.purpose, 'food')
-      )
-    );
+    .where(and(eq(payments.fridayDate, date), eq(payments.memberId, memberId)));
+}
+
+export async function setDrinksOptOut(db: Db, date: IsoDate, memberId: number, optOut: boolean) {
+  if (optOut) {
+    await db.insert(drinksOptOuts).values({ fridayDate: date, memberId }).onConflictDoNothing();
+  } else {
+    await db
+      .delete(drinksOptOuts)
+      .where(and(eq(drinksOptOuts.fridayDate, date), eq(drinksOptOuts.memberId, memberId)));
+  }
+}
+
+/** A fixed tip for the Friday, or null for the automatic percentage. */
+export async function setTip(db: Db, date: IsoDate, tipCents: number | null) {
+  await touch(db, date, { tipCents });
+}
+
+/** The drinks fee per person for the Friday, or null for the usual one; 0 means none. */
+export async function setDrinksFee(db: Db, date: IsoDate, drinksFeeCents: number | null) {
+  await touch(db, date, { drinksFeeCents });
 }
 
 export type Participant = {
@@ -298,7 +322,10 @@ export type Participant = {
   items: OrderItem[];
   itemsCents: number;
   hasDefault: boolean;
+  /** Before the lock: the default this silent member is going to get. */
+  projectedDefault: { name: string; unitPriceCents: number } | null;
   share: MemberShare | null;
+  drinksOptOut: boolean;
   money: Money;
 };
 
@@ -322,7 +349,13 @@ export type FridayView = {
   participants: Participant[];
   estimate: FeeEstimate | null;
   shares: MemberShare[];
-  drinksCents: number;
+  /** The drinks fee per person this Friday (0 when switched off). */
+  drinksFeeCents: number;
+  /** What the host set for this Friday; null means the usual rule. */
+  fixedTipCents: number | null;
+  customDrinksFeeCents: number | null;
+  /** What the drinks fees add up to: the host's drinks kitty. */
+  drinksTotalCents: number;
 };
 
 /** Everything a Friday page shows, after closing ordering if the deadline has passed. */
@@ -334,6 +367,15 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
 
   const answers = await db.select().from(attendance).where(eq(attendance.fridayDate, date));
   const ledger = await db.select().from(payments).where(eq(payments.fridayDate, date));
+  const optedOut = new Set(
+    (
+      await db
+        .select({ memberId: drinksOptOuts.memberId })
+        .from(drinksOptOuts)
+        .where(eq(drinksOptOuts.fridayDate, date))
+    ).map((entry) => entry.memberId)
+  );
+  const drinksFeeCents = row?.drinksFeeCents ?? DRINKS_FEE_CENTS;
   const involvedIds = [...new Set([...answers, ...ledger].map((entry) => entry.memberId))];
   const people = await db
     .select()
@@ -361,16 +403,13 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
         .where(and(eq(dishes.restaurantId, restaurantId), eq(dishes.archived, false)))
         .orderBy(asc(dishes.sortOrder), asc(dishes.id))
     : [];
-  const defaultsFor = restaurantId
-    ? new Set(
-        (
-          await db
-            .select({ memberId: memberDefaults.memberId })
-            .from(memberDefaults)
-            .where(eq(memberDefaults.restaurantId, restaurantId))
-        ).map((entry) => entry.memberId)
-      )
-    : new Set<number>();
+  const defaults = restaurantId
+    ? await db
+        .select({ entry: memberDefaults, dish: dishes })
+        .from(memberDefaults)
+        .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
+        .where(and(eq(memberDefaults.restaurantId, restaurantId), eq(dishes.archived, false)))
+    : [];
 
   const items = await db
     .select()
@@ -381,25 +420,64 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const storedCharges = await db.select().from(charges).where(eq(charges.fridayDate, date));
   const settled = Boolean(row?.settledAt);
 
+  const locked = Boolean(row?.lockedAt);
+  const cancelled = row?.cancelled ?? false;
   const base = people.map((member) => {
     const answer = answers.find((entry) => entry.memberId === member.id);
     const own = items.filter((item) => item.memberId === member.id);
+    const attendance = effectiveAttendance(
+      member,
+      date,
+      answer?.status,
+      absent,
+      mode === 'flat' ? 'out' : 'in'
+    );
+    const fallback = defaults.find((entry) => entry.entry.memberId === member.id);
+    // Until the lock, a silent member's default is what they will get, so the estimate
+    // counts it; otherwise early payers would pay fees split among too few people.
+    const projectedDefault =
+      !locked &&
+      member.kind === 'member' &&
+      attendance.status === 'in' &&
+      own.length === 0 &&
+      fallback
+        ? {
+            name: fallback.dish.name,
+            unitPriceCents: unitPriceCents(fallback.dish.priceCents, fallback.entry.options),
+          }
+        : null;
     return {
       member,
-      attendance: effectiveAttendance(member, date, answer?.status, absent),
+      attendance,
       addedById: answer?.addedById ?? null,
       items: own,
       itemsCents: own.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
-      hasDefault: defaultsFor.has(member.id),
+      hasDefault: Boolean(fallback),
+      projectedDefault,
     };
   });
 
-  const subtotal = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const estimate = restaurant ? estimateFees(subtotal, restaurant) : null;
+  const priced = [
+    ...items,
+    ...base.flatMap((entry) =>
+      entry.projectedDefault
+        ? [
+            {
+              memberId: entry.member.id,
+              unitPriceCents: entry.projectedDefault.unitPriceCents,
+              quantity: 1,
+            },
+          ]
+        : []
+    ),
+  ];
+  const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const estimate = restaurant ? estimateFees(subtotal, restaurant, row?.tipCents ?? null) : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
   const flatPrice = row?.flatPriceCents ?? 0;
-  const shares: MemberShare[] =
-    mode === 'flat'
+  const shares: MemberShare[] = cancelled
+    ? []
+    : mode === 'flat'
       ? base
           .filter((entry) => entry.attendance.status === 'in')
           .map((entry) => ({
@@ -408,19 +486,27 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
             sharedCents: 0,
             totalCents: flatPrice,
           }))
-      : splitTotal(items, finalTotalCents ?? estimate?.totalCents ?? subtotal);
+      : splitTotal(
+          priced,
+          finalTotalCents ?? estimate?.totalCents ?? subtotal,
+          estimate?.tipCents ?? 0
+        );
 
   const participants = base.map((entry): Participant => {
     const share = shares.find((candidate) => candidate.memberId === entry.member.id) ?? null;
     const charge = storedCharges.find((candidate) => candidate.memberId === entry.member.id);
-    const dueCents =
+    const foodCents =
       settled && mode === 'delivery' ? (charge?.amountCents ?? 0) : (share?.totalCents ?? 0);
+    const drinksOptOut = optedOut.has(entry.member.id);
+    const comes = entry.attendance.status !== 'out' && !cancelled;
     return {
       ...entry,
       share,
+      drinksOptOut,
       money: moneyFor({
         isHost: entry.member.id === hostId,
-        dueCents,
+        foodCents,
+        drinksCents: comes && !drinksOptOut ? drinksFeeCents : 0,
         payments: ledger.filter((payment) => payment.memberId === entry.member.id),
       }),
     };
@@ -430,7 +516,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     date,
     host,
     hostIsDefault: !row?.hostId,
-    cancelled: row?.cancelled ?? false,
+    cancelled,
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
     mode,
@@ -440,15 +526,16 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     dishes: menu,
     deadline: orderDeadline(date),
     orderTime: orderTime(date),
-    locked: Boolean(row?.lockedAt),
+    locked,
     settled,
     finalTotalCents,
     participants,
     estimate,
     shares,
-    drinksCents: ledger
-      .filter((payment) => payment.purpose === 'drinks')
-      .reduce((sum, payment) => sum + payment.amountCents, 0),
+    drinksFeeCents,
+    fixedTipCents: row?.tipCents ?? null,
+    customDrinksFeeCents: row?.drinksFeeCents ?? null,
+    drinksTotalCents: participants.reduce((sum, entry) => sum + entry.money.drinksCents, 0),
   };
 }
 
@@ -517,6 +604,9 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
 
 export type OpenBalance = {
   fridayDate: IsoDate;
+  member: Pick<Member, 'id' | 'name' | 'kind' | 'phone'>;
+  /** Who brought a guest; their open money is that person's to sort out. */
+  addedById: number | null;
   money: Money;
   payee: Pick<Member, 'id' | 'name' | 'paypalMe'> | null;
   title: string;
@@ -525,44 +615,50 @@ export type OpenBalance = {
 const BALANCE_LOOKBACK_WEEKS = 8;
 
 /**
- * Fridays before `before` where a member still owes money or gets some back. Counting
- * starts once a Friday's deadline has passed; the coming Friday is shown on its own page.
+ * Everyone who still owes money or gets some back for the Fridays before `before`. A
+ * delivery Friday counts once it is settled, a flat-price one once it is locked, a
+ * cancelled one whenever someone had paid in advance.
  */
-export async function openBalancesFor(
-  db: Db,
-  memberId: number,
-  before: IsoDate,
-  now: Date
-): Promise<OpenBalance[]> {
-  const from = addWeeks(before, -BALANCE_LOOKBACK_WEEKS);
+export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<OpenBalance[]> {
   const candidates = await db
     .select({ date: fridays.date })
     .from(fridays)
     .where(
       and(
-        gte(fridays.date, from),
-        lte(fridays.date, addWeeks(before, -1)),
-        eq(fridays.cancelled, false)
+        gte(fridays.date, addWeeks(before, -BALANCE_LOOKBACK_WEEKS)),
+        lte(fridays.date, addWeeks(before, -1))
       )
     )
     .orderBy(asc(fridays.date));
   const result: OpenBalance[] = [];
   for (const { date } of candidates) {
     const view = await loadFriday(db, date, now);
-    const participant = view.participants.find((entry) => entry.member.id === memberId);
-    if (!participant || participant.money.openCents === 0) continue;
-    if (view.mode === 'delivery' && !view.settled) continue;
-    result.push({
-      fridayDate: date,
-      money: participant.money,
-      payee: view.host
-        ? { id: view.host.id, name: view.host.name, paypalMe: view.host.paypalMe }
-        : null,
-      title:
-        view.mode === 'flat'
-          ? (view.flatTitle ?? 'Pauschale')
-          : (view.restaurant?.name ?? 'Freitag'),
-    });
+    const billed = view.cancelled || (view.mode === 'flat' ? view.locked : view.settled);
+    if (!billed) continue;
+    for (const participant of view.participants) {
+      if (participant.money.openCents === 0) continue;
+      result.push({
+        fridayDate: date,
+        member: participant.member,
+        addedById: participant.addedById,
+        money: participant.money,
+        payee: view.host
+          ? { id: view.host.id, name: view.host.name, paypalMe: view.host.paypalMe }
+          : null,
+        title: view.cancelled
+          ? 'abgesagt'
+          : view.mode === 'flat'
+            ? (view.flatTitle ?? 'Pauschale')
+            : (view.restaurant?.name ?? 'Freitag'),
+      });
+    }
   }
   return result;
+}
+
+/** A member's own open balances and those of the guests they brought. */
+export async function openBalancesFor(db: Db, memberId: number, before: IsoDate, now: Date) {
+  return (await openBalances(db, before, now)).filter(
+    (balance) => balance.member.id === memberId || balance.addedById === memberId
+  );
 }

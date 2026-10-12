@@ -24,7 +24,7 @@ import {
   verifyLoginCode,
 } from '@/lib/services/auth';
 import {
-  clearFoodPayments,
+  clearPayments,
   getFridayRow,
   hostIdFor,
   loadFriday,
@@ -32,10 +32,13 @@ import {
   reopenSettlement,
   setAttendance,
   setCancelled,
+  setDrinksFee,
+  setDrinksOptOut,
   setFlat,
   setFridayNote,
   setHost,
   setRestaurant,
+  setTip,
   settleFriday,
 } from '@/lib/services/fridays';
 import {
@@ -339,37 +342,74 @@ export async function setFlatAction(
 }
 
 /**
- * Records that the viewer paid what they owe for a Friday, plus an optional drinks
- * donation. The amount is worked out here again, not taken from the browser.
+ * Books a payment the viewer says they sent: for themselves, or for a guest they brought.
+ * The amount is the one their PayPal link carried, so the ledger matches the money.
  */
-export async function payAction(date: string, donationCents: number): Promise<ActionResult> {
+export async function payAction(
+  date: string,
+  target: number,
+  amountCents: number
+): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
-    const donation = z.number().int().min(0).max(10_000).parse(donationCents);
+    const id = memberId.parse(target);
+    const amount = z.number().int().min(1).max(100_000).parse(amountCents);
     const { viewer } = await getGroupContext();
     const db = await getDb();
-    const view = await loadFriday(db, day, new Date());
-    const me = view.participants.find((entry) => entry.member.id === viewer.id);
-    const open = Math.max(0, me?.money.openCents ?? 0);
-    if (open === 0 && donation === 0) throw new ServiceError('Bei dir ist nichts offen');
+    if (id !== viewer.id) {
+      const [answer] = await db
+        .select({ addedById: attendance.addedById })
+        .from(attendance)
+        .where(and(eq(attendance.fridayDate, day), eq(attendance.memberId, id)));
+      if (answer?.addedById !== viewer.id && !canManageFriday(viewer, await hostIdFor(db, day))) {
+        throw new ServiceError('Das darfst du nicht für jemand anderen eintragen');
+      }
+    }
     await recordPayment(db, {
       date: day,
-      memberId: viewer.id,
-      amountCents: open,
-      purpose: 'food',
+      memberId: id,
+      amountCents: amount,
       recordedById: viewer.id,
     });
-    await recordPayment(db, {
-      date: day,
-      memberId: viewer.id,
-      amountCents: donation,
-      purpose: 'drinks',
-      recordedById: viewer.id,
-    });
-    return {
-      ok: true,
-      message: donation > 0 ? 'Danke, auch für die Getränke!' : 'Danke! Als bezahlt vermerkt',
-    };
+    return { ok: true, message: 'Danke! Als bezahlt vermerkt' };
+  });
+}
+
+/** Takes the drinks flat fee off someone for a Friday, or puts it back. */
+export async function setDrinksAction(
+  date: string,
+  target: number,
+  wantsDrinks: boolean
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const id = memberId.parse(target);
+    const { viewer } = await getGroupContext();
+    const { db } = await orderAccess(viewer, day, id);
+    await setDrinksOptOut(db, day, id, !z.boolean().parse(wantsDrinks));
+  });
+}
+
+/** The host's extras for a Friday: a fixed tip (empty = automatic) and the drinks fee. */
+export async function setExtrasAction(
+  date: string,
+  tip: string,
+  drinksFee: string
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    const tipCents = tip.trim() ? parseEuroToCents(tip) : null;
+    if (tip.trim() && (tipCents === null || tipCents < 0)) {
+      throw new ServiceError('Trinkgeld: bitte einen Betrag wie „3“ eingeben oder leer lassen');
+    }
+    const drinksCents = drinksFee.trim() ? parseEuroToCents(drinksFee) : null;
+    if (drinksFee.trim() && (drinksCents === null || drinksCents < 0)) {
+      throw new ServiceError('Getränkepauschale: bitte einen Betrag wie „1,50“ eingeben');
+    }
+    await setTip(db, day, tipCents);
+    await setDrinksFee(db, day, drinksCents);
+    return { ok: true, message: 'Gespeichert' };
   });
 }
 
@@ -387,7 +427,6 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
       date: day,
       memberId: id,
       amountCents: open,
-      purpose: 'food',
       recordedById: viewer.id,
     });
     return { ok: true, message: open > 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
@@ -398,7 +437,7 @@ export async function clearPaymentsAction(date: string, target: number): Promise
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    await clearFoodPayments(db, day, memberId.parse(target));
+    await clearPayments(db, day, memberId.parse(target));
     return { ok: true, message: 'Zahlungen zurückgesetzt' };
   });
 }
@@ -488,15 +527,18 @@ export async function issueLoginLinkAction(target: number): Promise<ActionResult
     const id = memberId.parse(target);
     const [member] = await db.select().from(members).where(eq(members.id, id));
     if (!member) throw new ServiceError('Mitglied nicht gefunden');
-    // A new link signs the owner out and lets whoever holds it in, so only an admin may
-    // issue one for another admin.
-    if (member.isAdmin && !viewer.isAdmin && member.id !== viewer.id) {
-      throw new ServiceError('Links für Admins kann nur ein Admin erzeugen');
+    // A link lets whoever holds it in as that person, so for existing members only an
+    // admin may make one; a host may still turn a guest into a member.
+    if (member.kind === 'member' && !viewer.isAdmin) {
+      throw new ServiceError('Neue Links für Mitglieder kann nur ein Admin erzeugen');
     }
     const token = await issueLoginToken(db, id);
     return {
       ok: true,
-      message: `Neuer Link für ${member.name} – der alte gilt nicht mehr`,
+      message:
+        member.kind === 'guest'
+          ? `${member.name} ist jetzt Mitglied`
+          : `Neuer Link für ${member.name} – alte Links und Anmeldungen gelten nicht mehr`,
       link: loginLink(token),
     };
   });
@@ -524,6 +566,7 @@ export async function setRolesAction(
   });
 }
 
+/** The viewer's own details. The phone number is the login, so only an admin changes it. */
 export async function updateProfileAction(
   _: ActionResult | null,
   form: FormData
@@ -533,7 +576,6 @@ export async function updateProfileAction(
     const data = z
       .object({
         name: z.string().trim().min(1, 'Bitte einen Namen angeben').max(60),
-        phone: optionalText,
         paypalMe: optionalText,
         address: optionalText,
       })
@@ -541,15 +583,30 @@ export async function updateProfileAction(
     const paypalMe = data.paypalMe ? normalizePaypalHandle(data.paypalMe) : null;
     if (data.paypalMe && !paypalMe)
       throw new ServiceError('Das sieht nicht nach einem PayPal.me-Namen aus');
-    const phone = data.phone ? normalizePhone(data.phone) : null;
-    if (data.phone && !phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
-    await updateProfile(await getDb(), viewer.id, { ...data, phone, paypalMe }).catch(
-      (error: unknown) => {
-        if (String(error).includes('unique'))
-          throw new ServiceError('Diese Nummer gehört schon jemand anderem');
-        throw error;
-      }
-    );
+    await updateProfile(await getDb(), viewer.id, { ...data, paypalMe });
+    return { ok: true, message: 'Gespeichert' };
+  });
+}
+
+/** An admin corrects someone's name or phone number. */
+export async function updateMemberAction(
+  target: number,
+  name: string,
+  phoneInput: string
+): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    const id = memberId.parse(target);
+    const cleanName = z.string().trim().min(1, 'Bitte einen Namen angeben').max(60).parse(name);
+    const phone = phoneInput.trim() ? normalizePhone(phoneInput) : null;
+    if (phoneInput.trim() && !phone)
+      throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    await updateProfile(await getDb(), id, { name: cleanName, phone }).catch((error: unknown) => {
+      if (String(error).includes('unique'))
+        throw new ServiceError('Diese Nummer gehört schon jemand anderem');
+      throw error;
+    });
     return { ok: true, message: 'Gespeichert' };
   });
 }
@@ -717,8 +774,13 @@ export async function bulkAddDishesAction(
     // Lines without a price were already shown as skipped in the preview.
     const { dishes } = parseBulkDishes(String(form.get('menu') ?? ''));
     if (dishes.length === 0) throw new ServiceError('Keine Gerichte gefunden');
-    await createDishes(db, restaurantId, dishes);
-    return { ok: true, message: `${dishes.length} Gerichte hinzugefügt` };
+    const { added, updated } = await createDishes(db, restaurantId, dishes);
+    return {
+      ok: true,
+      message: [added && `${added} neu`, updated && `${updated} aktualisiert`]
+        .filter(Boolean)
+        .join(', '),
+    };
   });
 }
 

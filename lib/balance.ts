@@ -1,31 +1,28 @@
-import type { PaymentPurpose } from '@/lib/db/schema';
+/** What each person pays into the drinks the host buys for everyone, unless they opt out. */
+export const DRINKS_FEE_CENTS = 150;
 
 export type Money = {
-  /** What this person owes for food: their final share, or the current estimate. */
+  /** Their dishes and share of the fees: the final share, or the current estimate. */
+  foodCents: number;
+  /** The drinks flat fee, 0 for whoever opted out. */
+  drinksCents: number;
   dueCents: number;
-  /** Food payments so far, net of anything paid back. */
+  /** Payments so far, net of anything paid back. */
   paidCents: number;
   /** Still to pay when positive, to get back when negative. */
   openCents: number;
-  /** Donated to the drinks; never counted against the food. */
-  drinksCents: number;
 };
 
-/** The host paid the restaurant and is the one being paid, so they owe nothing. */
+/** The host paid the restaurant and the drinks and is the one being paid, so owes nothing. */
 export function moneyFor(input: {
   isHost: boolean;
-  dueCents: number;
-  payments: { amountCents: number; purpose: PaymentPurpose }[];
+  foodCents: number;
+  drinksCents: number;
+  payments: { amountCents: number }[];
 }): Money {
-  const dueCents = input.isHost ? 0 : input.dueCents;
-  const paidCents = input.payments
-    .filter((payment) => payment.purpose === 'food')
-    .reduce((sum, payment) => sum + payment.amountCents, 0);
-  const drinksCents = input.payments
-    .filter((payment) => payment.purpose === 'drinks')
-    .reduce((sum, payment) => sum + payment.amountCents, 0);
-  return { dueCents, paidCents, openCents: dueCents - paidCents, drinksCents };
+  const foodCents = input.isHost ? 0 : input.foodCents;
+  const drinksCents = input.isHost ? 0 : input.drinksCents;
+  const dueCents = foodCents + drinksCents;
+  const paidCents = input.payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+  return { foodCents, drinksCents, dueCents, paidCents, openCents: dueCents - paidCents };
 }
-
-/** Suggested drink donations in cents, offered next to every payment. */
-export const DRINK_SUGGESTIONS = [100, 200, 300, 500];

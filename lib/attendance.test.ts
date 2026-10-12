@@ -20,6 +20,13 @@ describe('effectiveAttendance', () => {
     expect(effectiveAttendance(member, '2026-10-16', 'in', away).status).toBe('in');
   });
 
+  it('needs a yes on a flat-price evening', () => {
+    expect(effectiveAttendance(member, '2026-10-23', undefined, [], 'out')).toEqual({
+      status: 'out',
+      reason: 'silent',
+    });
+  });
+
   it('only counts guests where they were added', () => {
     const guest = { ...member, kind: 'guest' as const };
     expect(effectiveAttendance(guest, '2026-10-16', undefined, []).status).toBe('out');

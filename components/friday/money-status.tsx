@@ -1,6 +1,6 @@
 'use client';
 
-import { Beer, Check, Clock, RotateCcw, Undo2 } from 'lucide-react';
+import { Check, Clock, RotateCcw, Undo2 } from 'lucide-react';
 import { clearPaymentsAction, settleUpAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import type { Money } from '@/lib/balance';
@@ -45,11 +45,6 @@ export function MoneyStatus({
   return (
     <div className={cn('flex flex-wrap items-center gap-1.5', pending && 'opacity-60')}>
       {status}
-      {money.drinksCents > 0 && (
-        <span className={cn(pill, 'border-border text-muted-foreground')} title="Für die Getränke">
-          <Beer className="size-3.5" /> {formatEuro(money.drinksCents)}
-        </span>
-      )}
       {canManage && !isHost && money.openCents !== 0 && (
         <Button
           variant="outline"

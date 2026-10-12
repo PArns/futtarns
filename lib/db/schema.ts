@@ -15,8 +15,7 @@ import type { OptionGroup, SelectedOption } from '@/lib/menu/options';
 export type MemberKind = 'member' | 'guest';
 /** `delivery`: everyone orders from a restaurant; `flat`: one price for everyone, e.g. a barbecue. */
 export type FridayMode = 'delivery' | 'flat';
-/** `food` settles what someone ate; `drinks` is a donation to the drinks the host buys for all. */
-export type PaymentPurpose = 'food' | 'drinks';
+
 /** `nofood`: comes over but eats nothing, so gets no default dish and pays nothing. */
 export type AttendanceStatus = 'in' | 'nofood' | 'out';
 
@@ -32,6 +31,7 @@ export const members = pgTable('members', {
   paypalMe: text('paypal_me'),
   address: text('address'),
   loginTokenHash: text('login_token_hash').unique(),
+  loginTokenExpiresAt: timestamp('login_token_expires_at', { withTimezone: true }),
   calendarToken: text('calendar_token').unique(),
   active: boolean('active').notNull().default(true),
   createdById: integer('created_by_id'),
@@ -60,7 +60,8 @@ export const restaurants = pgTable('restaurants', {
   minOrderCents: integer('min_order_cents').notNull().default(0),
   deliveryFeeCents: integer('delivery_fee_cents').notNull().default(0),
   freeDeliveryFromCents: integer('free_delivery_from_cents'),
-  serviceFeeCents: integer('service_fee_cents').notNull().default(0),
+  // Lieferando's service fee per order.
+  serviceFeeCents: integer('service_fee_cents').notNull().default(99),
   notes: text('notes'),
   archived: boolean('archived').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -93,6 +94,10 @@ export const fridays = pgTable('fridays', {
   mode: text('mode').$type<FridayMode>().notNull().default('delivery'),
   flatTitle: text('flat_title'),
   flatPriceCents: integer('flat_price_cents'),
+  // null: 10 % of the dishes; otherwise the fixed tip the host chose.
+  tipCents: integer('tip_cents'),
+  // null: the default drinks flat fee; 0 switches it off for this Friday.
+  drinksFeeCents: integer('drinks_fee_cents'),
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
@@ -182,7 +187,6 @@ export const payments = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
-    purpose: text('purpose').$type<PaymentPurpose>().notNull().default('food'),
     recordedById: integer('recorded_by_id').references(() => members.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -190,6 +194,18 @@ export const payments = pgTable(
     index('payments_friday_idx').on(t.fridayDate),
     index('payments_member_idx').on(t.memberId),
   ]
+);
+
+/** Who said no to the drinks flat fee on a Friday; everyone else who comes pays it. */
+export const drinksOptOuts = pgTable(
+  'drinks_opt_outs',
+  {
+    fridayDate: date('friday_date', { mode: 'string' }).notNull(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.fridayDate, t.memberId] })]
 );
 
 export const sessions = pgTable(

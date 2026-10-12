@@ -34,6 +34,12 @@ CREATE TABLE "dishes" (
 	"archived" boolean DEFAULT false NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "drinks_opt_outs" (
+	"friday_date" date NOT NULL,
+	"member_id" integer NOT NULL,
+	CONSTRAINT "drinks_opt_outs_friday_date_member_id_pk" PRIMARY KEY("friday_date","member_id")
+);
+--> statement-breakpoint
 CREATE TABLE "fridays" (
 	"date" date PRIMARY KEY NOT NULL,
 	"host_id" integer,
@@ -42,6 +48,8 @@ CREATE TABLE "fridays" (
 	"mode" text DEFAULT 'delivery' NOT NULL,
 	"flat_title" text,
 	"flat_price_cents" integer,
+	"tip_cents" integer,
+	"drinks_fee_cents" integer,
 	"restaurant_id" integer,
 	"note" text,
 	"locked_at" timestamp with time zone,
@@ -79,6 +87,7 @@ CREATE TABLE "members" (
 	"paypal_me" text,
 	"address" text,
 	"login_token_hash" text,
+	"login_token_expires_at" timestamp with time zone,
 	"calendar_token" text,
 	"active" boolean DEFAULT true NOT NULL,
 	"created_by_id" integer,
@@ -112,7 +121,6 @@ CREATE TABLE "payments" (
 	"friday_date" date NOT NULL,
 	"member_id" integer NOT NULL,
 	"amount_cents" integer NOT NULL,
-	"purpose" text DEFAULT 'food' NOT NULL,
 	"recorded_by_id" integer,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -125,7 +133,7 @@ CREATE TABLE "restaurants" (
 	"min_order_cents" integer DEFAULT 0 NOT NULL,
 	"delivery_fee_cents" integer DEFAULT 0 NOT NULL,
 	"free_delivery_from_cents" integer,
-	"service_fee_cents" integer DEFAULT 0 NOT NULL,
+	"service_fee_cents" integer DEFAULT 99 NOT NULL,
 	"notes" text,
 	"archived" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -143,6 +151,7 @@ ALTER TABLE "attendance" ADD CONSTRAINT "attendance_member_id_members_id_fk" FOR
 ALTER TABLE "attendance" ADD CONSTRAINT "attendance_added_by_id_members_id_fk" FOREIGN KEY ("added_by_id") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "charges" ADD CONSTRAINT "charges_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dishes" ADD CONSTRAINT "dishes_restaurant_id_restaurants_id_fk" FOREIGN KEY ("restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "drinks_opt_outs" ADD CONSTRAINT "drinks_opt_outs_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fridays" ADD CONSTRAINT "fridays_host_id_members_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fridays" ADD CONSTRAINT "fridays_restaurant_id_restaurants_id_fk" FOREIGN KEY ("restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "login_codes" ADD CONSTRAINT "login_codes_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

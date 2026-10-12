@@ -32,19 +32,22 @@ export function AnswerControl({
   date,
   memberId,
   status,
+  answered,
   disabled,
   hasItems,
 }: {
   date: string;
   memberId: number;
   status: AttendanceStatus;
+  /** False while the status only comes from not having answered; tapping it confirms. */
+  answered: boolean;
   disabled?: boolean;
   hasItems: boolean;
 }) {
   const { pending, execute } = useAction();
 
   function choose(next: AttendanceStatus) {
-    if (next === status) return;
+    if (next === status && answered) return;
     if (
       next !== 'in' &&
       hasItems &&
@@ -65,6 +68,7 @@ export function AnswerControl({
     >
       {OPTIONS.map(({ status: value, label, icon: Icon, tone }) => {
         const active = value === status;
+        const tentative = active && !answered;
         return (
           <button
             key={value}
@@ -75,7 +79,11 @@ export function AnswerControl({
             onClick={() => choose(value)}
             className={cn(
               'flex min-h-11 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-xs font-semibold transition-colors sm:flex-row sm:gap-2 sm:text-sm',
-              active ? tone : 'text-muted-foreground hover:text-foreground border-transparent',
+              tentative
+                ? 'border-success/50 text-foreground border-dashed'
+                : active
+                  ? tone
+                  : 'text-muted-foreground hover:text-foreground border-transparent',
               'disabled:cursor-not-allowed'
             )}
           >

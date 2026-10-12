@@ -8,8 +8,10 @@ import { migrateDb, openDb } from '@/lib/db/client';
 import { members } from '@/lib/db/schema';
 import { parseOptionGroups } from '@/lib/menu/options';
 import {
+  loadFriday,
   lockFriday,
   recordPayment,
+  setDrinksOptOut,
   setAttendance,
   setCancelled,
   setFlat,
@@ -177,27 +179,13 @@ for (const name of ['Anna', 'David', 'Felix']) await setAttendance(db, lastWeek,
 const afterLastWeek = new Date(orderDeadline(lastWeek).getTime() + 3_600_000);
 await lockFriday(db, lastWeek, afterLastWeek);
 await settleFriday(db, lastWeek, 5170, afterLastWeek);
-await recordPayment(db, {
-  date: lastWeek,
-  memberId: id('Clara'),
-  amountCents: 1314,
-  purpose: 'food',
-  recordedById: id('Clara'),
-});
-await recordPayment(db, {
-  date: lastWeek,
-  memberId: id('Clara'),
-  amountCents: 200,
-  purpose: 'drinks',
-  recordedById: id('Clara'),
-});
-await recordPayment(db, {
-  date: lastWeek,
-  memberId: id('Eva'),
-  amountCents: 1214,
-  purpose: 'food',
-  recordedById: id('Eva'),
-});
+async function payInFull(date: string, name: string) {
+  const view = await loadFriday(db, date, new Date());
+  const open = view.participants.find((entry) => entry.member.id === id(name))!.money.openCents;
+  await recordPayment(db, { date, memberId: id(name), amountCents: open, recordedById: id(name) });
+}
+await payInFull(lastWeek, 'Clara');
+await payInFull(lastWeek, 'Eva');
 
 // This week: pizza, half the group has ordered, one guest, some paid up front.
 await setRestaurant(db, thisWeek, pizzeria.id);
@@ -234,20 +222,8 @@ await addItem(db, thisWeek, guest.id, {
   note: 'ohne Zwiebeln',
   quantity: 1,
 });
-await recordPayment(db, {
-  date: thisWeek,
-  memberId: id('Clara'),
-  amountCents: 1710,
-  purpose: 'food',
-  recordedById: id('Clara'),
-});
-await recordPayment(db, {
-  date: thisWeek,
-  memberId: id('Clara'),
-  amountCents: 300,
-  purpose: 'drinks',
-  recordedById: id('Clara'),
-});
+await payInFull(thisWeek, 'Clara');
+await setDrinksOptOut(db, thisWeek, id('Felix'), true);
 await addAbsence(db, id('Ben'), thisWeek, addWeeks(thisWeek, 1), 'Urlaub');
 
 // Next week Anna hosts a barbecue; the week after is off.

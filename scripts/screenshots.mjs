@@ -40,8 +40,8 @@ async function newPage(viewport, theme = 'dark') {
 
 async function shot(page, name, fullPage = false) {
   await page.waitForTimeout(1200);
-  await page.screenshot({ path: join(OUT, `${name}.png`), fullPage });
-  console.log(`  ${name}.png`);
+  await page.screenshot({ path: join(OUT, `${name}.jpg`), fullPage, type: 'jpeg', quality: 82 });
+  console.log(`  ${name}.jpg`);
 }
 
 async function login(page, phone, capture) {

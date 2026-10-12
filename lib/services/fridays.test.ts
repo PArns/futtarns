@@ -180,8 +180,8 @@ describe('a Friday', () => {
     ).rejects.toThrow('Größe');
   });
 
-  it('splits the real total and keeps prepayments, refunds and drinks apart', async () => {
-    const { patrick, anna, margherita, salami } = await setup();
+  it('splits the real total, tip by order size, and nets prepayments and drinks', async () => {
+    const { patrick, anna, ben, clara, margherita, salami } = await setup();
     const guest = await addGuest(db, FRIDAY, 'Tim', anna.id);
     await addItem(db, FRIDAY, patrick.id, {
       dishId: salami.id,
@@ -201,81 +201,138 @@ describe('a Friday', () => {
       note: null,
       quantity: 1,
     });
-    await setAttendance(
-      db,
-      FRIDAY,
-      (await createMember(db, { name: 'Dora' }, null)).member.id,
-      'out'
-    );
+    const dora = (await createMember(db, { name: 'Dora' }, null)).member;
+    await setAttendance(db, FRIDAY, dora.id, 'out');
 
-    // Before the order: 2800 in dishes + 300 delivery, estimated 1000 + 1100 + 1000.
+    // 2800 in dishes, 300 delivery, 10 % tip rounded to 300: estimate 3400.
     const before = await loadFriday(db, FRIDAY, BEFORE);
-    const annaBefore = before.participants.find((p) => p.member.id === anna.id)!;
-    expect(annaBefore.money).toEqual({
-      dueCents: 1100,
+    const moneyBefore = (id: number) => before.participants.find((p) => p.member.id === id)!.money;
+    expect(moneyBefore(anna.id)).toEqual({
+      foodCents: 1207,
+      drinksCents: 150,
+      dueCents: 1357,
       paidCents: 0,
-      openCents: 1100,
-      drinksCents: 0,
+      openCents: 1357,
     });
+    expect(moneyBefore(ben.id).openCents).toBe(150);
+    expect(moneyBefore(dora.id).openCents).toBe(0);
     await recordPayment(db, {
       date: FRIDAY,
       memberId: anna.id,
-      amountCents: 1100,
-      purpose: 'food',
-      recordedById: anna.id,
-    });
-    await recordPayment(db, {
-      date: FRIDAY,
-      memberId: anna.id,
-      amountCents: 200,
-      purpose: 'drinks',
+      amountCents: 1357,
       recordedById: anna.id,
     });
 
     await expect(settleFriday(db, FRIDAY, 3000, BEFORE)).rejects.toThrow('Bestellschluss');
     await lockFriday(db, FRIDAY, AFTER);
-    // A voucher made it cheaper: 3000 instead of 3100, so everyone gets a bit back.
+    // A voucher made it cheaper: 3000 instead of 3400, so Anna gets money back.
     await settleFriday(db, FRIDAY, 3000, AFTER);
 
     const stored = await db.select().from(charges);
     expect(stored.map((c) => [c.memberId, c.amountCents]).sort()).toEqual(
       [
-        [patrick.id, 967],
-        [anna.id, 1067],
-        [guest.id, 966],
+        [patrick.id, 964],
+        [anna.id, 1074],
+        [guest.id, 962],
       ].sort()
     );
     const view = await loadFriday(db, FRIDAY, AFTER);
     const money = (id: number) => view.participants.find((p) => p.member.id === id)!.money;
     expect(money(patrick.id).openCents).toBe(0);
-    expect(money(anna.id)).toEqual({
-      dueCents: 1067,
-      paidCents: 1100,
-      openCents: -33,
-      drinksCents: 200,
-    });
-    expect(money(guest.id).openCents).toBe(966);
-    expect(view.drinksCents).toBe(200);
+    expect(money(anna.id).openCents).toBe(1074 + 150 - 1357);
+    expect(money(guest.id).openCents).toBe(962 + 150);
+    expect(view.drinksTotalCents).toBe(4 * 150);
+    expect(view.host?.id).toBe(patrick.id);
 
     const balances = await openBalancesFor(db, anna.id, '2026-10-23', AFTER);
-    expect(balances).toMatchObject([
-      { fridayDate: FRIDAY, money: { openCents: -33 }, payee: { id: patrick.id } },
+    expect(balances.map((b) => [b.member.name, b.money.openCents])).toEqual([
+      ['Anna', -133],
+      ['Tim', 1112],
+    ]);
+    expect(clara.id).toBeGreaterThan(0);
+  });
+
+  it('counts the defaults of silent members in the estimate before the lock', async () => {
+    const { anna, ben, pizzeria, margherita } = await setup();
+    await setDefaultDish(db, ben.id, pizzeria.id, {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+    });
+    await addItem(db, FRIDAY, anna.id, {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+      quantity: 1,
+    });
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    const benEntry = view.participants.find((p) => p.member.id === ben.id)!;
+    expect(benEntry.projectedDefault).toEqual({ name: 'Margherita', unitPriceCents: 800 });
+    expect(view.estimate?.subtotalCents).toBe(1600);
+    expect(benEntry.money.foodCents).toBeGreaterThan(800);
+  });
+
+  it('lets the host switch restaurant after the lock and hands out the new defaults', async () => {
+    const { anna, ben, pizzeria } = await setup();
+    const other = await createRestaurant(db, {
+      name: 'Sushi Test',
+      cuisine: null,
+      lieferandoUrl: null,
+      minOrderCents: 0,
+      deliveryFeeCents: 0,
+      freeDeliveryFromCents: null,
+      serviceFeeCents: 99,
+      notes: null,
+    });
+    await createDish(db, other.id, {
+      category: null,
+      name: 'Maki',
+      description: null,
+      priceCents: 700,
+      optionGroups: [],
+    });
+    const [maki] = await listDishes(db, other.id);
+    await setDefaultDish(db, ben.id, other.id, { dishId: maki!.id, selection: {}, note: null });
+    await lockFriday(db, FRIDAY, AFTER);
+    await setRestaurant(db, FRIDAY, other.id);
+    const view = await loadFriday(db, FRIDAY, AFTER);
+    expect(view.restaurant?.id).toBe(other.id);
+    expect(view.participants.find((p) => p.member.id === ben.id)!.items).toMatchObject([
+      { name: 'Maki', isDefault: true },
+    ]);
+    expect(view.participants.find((p) => p.member.id === anna.id)!.items).toEqual([]);
+    expect(pizzeria.id).not.toBe(other.id);
+  });
+
+  it('owes nothing on a cancelled Friday and shows what was paid as a refund', async () => {
+    const { anna } = await setup();
+    await recordPayment(db, {
+      date: FRIDAY,
+      memberId: anna.id,
+      amountCents: 500,
+      recordedById: anna.id,
+    });
+    await setCancelled(db, FRIDAY, true, 'Krank');
+    const view = await loadFriday(db, FRIDAY, AFTER);
+    expect(view.participants.find((p) => p.member.id === anna.id)!.money.openCents).toBe(-500);
+    expect(await openBalancesFor(db, anna.id, '2026-10-23', AFTER)).toMatchObject([
+      { fridayDate: FRIDAY, title: 'abgesagt', money: { openCents: -500 } },
     ]);
   });
 
-  it('charges everyone who comes the same flat price, and nothing to who skips food', async () => {
+  it('charges a flat price only to those who said yes', async () => {
     const { patrick, anna, ben, clara } = await setup();
+    const eva = (await createMember(db, { name: 'Eva' }, null)).member;
     await setFlat(db, FRIDAY, 'Grillen', 1500);
+    await setAttendance(db, FRIDAY, anna.id, 'in');
     await setAttendance(db, FRIDAY, ben.id, 'nofood');
     await setAttendance(db, FRIDAY, clara.id, 'out');
     const view = await loadFriday(db, FRIDAY, AFTER);
-    const money = (id: number) =>
-      view.participants.find((p) => p.member.id === id)!.money.openCents;
+    const open = (id: number) => view.participants.find((p) => p.member.id === id)!.money.openCents;
     expect(view.mode).toBe('flat');
     expect(view.restaurant).toBeNull();
-    expect([money(patrick.id), money(anna.id), money(ben.id), money(clara.id)]).toEqual([
-      0, 1500, 0, 0,
-    ]);
+    // Eva said nothing, and a barbecue needs a yes.
+    expect([patrick.id, anna.id, ben.id, clara.id, eva.id].map(open)).toEqual([0, 1650, 150, 0, 0]);
     await expect(settleFriday(db, FRIDAY, 1000, AFTER)).rejects.toThrow('Pauschale');
   });
 

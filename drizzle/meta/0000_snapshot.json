@@ -1,5 +1,5 @@
 {
-  "id": "5a9d7a56-727d-4d4f-b578-d2ce82958693",
+  "id": "f870058f-a87d-42cb-a50f-80d4ac7ae34b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -309,6 +309,53 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.drinks_opt_outs": {
+      "name": "drinks_opt_outs",
+      "schema": "",
+      "columns": {
+        "friday_date": {
+          "name": "friday_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "drinks_opt_outs_member_id_members_id_fk": {
+          "name": "drinks_opt_outs_member_id_members_id_fk",
+          "tableFrom": "drinks_opt_outs",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "drinks_opt_outs_friday_date_member_id_pk": {
+          "name": "drinks_opt_outs_friday_date_member_id_pk",
+          "columns": [
+            "friday_date",
+            "member_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.fridays": {
       "name": "fridays",
       "schema": "",
@@ -353,6 +400,18 @@
         },
         "flat_price_cents": {
           "name": "flat_price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tip_cents": {
+          "name": "tip_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "drinks_fee_cents": {
+          "name": "drinks_fee_cents",
           "type": "integer",
           "primaryKey": false,
           "notNull": false
@@ -670,6 +729,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "login_token_expires_at": {
+          "name": "login_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "calendar_token": {
           "name": "calendar_token",
           "type": "text",
@@ -907,13 +972,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "purpose": {
-          "name": "purpose",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'food'"
-        },
         "recorded_by_id": {
           "name": "recorded_by_id",
           "type": "integer",
@@ -1047,7 +1105,7 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 0
+          "default": 99
         },
         "notes": {
           "name": "notes",

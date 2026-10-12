@@ -1,18 +1,30 @@
-import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, lte, sql } from 'drizzle-orm';
 import { generateToken, hashToken, loginLink } from '@/lib/auth-tokens';
 import type { Db } from '@/lib/db/client';
-import { absences, attendance, members, type Member } from '@/lib/db/schema';
+import { absences, attendance, members, sessions, type Member } from '@/lib/db/schema';
 import type { IsoDate } from '@/lib/dates';
 
 export class ServiceError extends Error {}
 
-export async function findMemberByLoginToken(db: Db, token: string): Promise<Member | null> {
+/** Personal links are a way in for a couple of weeks, not forever. */
+export const LOGIN_LINK_DAYS = 14;
+
+function linkExpiry(now = new Date()) {
+  return new Date(now.getTime() + LOGIN_LINK_DAYS * 86_400_000);
+}
+
+export async function findMemberByLoginToken(
+  db: Db,
+  token: string,
+  now = new Date()
+): Promise<Member | null> {
   const [member] = await db
     .select()
     .from(members)
     .where(
       and(
         eq(members.loginTokenHash, hashToken(token)),
+        gt(members.loginTokenExpiresAt, now),
         eq(members.active, true),
         eq(members.kind, 'member')
       )
@@ -68,6 +80,7 @@ export async function createMember(
         isAdmin: input.isAdmin ?? false,
         isDefaultHost: input.isDefaultHost ?? false,
         loginTokenHash: hashToken(loginToken),
+        loginTokenExpiresAt: linkExpiry(),
         calendarToken: generateToken(),
         createdById,
       })
@@ -78,20 +91,24 @@ export async function createMember(
 }
 
 /**
- * Issues a new login link and makes the old one stop working. Called for a guest, it
- * turns them into a member.
+ * Issues a new login link; the old link stops working and every device the member was
+ * signed in on is signed out. Called for a guest, it turns them into a member.
  */
 export async function issueLoginToken(db: Db, memberId: number): Promise<string> {
   const loginToken = generateToken();
-  const updated = await db
-    .update(members)
-    .set({
-      loginTokenHash: hashToken(loginToken),
-      kind: 'member',
-      calendarToken: sql`coalesce(${members.calendarToken}, ${generateToken()})`,
-    })
-    .where(eq(members.id, memberId))
-    .returning({ id: members.id });
+  const updated = await db.transaction(async (tx) => {
+    await tx.delete(sessions).where(eq(sessions.memberId, memberId));
+    return tx
+      .update(members)
+      .set({
+        loginTokenHash: hashToken(loginToken),
+        loginTokenExpiresAt: linkExpiry(),
+        kind: 'member',
+        calendarToken: sql`coalesce(${members.calendarToken}, ${generateToken()})`,
+      })
+      .where(eq(members.id, memberId))
+      .returning({ id: members.id });
+  });
   if (updated.length === 0) throw new ServiceError('Mitglied nicht gefunden');
   return loginToken;
 }

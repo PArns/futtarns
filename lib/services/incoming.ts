@@ -8,6 +8,7 @@ import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { requestLoginCode } from '@/lib/services/auth';
 import { loadFriday, openBalancesFor, recordPayment, setAttendance } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
+import { sendWhatsApp } from '@/lib/whatsapp';
 
 const ANSWER_REPLY = {
   in: 'Alles klar, du bist dabei.',
@@ -26,7 +27,8 @@ export async function handleIncoming(
   db: Db,
   phone: string,
   text: string,
-  now: Date
+  now: Date,
+  send: (to: string, text: string) => Promise<unknown> = sendWhatsApp
 ): Promise<string | null> {
   const [member] = await db
     .select()
@@ -44,6 +46,11 @@ export async function handleIncoming(
       if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
       if (view.locked || isPastDeadline(date, now)) {
         return `Bestellschluss war um ${formatTime(view.deadline)}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
+      }
+      const mine = view.participants.find((entry) => entry.member.id === member.id);
+      if (command.status !== 'in' && mine?.items.length && !command.confirmed) {
+        const answer = command.status === 'out' ? '3' : '2';
+        return `Du hast schon ${mine.items.map((item) => item.name).join(', ')} bestellt. Wenn das weg soll, antworte mit „${answer} sicher“.`;
       }
       await setAttendance(db, date, member.id, command.status);
       const order =
@@ -77,7 +84,6 @@ export async function handleIncoming(
           date: entry.fridayDate,
           memberId: member.id,
           amountCents: entry.openCents,
-          purpose: 'food',
           recordedById: member.id,
         });
       }
@@ -86,9 +92,15 @@ export async function handleIncoming(
     }
 
     case 'login': {
+      // The code goes straight to the member's own number, never back in the HTTP answer,
+      // so knowing the webhook's token is not enough to sign in as someone.
       try {
         const { code } = await requestLoginCode(db, phone, now);
-        return `Dein Code für freitach: ${code}\nOder direkt anmelden: ${appUrl()}/login?phone=${encodeURIComponent(phone)}&code=${code}`;
+        await send(
+          phone,
+          `Dein Code für freitach: ${code}\nOder direkt anmelden: ${appUrl()}/login?phone=${encodeURIComponent(phone)}&code=${code}`
+        );
+        return null;
       } catch (error) {
         if (error instanceof ServiceError) return error.message;
         throw error;

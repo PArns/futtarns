@@ -68,14 +68,42 @@ export async function createDish(db: Db, restaurantId: number, input: DishInput)
     .values({ ...input, restaurantId, sortOrder: await nextSortOrder(db, restaurantId) });
 }
 
-/** Adds the dishes from a pasted menu in the order they were written. */
+/**
+ * Adds the dishes from a pasted menu in the order they were written. A dish that is already
+ * on the card (same name) gets the new price and text instead of a second entry, so pasting
+ * an updated menu refreshes it.
+ */
 export async function createDishes(db: Db, restaurantId: number, input: BulkDish[]) {
-  if (input.length === 0) return;
+  if (input.length === 0) return { added: 0, updated: 0 };
   if (!(await getRestaurant(db, restaurantId))) throw new ServiceError('Restaurant nicht gefunden');
-  const start = await nextSortOrder(db, restaurantId);
-  await db
-    .insert(dishes)
-    .values(input.map((dish, index) => ({ ...dish, restaurantId, sortOrder: start + index })));
+  const existing = await listDishes(db, restaurantId, true);
+  const byName = new Map(existing.map((dish) => [dish.name.toLowerCase(), dish]));
+  let sortOrder = await nextSortOrder(db, restaurantId);
+  const seen = new Set<string>();
+  let added = 0;
+  let updated = 0;
+  for (const dish of input) {
+    const name = dish.name.toLowerCase();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const match = byName.get(name);
+    if (match) {
+      await db
+        .update(dishes)
+        .set({
+          priceCents: dish.priceCents,
+          description: dish.description ?? match.description,
+          category: dish.category ?? match.category,
+          archived: false,
+        })
+        .where(eq(dishes.id, match.id));
+      updated++;
+    } else {
+      await db.insert(dishes).values({ ...dish, restaurantId, sortOrder: sortOrder++ });
+      added++;
+    }
+  }
+  return { added, updated };
 }
 
 export async function updateDish(db: Db, restaurantId: number, dishId: number, input: DishInput) {

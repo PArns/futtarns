@@ -2,7 +2,11 @@
  * Talks to the bot container. Without `BOT_URL` (local development) messages are only
  * logged, so every flow can be tried without a paired phone.
  */
-export type SendResult = 'sent' | 'logged' | 'failed';
+/**
+ * `failed`: the bot said no (e.g. not connected), safe to retry. `unknown`: no answer in
+ * time; the message may have gone out, so retrying could send it twice.
+ */
+export type SendResult = 'sent' | 'logged' | 'failed' | 'unknown';
 
 export function whatsappConfigured(): boolean {
   return Boolean(process.env.BOT_URL);
@@ -30,7 +34,7 @@ export async function sendWhatsApp(to: string, text: string): Promise<SendResult
     }
     return 'sent';
   } catch (error) {
-    console.error(`[whatsapp] send to ${to} failed`, error);
-    return 'failed';
+    console.error(`[whatsapp] send to ${to} got no answer`, error);
+    return 'unknown';
   }
 }

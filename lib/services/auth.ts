@@ -9,6 +9,7 @@ export const SESSION_DAYS = 180;
 const CODE_MINUTES = 10;
 const CODE_RESEND_SECONDS = 45;
 const CODE_ATTEMPTS = 5;
+const CODES_PER_HOUR = 5;
 
 export async function createSession(db: Db, memberId: number, now = new Date()): Promise<string> {
   const token = generateToken();
@@ -81,10 +82,28 @@ export async function requestLoginCode(
       'Gerade eben kam schon ein Code. Warte kurz, bevor du einen neuen anforderst.'
     );
   }
+  const lastHour = await db
+    .select({ id: loginCodes.id })
+    .from(loginCodes)
+    .where(
+      and(
+        eq(loginCodes.memberId, member.id),
+        gt(loginCodes.createdAt, new Date(now.getTime() - 3_600_000))
+      )
+    );
+  if (lastHour.length >= CODES_PER_HOUR) {
+    throw new ServiceError('Zu viele Codes in der letzten Stunde. Versuch es später nochmal.');
+  }
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+  // Expired codes stay an hour so the hourly limit can count them.
   await db
     .delete(loginCodes)
-    .where(and(eq(loginCodes.memberId, member.id), lt(loginCodes.expiresAt, now)));
+    .where(
+      and(
+        eq(loginCodes.memberId, member.id),
+        lt(loginCodes.createdAt, new Date(now.getTime() - 3_600_000))
+      )
+    );
   await db.insert(loginCodes).values({
     memberId: member.id,
     codeHash: hashCode(member.id, code),

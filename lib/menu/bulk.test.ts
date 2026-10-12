@@ -45,6 +45,15 @@ describe('parseBulkDishes', () => {
     ]);
   });
 
+  it('does not read a number in a name as its price', () => {
+    const { dishes } = parseBulkDishes('Menü 1\n12,90 €\nSushi Box 8 14,50\nCola 2 €');
+    expect(dishes.map((dish) => [dish.name, dish.priceCents])).toEqual([
+      ['Menü 1', 1290],
+      ['Sushi Box 8', 1450],
+      ['Cola', 200],
+    ]);
+  });
+
   it('reports lines without a price', () => {
     const { dishes, errors } = parseBulkDishes('Margherita\n# Pasta\n8,50 €');
     expect(dishes).toEqual([]);

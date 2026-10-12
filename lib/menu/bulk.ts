@@ -7,7 +7,9 @@ export type BulkDish = {
   description: string | null;
 };
 
-const INLINE_PRICE = /^(.*?)\s+[–-]?\s*(?:ab\s+)?(\d{1,3}(?:[.,]\d{1,2})?)\s*€?\s*(?:\|\s*(.*))?$/;
+// A price at the end of a line needs cents or a € sign, so „Menü 1“ or „Box 8“ stay names.
+const INLINE_PRICE =
+  /^(.*?)\s+[–-]?\s*(?:ab\s+)?(\d{1,3}[.,]\d{2}\s*€?|\d{1,3}\s*€)\s*(?:\|\s*(.*))?$/;
 const PRICE_ONLY = /^(?:ab\s+)?(\d{1,3}(?:[.,]\d{2}))\s*€$/i;
 // Lines a copied delivery page is full of that never name a dish.
 const NOISE =
@@ -66,7 +68,7 @@ export function parseBulkDishes(text: string): { dishes: BulkDish[]; errors: str
     }
 
     const inline = INLINE_PRICE.exec(line);
-    const inlineCents = inline ? parseEuroToCents(inline[2]!) : null;
+    const inlineCents = inline ? parseEuroToCents(inline[2]!.replace(/\s*€$/, '')) : null;
     if (inline && inline[1]!.trim() && inlineCents !== null && pending.length === 0) {
       dishes.push({
         category,

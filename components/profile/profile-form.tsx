@@ -6,6 +6,7 @@ import { updateProfileAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Hint, Input, Label, Textarea } from '@/components/ui/input';
 import type { ActionResult } from '@/lib/action-result';
+import { formatPhone } from '@/lib/phone';
 
 export function ProfileForm({
   name,
