@@ -1,6 +1,7 @@
 'use client';
 
 import { setAnswerAction } from '@/app/actions';
+import { Select } from '@/components/ui/input';
 import type { AttendanceStatus } from '@/lib/db/schema';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
@@ -19,7 +20,9 @@ export function AnswerSelect({
 }) {
   const { pending, execute } = useAction();
   return (
-    <select
+    <Select
+      variant="sm"
+      containerClassName="shrink-0"
       aria-label="Antwort ändern"
       value={status}
       disabled={pending}
@@ -28,16 +31,13 @@ export function AnswerSelect({
           setAnswerAction({ date, memberId, status: event.target.value as AttendanceStatus })
         )
       }
-      className={cn(
-        'border-border bg-background/60 dark:[&>option]:bg-popover h-7 rounded-full border px-2 text-xs font-semibold max-sm:h-9',
-        pending && 'opacity-60'
-      )}
+      className={cn('w-auto', pending && 'opacity-60')}
     >
       {(Object.keys(LABELS) as AttendanceStatus[]).map((value) => (
         <option key={value} value={value}>
           {LABELS[value]}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
