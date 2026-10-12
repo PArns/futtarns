@@ -90,6 +90,7 @@ export type NewMember = {
   paypalMe?: string | null;
   isAdmin?: boolean;
   isDefaultHost?: boolean;
+  assignsHosts?: boolean;
 };
 
 /** Creates a member and returns the login token, which is shown once and never stored. */
@@ -111,6 +112,7 @@ export async function createMember(
         paypalMe: input.paypalMe || null,
         isAdmin: input.isAdmin ?? false,
         isDefaultHost: input.isDefaultHost ?? false,
+        assignsHosts: input.assignsHosts ?? false,
         loginTokenHash: hashToken(loginToken),
         loginTokenExpiresAt: linkExpiry(),
         calendarToken: generateToken(),
@@ -198,7 +200,7 @@ export async function updateProfile(db: Db, memberId: number, update: ProfileUpd
 export async function setRoles(
   db: Db,
   memberId: number,
-  roles: { isAdmin?: boolean; isDefaultHost?: boolean; active?: boolean }
+  roles: { isAdmin?: boolean; isDefaultHost?: boolean; assignsHosts?: boolean; active?: boolean }
 ) {
   await db.transaction(async (tx) => {
     if (roles.isDefaultHost) {

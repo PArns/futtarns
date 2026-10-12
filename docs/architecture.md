@@ -62,6 +62,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 - Members change their own answer and order, and those of guests they brought, until 19:00.
 - The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
   everyone's orders after the deadline, settlement and payments.
+- Members with the „Gastgeber“ role (`assignsHosts`, given by an admin) may hand any single
+  Friday to another host, in the calendar and on the Friday page, and nothing else of it.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 

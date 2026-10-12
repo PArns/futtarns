@@ -18,7 +18,7 @@ import { todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatMonth } from '@/lib/format';
 import { isHollandFriday } from '@/lib/pentecost';
-import { canManageFriday } from '@/lib/permissions';
+import { canManageFriday, canSetHost } from '@/lib/permissions';
 import { getGroupContext } from '@/lib/session';
 import { loadCalendar } from '@/lib/services/fridays';
 import { getDefaultHost, listAbsences, listMembers } from '@/lib/services/members';
@@ -81,6 +81,7 @@ export default async function CalendarPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {monthEntries.map((entry) => {
                 const manage = canManageFriday(viewer, entry.host?.id ?? null);
+                const pickHost = canSetHost(viewer, entry.host?.id ?? null);
                 // An absent host already reads „Du bist weg“ in the notice above the picker.
                 const meAway =
                   entry.absentMemberIds.includes(viewer.id) && entry.host?.id !== viewer.id;
@@ -149,7 +150,9 @@ export default async function CalendarPage() {
                           <span className="text-muted-foreground">
                             {manage
                               ? 'Unten eine Vertretung wählen oder den Freitag absagen.'
-                              : `${entry.host.name} oder ein Admin trägt die Vertretung ein.`}
+                              : pickHost
+                                ? 'Unten eine Vertretung wählen.'
+                                : `${entry.host.name} oder ein Admin trägt die Vertretung ein.`}
                           </span>
                         </span>
                       </Notice>
@@ -196,7 +199,7 @@ export default async function CalendarPage() {
                         </div>
                       </div>
                     )}
-                    {manage && (
+                    {pickHost && (
                       <div className="border-border/50 mt-auto border-t pt-3">
                         <FridayControls
                           date={entry.date}
@@ -206,6 +209,7 @@ export default async function CalendarPage() {
                           members={active.map(({ id, name }) => ({ id, name }))}
                           cancelled={entry.cancelled}
                           needsSubstitute={needsSubstitute}
+                          canCancel={manage}
                         />
                       </div>
                     )}

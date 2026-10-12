@@ -31,9 +31,18 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
           <UserPlus /> Anlegen
         </Button>
         {canGrantAdmin && (
-          <label className="flex items-center gap-2 text-sm sm:col-span-3">
-            <input type="checkbox" name="isAdmin" className="accent-primary size-4" /> Admin
-          </label>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-3">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="isAdmin" className="accent-primary size-4" /> Admin
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="assignsHosts" className="accent-primary size-4" />{' '}
+              Gastgeber
+              <span className="text-muted-foreground text-xs">
+                (darf für einzelne Freitage den Gastgeber tauschen)
+              </span>
+            </label>
+          </div>
         )}
       </form>
       {state && !state.ok && <p className="text-error text-sm">{state.error}</p>}

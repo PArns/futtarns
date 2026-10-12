@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
 
-/** Host and cancel switches on a calendar card, for whoever runs that Friday. */
+/**
+ * Host and cancel switches on a calendar card. Whoever runs the Friday gets both; the
+ * „Gastgeber“ role only the host picker.
+ */
 export function FridayControls({
   date,
   hostId,
@@ -15,6 +18,7 @@ export function FridayControls({
   members,
   cancelled,
   needsSubstitute,
+  canCancel,
 }: {
   date: string;
   hostId: number | null;
@@ -24,6 +28,7 @@ export function FridayControls({
   cancelled: boolean;
   /** The host is away; the picker asks for someone to take over. */
   needsSubstitute: boolean;
+  canCancel: boolean;
 }) {
   const { pending, execute } = useAction();
   return (
@@ -51,21 +56,23 @@ export function FridayControls({
           </option>
         ))}
       </select>
-      <Button
-        variant={cancelled ? 'outline' : 'ghost'}
-        size="sm"
-        disabled={pending}
-        onClick={() => {
-          if (cancelled) execute(() => setCancelledAction(date, false, ''));
-          else {
-            const reason = window.prompt('Warum fällt der Freitag aus? (optional)');
-            if (reason !== null) execute(() => setCancelledAction(date, true, reason));
-          }
-        }}
-      >
-        {cancelled ? <CalendarCheck /> : <Ban />}
-        {cancelled ? 'Doch' : 'Absagen'}
-      </Button>
+      {canCancel && (
+        <Button
+          variant={cancelled ? 'outline' : 'ghost'}
+          size="sm"
+          disabled={pending}
+          onClick={() => {
+            if (cancelled) execute(() => setCancelledAction(date, false, ''));
+            else {
+              const reason = window.prompt('Warum fällt der Freitag aus? (optional)');
+              if (reason !== null) execute(() => setCancelledAction(date, true, reason));
+            }
+          }}
+        >
+          {cancelled ? <CalendarCheck /> : <Ban />}
+          {cancelled ? 'Doch' : 'Absagen'}
+        </Button>
+      )}
     </div>
   );
 }
