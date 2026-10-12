@@ -3,6 +3,7 @@
 import { Ban, CalendarCheck } from 'lucide-react';
 import { setCancelledAction, setHostAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +34,9 @@ export function FridayControls({
   const { pending, execute } = useAction();
   return (
     <div className={cn('flex items-center gap-2', pending && 'opacity-60')}>
-      <select
+      <Select
+        variant="sm"
+        containerClassName="min-w-0 flex-1"
         aria-label="Gastgeber"
         value={hostIsDefault ? '' : (hostId ?? '')}
         disabled={pending}
@@ -41,7 +44,7 @@ export function FridayControls({
           execute(() => setHostAction(date, event.target.value ? Number(event.target.value) : null))
         }
         className={cn(
-          'border-border bg-background/60 dark:[&>option]:bg-popover h-8 min-w-0 flex-1 rounded-md border px-2 text-xs max-sm:h-10',
+          'h-8 rounded-md font-normal max-sm:h-10',
           needsSubstitute && 'border-warning/60 ring-warning/30 ring-2'
         )}
       >
@@ -55,7 +58,7 @@ export function FridayControls({
             {member.name}
           </option>
         ))}
-      </select>
+      </Select>
       {canCancel && (
         <Button
           variant={cancelled ? 'outline' : 'ghost'}

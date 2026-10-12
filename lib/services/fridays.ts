@@ -572,6 +572,16 @@ export type CalendarEntry = {
   restaurantIsDefault: boolean;
   hostAbsent: boolean;
   absentMemberIds: number[];
+  /** Members and the guests added to this Friday, with whether they come, by name. */
+  people: CalendarPerson[];
+};
+
+export type CalendarPerson = {
+  id: number;
+  name: string;
+  status: AttendanceStatus;
+  /** False when the status is only what silence means (or an absence). */
+  answered: boolean;
 };
 
 /** The coming Fridays with host, restaurant and who is away, for the calendar. */
@@ -593,6 +603,15 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     })
     .from(restaurants);
   const absent = await absencesOverlapping(db, from, to);
+  const answers = await db
+    .select()
+    .from(attendance)
+    .where(and(gte(attendance.fridayDate, from), lte(attendance.fridayDate, to)));
+  // Only the restaurant matters, and only whether the default is „nix“.
+  const nothingDefaults = await db
+    .select({ memberId: memberDefaults.memberId, restaurantId: memberDefaults.restaurantId })
+    .from(memberDefaults)
+    .where(isNull(memberDefaults.dishId));
 
   return dates.map((date) => {
     const row = rows.find((entry) => entry.date === date);
@@ -610,7 +629,33 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     const defaultRestaurant =
       allRestaurants.find((entry) => entry.id === host?.defaultRestaurantId && !entry.archived) ??
       null;
+    const restaurantId = mode === 'delivery' ? (row?.restaurantId ?? defaultRestaurant?.id) : null;
+    const dayAnswers = answers.filter((entry) => entry.fridayDate === date);
+    // The same rule as the Friday page (loadFriday): silence means in, „nix“ as default means
+    // coming without food, and a flat-price evening needs a yes.
+    const people = everyone
+      .filter(
+        (member) =>
+          (member.kind === 'member' && member.active) ||
+          dayAnswers.some((entry) => entry.memberId === member.id)
+      )
+      .map((member) => {
+        const answer = dayAnswers.find((entry) => entry.memberId === member.id)?.status;
+        const eatsNothing = nothingDefaults.some(
+          (entry) => entry.memberId === member.id && entry.restaurantId === restaurantId
+        );
+        const silentMeans = mode === 'flat' ? 'out' : eatsNothing ? 'nofood' : 'in';
+        const effective = effectiveAttendance(member, date, answer, absent, silentMeans);
+        return {
+          id: member.id,
+          name: member.name,
+          status: effective.status,
+          answered: effective.reason === 'answered',
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return {
+      people,
       date,
       host,
       hostIsDefault: !row?.hostId,
