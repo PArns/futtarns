@@ -124,21 +124,43 @@ export async function issueLoginToken(db: Db, memberId: number): Promise<string>
 /**
  * On an empty database, creates the first admin from `ADMIN_NAME` and `ADMIN_PHONE` and
  * prints their login link, so a fresh stack can be entered before the bot is paired.
+ * Until an admin has logged in, every start prints a fresh link: one that scrolled out of
+ * the log would otherwise leave nobody able to link WhatsApp.
  */
 export async function bootstrapAdmin(
   db: Db,
   env: { name?: string; phone?: string | null },
-  log: (line: string) => void
+  log: (line: string) => void,
+  now = new Date()
 ) {
-  if (!env.name) return;
   const [someone] = await db.select({ id: members.id }).from(members).limit(1);
-  if (someone) return;
-  const { member, loginToken } = await createMember(
-    db,
-    { name: env.name, phone: env.phone ?? null, isAdmin: true, isDefaultHost: true },
-    null
+  if (!someone) {
+    if (!env.name) return;
+    const { member, loginToken } = await createMember(
+      db,
+      { name: env.name, phone: env.phone ?? null, isAdmin: true, isDefaultHost: true },
+      null
+    );
+    log(`Created admin ${member.name}. Login link: ${loginLink(loginToken)}`);
+    return;
+  }
+  const [loggedIn] = await db
+    .select({ memberId: sessions.memberId })
+    .from(sessions)
+    .innerJoin(members, eq(members.id, sessions.memberId))
+    .where(and(eq(members.isAdmin, true), eq(members.active, true), gt(sessions.expiresAt, now)))
+    .limit(1);
+  if (loggedIn) return;
+  const [admin] = await db
+    .select()
+    .from(members)
+    .where(and(eq(members.isAdmin, true), eq(members.active, true)))
+    .orderBy(asc(members.id))
+    .limit(1);
+  if (!admin) return;
+  log(
+    `No admin is logged in yet. Login link for ${admin.name}: ${loginLink(await issueLoginToken(db, admin.id))}`
   );
-  log(`Created admin ${member.name}. Login link: ${loginLink(loginToken)}`);
 }
 
 export type ProfileUpdate = Partial<
