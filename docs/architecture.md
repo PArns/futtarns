@@ -26,6 +26,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `payments`                | the money ledger: what someone paid for a Friday (negative = paid back)                                                                                               |
 | `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                          |
 | `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                         |
+| `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                  |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
 
@@ -62,6 +63,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 - Members change their own answer and order, and those of guests they brought, until 19:00.
 - The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
   everyone's orders after the deadline, settlement and payments.
+- Members with the „Gastgeber“ role (`assignsHosts`, given by an admin) may hand any single
+  Friday to another host, in the calendar and on the Friday page, and nothing else of it.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 
@@ -84,6 +87,11 @@ stale reminders afterwards.
 | after settlement      | open balance ≥ 50 cents either way | amount to pay or to get back                               |
 | daily 18:00, 10 days  | open balance ≥ 50 cents            | payment reminder                                           |
 | cancelled Friday      | everyone                           | that it's off                                              |
+
+Every payment message carries a „bezahlt“ link (`lib/pay-links.ts`): a signed token for one
+Friday and one person, so it needs no login. Opening it only shows what is open; the button
+on the page books it, because chat apps open links for their previews. Once nothing is open,
+the reminders stop by themselves. Replying „bezahlt“ to the bot still works too.
 
 ## Pentecost
 

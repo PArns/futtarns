@@ -1,5 +1,13 @@
 import { asc, eq } from 'drizzle-orm';
-import { House, MessageCircle, ShieldCheck, UserPlus, Users, Wallet } from 'lucide-react';
+import {
+  CalendarCog,
+  House,
+  MessageCircle,
+  ShieldCheck,
+  UserPlus,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -25,8 +33,17 @@ export const metadata: Metadata = { title: 'Leute' };
 
 // The client component gets only what it shows: a full row would put calendar tokens and
 // login-link hashes into the page source.
-function forActions({ id, name, phone, isAdmin, isDefaultHost, active, kind }: Member) {
-  return { id, name, phone, isAdmin, isDefaultHost, active, kind };
+function forActions({
+  id,
+  name,
+  phone,
+  isAdmin,
+  isDefaultHost,
+  assignsHosts,
+  active,
+  kind,
+}: Member) {
+  return { id, name, phone, isAdmin, isDefaultHost, assignsHosts, active, kind };
 }
 
 export default async function PeoplePage() {
@@ -114,6 +131,11 @@ export default async function PeoplePage() {
             icon={Users}
             kicker="Stammtisch"
             title={`${people.filter((p) => p.active).length} in der Runde`}
+            hint={
+              viewer.isAdmin
+                ? 'Die Rolle „Gastgeber“ darf für einzelne Freitage einen anderen Gastgeber eintragen.'
+                : undefined
+            }
           />
           <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
             {people.map((member) => (
@@ -129,6 +151,9 @@ export default async function PeoplePage() {
                       <span className="truncate">{member.name}</span>
                       {member.isAdmin && <ShieldCheck className="text-primary size-3.5 shrink-0" />}
                       {member.isDefaultHost && <House className="text-primary size-3.5 shrink-0" />}
+                      {member.assignsHosts && (
+                        <CalendarCog className="text-primary size-3.5 shrink-0" />
+                      )}
                     </div>
                     <div className="text-muted-foreground truncate text-xs">
                       {[

@@ -5,6 +5,7 @@ import { handleIncoming } from '@/lib/services/incoming';
 import { addAbsence, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
 import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
+import { openPayLink, payByLink } from '@/lib/services/pay-links';
 import { runScheduler } from '@/lib/services/scheduler';
 import { createTestDb } from '@/test/db';
 
@@ -117,6 +118,30 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('Kleine Erinnerung');
     await runScheduler(db, at('2026-10-17T16:20:00Z'), send, noPause);
     expect(sent).toHaveLength(2);
+  });
+
+  it('stops the payment reminders once the link in one is used', async () => {
+    const { anna, dish } = await setup();
+    await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    await settleFriday(db, FRIDAY, 1200, at('2026-10-16T17:40:00Z'));
+    sent = [];
+    await runScheduler(db, at('2026-10-16T17:45:00Z'), send, noPause);
+    const settled = sent.find((message) => message.to === '+491702222222');
+    const token = settled?.text.match(/\/bezahlt\/(\S+)/)?.[1];
+    expect(token).toBeDefined();
+
+    // Opening the link (as a chat preview does) changes nothing; only the button books.
+    expect((await openPayLink(db, token!, at('2026-10-16T18:00:00Z')))?.entry.member.id).toBe(
+      anna.id
+    );
+    expect(await payByLink(db, token!, at('2026-10-16T18:00:00Z'))).toBeGreaterThan(0);
+    expect(await payByLink(db, token!, at('2026-10-16T18:01:00Z'))).toBe(0);
+    expect(await payByLink(db, `${token!.slice(0, -1)}x`, at('2026-10-16T18:01:00Z'))).toBeNull();
+
+    sent = [];
+    await runScheduler(db, at('2026-10-17T16:10:00Z'), send, noPause);
+    expect(sent.map((message) => message.to)).not.toContain('+491702222222');
   });
 
   it('reminds the host to pick a restaurant and tells everyone once it is chosen', async () => {

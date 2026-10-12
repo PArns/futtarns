@@ -20,6 +20,7 @@ export function MemberActions({
     phone: string | null;
     isAdmin: boolean;
     isDefaultHost: boolean;
+    assignsHosts: boolean;
     active: boolean;
     kind: string;
   };
@@ -69,6 +70,7 @@ export function MemberActions({
             {toggle('Standard-Gastgeber', member.isDefaultHost, {
               isDefaultHost: !member.isDefaultHost,
             })}
+            {toggle('Gastgeber', member.assignsHosts, { assignsHosts: !member.assignsHosts })}
             {toggle(member.active ? 'Aktiv' : 'Inaktiv', member.active, { active: !member.active })}
           </>
         )}

@@ -5,6 +5,7 @@ import type { Db } from '@/lib/db/client';
 import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
 import { planReminders, type Outgoing } from '@/lib/reminders';
 import { getFridayRow, loadFriday, lockDueFridays } from '@/lib/services/fridays';
+import { payLinkMaker } from '@/lib/services/pay-links';
 import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
 
 type Send = (to: string, text: string) => Promise<SendResult>;
@@ -62,6 +63,7 @@ export async function runScheduler(
   await lockDueFridays(db, now);
   const thisWeek = currentFriday(now);
   const dates: IsoDate[] = [addWeeks(thisWeek, -2), addWeeks(thisWeek, -1), thisWeek];
+  const paidLink = await payLinkMaker(db);
   let sent = 0;
   for (const date of dates) {
     // Past Fridays nobody touched have nothing to remind anyone of.
@@ -74,6 +76,7 @@ export async function runScheduler(
       defaultDish: await defaultDishNames(db, view.restaurant?.id ?? null),
       group: process.env.WHATSAPP_GROUP || null,
       sent: await sentKeysFor(db, date),
+      paidLink: (memberId) => paidLink(date, memberId),
     });
     for (const message of messages) {
       if (await deliver(db, message, send)) {

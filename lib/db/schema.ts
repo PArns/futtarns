@@ -29,6 +29,8 @@ export const members = pgTable('members', {
   phone: text('phone').unique(),
   isAdmin: boolean('is_admin').notNull().default(false),
   isDefaultHost: boolean('is_default_host').notNull().default(false),
+  // The „Gastgeber“ role: may hand any single Friday to another host.
+  assignsHosts: boolean('assigns_hosts').notNull().default(false),
   paypalMe: text('paypal_me'),
   address: text('address'),
   // Where a Friday this member hosts orders from when nobody picks another restaurant.
@@ -248,6 +250,12 @@ export const loginCodes = pgTable(
 export const notifications = pgTable('notifications', {
   key: text('key').primaryKey(),
   sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Keys the app makes for itself on first use, such as the one that signs payment links. */
+export const appSecrets = pgTable('app_secrets', {
+  name: text('name').primaryKey(),
+  value: text('value').notNull(),
 });
 
 export type Member = typeof members.$inferSelect;

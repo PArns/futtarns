@@ -7,6 +7,17 @@ export function canManageFriday(viewer: Viewer, hostId: number | null): boolean 
   return viewer.isAdmin || viewer.id === hostId;
 }
 
+/**
+ * Who may hand a Friday to another host: whoever runs it, and members with the
+ * „Gastgeber“ role, who may do that for every Friday without running it.
+ */
+export function canSetHost(
+  viewer: Viewer & Pick<Member, 'assignsHosts'>,
+  hostId: number | null
+): boolean {
+  return canManageFriday(viewer, hostId) || viewer.assignsHosts;
+}
+
 /** Adding members and editing restaurants: admins and the host of the coming Friday. */
 export function canManageGroup(viewer: Viewer, currentHostId: number | null): boolean {
   return viewer.isAdmin || viewer.id === currentHostId;

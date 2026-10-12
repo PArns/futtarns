@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "assigns_hosts" boolean DEFAULT false NOT NULL;

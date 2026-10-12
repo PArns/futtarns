@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   CalendarDays,
   Check,
   ChefHat,
@@ -7,6 +8,7 @@ import {
   Coins,
   ExternalLink,
   Flame,
+  House,
   Sparkles,
   Store,
   TriangleAlert,
@@ -21,6 +23,7 @@ import { CostsSection } from '@/components/friday/costs-section';
 import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
 import { HostSection } from '@/components/friday/host-section';
+import { HostPicker } from '@/components/friday/host-tools';
 import { ItemRow } from '@/components/friday/item-row';
 import { Menu } from '@/components/friday/menu';
 import { MyMoney } from '@/components/friday/my-money';
@@ -38,7 +41,7 @@ import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
-import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
+import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
@@ -92,15 +95,22 @@ export async function FridayScreen({
   const view = await loadFriday(db, date, now);
   const hostId = view.host?.id ?? null;
   const manage = canManageFriday(viewer, hostId);
+  // The „Gastgeber“ role swaps the host without running the Friday.
+  const swapHostOnly = !manage && canSetHost(viewer, hostId);
   const closed = view.locked || isPastDeadline(date, now);
   const lockState = { locked: closed, settled: view.settled };
   const flat = view.mode === 'flat';
   const me = view.participants.find((participant) => participant.member.id === viewer.id);
   const myDefault = view.restaurant ? await getDefault(db, viewer.id, view.restaurant.id) : null;
   const otherBalances = isCurrent ? await openBalancesFor(db, viewer.id, date, now) : [];
-  const [restaurants, members, defaultHost] = manage
-    ? await Promise.all([listRestaurants(db), listMembers(db), getDefaultHost(db)])
-    : [[], [], null];
+  const [restaurants, members, defaultHost] = await Promise.all([
+    manage ? listRestaurants(db) : [],
+    manage || swapHostOnly ? listMembers(db) : [],
+    manage || swapHostOnly ? getDefaultHost(db) : null,
+  ]);
+  const hostOptions = members
+    .filter((member) => member.active)
+    .map(({ id, name }) => ({ id, name }));
 
   const takenBy: Record<number, string[]> = {};
   for (const participant of view.participants) {
@@ -406,7 +416,15 @@ export async function FridayScreen({
                     ? 'Der Gastgeber sucht das Restaurant noch aus.'
                     : closed
                       ? 'Bestellschluss ist vorbei.'
-                      : 'Tippe unten auf ein Gericht, um es zu bestellen.'
+                      : canOrder && (
+                          <>
+                            Such dir{' '}
+                            <a href="#karte" className="text-primary font-semibold hover:underline">
+                              auf der Karte
+                            </a>{' '}
+                            was aus.
+                          </>
+                        )
               }
               action={
                 view.restaurant?.lieferandoUrl ? (
@@ -494,18 +512,51 @@ export async function FridayScreen({
               )}
               <MyMoney view={view} me={me} canEdit={editable(me)} />
             </GlassCard>
-            {view.restaurant && canOrder && (
-              <Menu
-                dishes={view.dishes}
-                mode="order"
-                date={date}
-                restaurantId={view.restaurant.id}
-                targets={targets}
-                initialTargetId={targets[0]!.id}
-                defaultDishId={myDefault?.dish?.id ?? null}
-                takenBy={takenBy}
-              />
-            )}
+          </section>
+        )}
+
+        {!view.cancelled && (view.estimate || flat) && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={Coins}
+              kicker="Kassensturz"
+              title="Wer zahlt was"
+              hint={
+                flat
+                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
+                  : view.settled
+                    ? 'Abgerechnet mit dem echten Betrag.'
+                    : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
+              }
+            />
+            <CostsSection view={view} />
+          </section>
+        )}
+
+        {me && view.restaurant && canOrder && (
+          <section id="karte" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={BookOpen}
+              kicker="Die Karte"
+              title={view.restaurant.name}
+              hint={
+                closed
+                  ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
+                  : 'Tippe auf ein Gericht, um es zu bestellen.'
+              }
+            />
+            <Menu
+              dishes={view.dishes}
+              mode="order"
+              date={date}
+              restaurantId={view.restaurant.id}
+              targets={targets}
+              initialTargetId={targets[0]!.id}
+              defaultDishId={myDefault?.dish?.id ?? null}
+              takenBy={takenBy}
+            />
           </section>
         )}
 
@@ -539,25 +590,6 @@ export async function FridayScreen({
           </section>
         )}
 
-        {!view.cancelled && (view.estimate || flat) && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={Coins}
-              kicker="Kassensturz"
-              title="Wer zahlt was"
-              hint={
-                flat
-                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
-                  : view.settled
-                    ? 'Abgerechnet mit dem echten Betrag.'
-                    : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
-              }
-            />
-            <CostsSection view={view} />
-          </section>
-        )}
-
         {manage && (
           <section id="chefsache" className="scroll-mt-16">
             <ChapterHeading
@@ -577,12 +609,31 @@ export async function FridayScreen({
                 name,
                 isDefault: id === view.host?.defaultRestaurantId,
               }))}
-              members={members
-                .filter((member) => member.active)
-                .map(({ id, name }) => ({ id, name }))}
+              members={hostOptions}
               defaultHostName={defaultHost?.name ?? null}
               viewerIsHost={amHost}
             />
+          </section>
+        )}
+
+        {swapHostOnly && !view.settled && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={House}
+              kicker="Vertretung"
+              title="Wer ist Gastgeber?"
+              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
+            />
+            <GlassCard variant="tile" className="max-w-md p-5">
+              <HostPicker
+                date={view.date}
+                hostId={hostId}
+                hostIsDefault={view.hostIsDefault}
+                defaultHostName={defaultHost?.name ?? null}
+                members={hostOptions}
+              />
+            </GlassCard>
           </section>
         )}
 

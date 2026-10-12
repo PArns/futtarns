@@ -19,7 +19,7 @@ import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/wha
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
-import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
+import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
   createSession,
@@ -65,6 +65,7 @@ import {
   setItemQuantity,
   setNoFoodDefault,
 } from '@/lib/services/orders';
+import { payByLink } from '@/lib/services/pay-links';
 import {
   addMissingDish,
   createDish,
@@ -299,7 +300,13 @@ export async function chooseRestaurantAction(
 export async function setHostAction(date: string, hostId: number | null): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
-    const { db } = await requireFridayManager(day);
+    const { viewer } = await getGroupContext();
+    const db = await getDb();
+    if (!canSetHost(viewer, await hostIdFor(db, day))) {
+      throw new ServiceError(
+        'Den Gastgeber tauschen dürfen nur Admins, der Gastgeber selbst und die Rolle „Gastgeber“'
+      );
+    }
     await setHost(db, day, hostId === null ? null : memberId.parse(hostId));
   });
 }
@@ -501,6 +508,12 @@ export async function requestCodeAction(phoneInput: string): Promise<ActionResul
   }
 }
 
+/** „Hab bezahlt“ from the link in a payment reminder; works without a login. */
+export async function payByLinkAction(token: string): Promise<void> {
+  const paid = await payByLink(await getDb(), z.string().max(100).parse(token), new Date());
+  redirect(`/bezahlt/${encodeURIComponent(token)}${paid ? '?ok=1' : ''}`);
+}
+
 /** Uses up a personal login link and signs its member in on this device. */
 export async function signInWithLinkAction(token: string): Promise<void> {
   const db = await getDb();
@@ -539,13 +552,19 @@ export async function createMemberAction(
         name: z.string().trim().min(1, 'Bitte einen Namen angeben').max(60),
         phone: z.string().trim().min(1, 'Bitte die Handynummer angeben – damit meldet man sich an'),
         isAdmin: z.string().optional(),
+        assignsHosts: z.string().optional(),
       })
       .parse(formObject(form));
     const phone = normalizePhone(data.phone);
     if (!phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
     const { member, loginToken } = await createMember(
       db,
-      { name: data.name, phone, isAdmin: viewer.isAdmin && data.isAdmin === 'on' },
+      {
+        name: data.name,
+        phone,
+        isAdmin: viewer.isAdmin && data.isAdmin === 'on',
+        assignsHosts: viewer.isAdmin && data.assignsHosts === 'on',
+      },
       viewer.id
     ).catch((error: unknown) => {
       if (String(error).includes('unique'))
@@ -603,14 +622,14 @@ export async function issueLoginLinkAction(target: number): Promise<ActionResult
 
 export async function setRolesAction(
   target: number,
-  roles: { isAdmin?: boolean; isDefaultHost?: boolean; active?: boolean }
+  roles: { isAdmin?: boolean; isDefaultHost?: boolean; assignsHosts?: boolean; active?: boolean }
 ): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
     const id = memberId.parse(target);
     const changes = z
-      .object({ isAdmin: flag, isDefaultHost: flag, active: flag })
+      .object({ isAdmin: flag, isDefaultHost: flag, assignsHosts: flag, active: flag })
       .partial()
       .parse(roles);
     if (id === viewer.id && (changes.isAdmin === false || changes.active === false)) {

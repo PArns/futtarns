@@ -21,6 +21,8 @@ type Input = {
   group: string | null;
   /** Keys already sent for this Friday, for messages that follow up on earlier ones. */
   sent: Set<string>;
+  /** The link that ticks off one person's balance for this Friday without a login. */
+  paidLink: (memberId: number) => string;
 };
 
 function between(now: Date, from: Date, to: Date) {
@@ -41,7 +43,15 @@ const ANSWER_HINT = 'Antworte mit\n1 – bin dabei\n2 – komme, esse aber nix\n
  * scheduler sends a key once, so this can run every minute. Every window ends, so a
  * container that was down does not send yesterday's reminders.
  */
-export function planReminders({ view, now, appUrl, defaultDish, group, sent }: Input): Outgoing[] {
+export function planReminders({
+  view,
+  now,
+  appUrl,
+  defaultDish,
+  group,
+  sent,
+  paidLink,
+}: Input): Outgoing[] {
   const out: Outgoing[] = [];
   const date = view.date;
   const day = formatDayShort(date);
@@ -180,7 +190,7 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
       out.push({
         key: `prepay:${date}:${entry.member.id}`,
         to: phone,
-        text: `${prefix}Für heute Abend sind ${formatEuro(entry.money.openCents)} offen. Am besten gleich zahlen:\n${payLine(view, entry.money.openCents)}\nDanach antworte mit „bezahlt“.`,
+        text: `${prefix}Für heute Abend sind ${formatEuro(entry.money.openCents)} offen. Am besten gleich zahlen:\n${payLine(view, entry.money.openCents)}\nDanach hier abhaken: ${paidLink(entry.member.id)}`,
       });
     }
   }
@@ -234,7 +244,7 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
           to: phone,
           text:
             open > 0
-              ? `${prefix}Abgerechnet: Noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nDanach antworte mit „bezahlt“.`
+              ? `${prefix}Abgerechnet: Noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nDanach hier abhaken: ${paidLink(entry.member.id)}`
               : `${prefix}Abgerechnet: ${formatEuro(-open)} zu viel gezahlt, ${host} gibt das zurück.`,
         });
       }
@@ -247,7 +257,7 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
         out.push({
           key: `pay:${date}:${entry.member.id}:${today}`,
           to: phone,
-          text: `${prefix}Kleine Erinnerung: Für Freitag (${day}) sind noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nWenn schon gezahlt, antworte mit „bezahlt“.`,
+          text: `${prefix}Kleine Erinnerung: Für Freitag (${day}) sind noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nSchon gezahlt? Hier abhaken, dann hören die Erinnerungen auf: ${paidLink(entry.member.id)}`,
         });
       }
     }
