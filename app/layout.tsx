@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/components/layout/theme-provider';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'freitach', template: '%s · freitach' },
+  title: { default: 'freitach - Was essen wir denn heute?', template: '%s · freitach' },
   description: 'Freitags zusammen Essen bestellen.',
   robots: { index: false, follow: false },
 };

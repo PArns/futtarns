@@ -237,6 +237,18 @@ export async function FridayScreen({
         title={title}
       >
         <div className="hero-item mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          {manage && !view.cancelled && !view.settled && (
+            <a
+              href="#chefsache"
+              className={buttonVariants({
+                variant: 'outline',
+                size: 'sm',
+                className: 'order-last',
+              })}
+            >
+              <Store /> {flat ? 'Restaurant oder Pauschale' : 'Restaurant wählen'}
+            </a>
+          )}
           {view.host && (
             <span className="inline-flex items-center gap-2">
               <Avatar name={view.host.name} id={view.host.id} className="size-6 text-[10px]" />
@@ -547,7 +559,7 @@ export async function FridayScreen({
         )}
 
         {manage && (
-          <section>
+          <section id="chefsache" className="scroll-mt-16">
             <ChapterHeading
               number={++chapter}
               icon={ChefHat}
