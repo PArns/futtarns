@@ -42,7 +42,7 @@ export async function sendWhatsApp(to: string, text: string): Promise<SendResult
 export type BotState =
   | { kind: 'off' }
   | { kind: 'unreachable' }
-  | { kind: 'connected' }
+  | { kind: 'connected'; number: string | null }
   | { kind: 'linking'; qrSvg: string | null; pairingCode: string | null };
 
 async function botFetch(path: string) {
@@ -58,8 +58,13 @@ async function botFetch(path: string) {
 export async function botState(): Promise<BotState> {
   if (!process.env.BOT_URL) return { kind: 'off' };
   try {
-    const health = (await (await botFetch('/health')).json()) as { connected: boolean };
-    if (health.connected) return { kind: 'connected' };
+    const health = (await (await botFetch('/health')).json()) as {
+      connected: boolean;
+      number?: string | null;
+    };
+    if (health.connected) {
+      return { kind: 'connected', number: health.number ? `+${health.number}` : null };
+    }
     const response = await botFetch('/qr');
     if (response.headers.get('content-type')?.includes('svg')) {
       return { kind: 'linking', qrSvg: await response.text(), pairingCode: null };
@@ -68,9 +73,32 @@ export async function botState(): Promise<BotState> {
       pairingCode?: string;
       linked?: boolean;
     };
-    if (body.linked) return { kind: 'connected' };
+    if (body.linked) return { kind: 'connected', number: null };
     return { kind: 'linking', qrSvg: null, pairingCode: body.pairingCode ?? null };
   } catch {
     return { kind: 'unreachable' };
+  }
+}
+
+/**
+ * Logs the bot's WhatsApp out so another number can be linked; with `phone` (E.164) the
+ * bot offers a pairing code for it instead of a QR code.
+ */
+export async function relinkBot(phone: string | null): Promise<boolean> {
+  if (!process.env.BOT_URL) return false;
+  try {
+    const url = process.env.BOT_URL.replace(/\/$/, '');
+    const response = await fetch(`${url}/relink`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.BOT_TOKEN ?? ''}`,
+      },
+      body: JSON.stringify({ phone }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }

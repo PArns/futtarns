@@ -15,7 +15,7 @@ import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
 import { welcomeText } from '@/lib/welcome';
-import { botState, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
+import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
@@ -544,6 +544,24 @@ export async function createMemberAction(
       );
     }
     return { ok: true, message: `${member.name} ist angelegt`, link: loginLink(loginToken) };
+  });
+}
+
+/** An admin logs the bot's WhatsApp out to link another number, by QR or pairing code. */
+export async function relinkWhatsAppAction(phoneInput: string): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    const raw = z.string().trim().max(30).parse(phoneInput);
+    const phone = raw ? normalizePhone(raw) : null;
+    if (raw && !phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    if (!(await relinkBot(phone))) throw new ServiceError('Der Bot antwortet gerade nicht');
+    return {
+      ok: true,
+      message: phone
+        ? 'Abgemeldet – gleich steht hier der Code für die neue Nummer'
+        : 'Abgemeldet – gleich steht hier ein neuer QR-Code',
+    };
   });
 }
 

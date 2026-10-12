@@ -1,7 +1,9 @@
 import { CircleCheck, MessageCircle, PlugZap, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
+import { RelinkWhatsApp } from '@/components/people/relink-whatsapp';
 import { GlassCard } from '@/components/ui/glass-card';
+import { formatPhone } from '@/lib/phone';
 import { botState } from '@/lib/whatsapp';
 
 /** For admins: is the bot linked, and if not, the QR code to link it from a phone. */
@@ -15,6 +17,11 @@ export async function WhatsAppCard() {
         {state.kind === 'connected' ? (
           <span className="text-success inline-flex items-center gap-1 text-sm font-semibold">
             <CircleCheck className="size-4" /> verbunden
+            {state.number && (
+              <span className="text-muted-foreground font-normal">
+                als {formatPhone(state.number)}
+              </span>
+            )}
           </span>
         ) : state.kind !== 'off' ? (
           <Link
@@ -63,6 +70,9 @@ export async function WhatsAppCard() {
             <li>Danach neu laden, hier steht dann „verbunden“.</li>
           </ol>
         </div>
+      )}
+      {(state.kind === 'connected' || state.kind === 'linking') && (
+        <RelinkWhatsApp linked={state.kind === 'connected'} />
       )}
     </GlassCard>
   );

@@ -59,6 +59,10 @@ Link with phone number. Once connected, the bot writes the groups it is in, with
 to the container log (not to the page, so other admins don't see them); put one id into
 `WHATSAPP_GROUP` for announcements there.
 
+To move the bot to another number, use "Andere Nummer verknüpfen" on the same card: it logs
+the current phone out, deletes the stored login and shows a new QR code, or a pairing code
+if you enter the new number. The login in `/data/whatsapp` is replaced, nothing else changes.
+
 The bot can run on someone's own number. It only answers registered members, and only their
 commands (`1`, `2`, `3`, `bezahlt`, `status`, `code`, `hilfe`); every other chat on the number
 is left alone, and messages from unknown numbers are ignored.
