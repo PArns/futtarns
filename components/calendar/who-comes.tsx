@@ -1,46 +1,49 @@
-import { CircleCheck, CircleSlash, CircleX } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import type { CalendarPerson } from '@/lib/services/fridays';
-import { cn } from '@/lib/utils';
 
-const ROWS = [
-  { status: 'in', label: 'Dabei', icon: CircleCheck, tone: 'text-success' },
-  { status: 'nofood', label: 'Ohne Essen', icon: CircleSlash, tone: 'text-warning' },
-  { status: 'out', label: 'Raus', icon: CircleX, tone: 'text-muted-foreground' },
-] as const;
+// Who said yes first, then who counts by silence, then the rest.
+const ORDER = (person: CalendarPerson) =>
+  person.status === 'out' ? 3 : person.status === 'nofood' ? 2 : person.answered ? 0 : 1;
+
+function variantFor(person: CalendarPerson) {
+  if (person.status === 'out') return 'softError';
+  if (person.status === 'nofood') return 'softWarning';
+  return person.answered ? 'softSuccess' : 'outline';
+}
 
 /**
- * Who comes to a Friday, by name. Names without an answer are dimmed: they count by the
- * Friday's rule (silence means in), not because they said so.
+ * Who comes to a Friday, one pill per person: green said yes, grey has not answered and
+ * counts by the Friday's rule (silence means in), yellow comes without food, red is out.
  */
 export function WhoComes({ people }: { people: CalendarPerson[] }) {
-  const silent = people.filter((person) => !person.answered && person.status !== 'out').length;
+  const coming = people.filter((person) => person.status !== 'out').length;
+  const sorted = [...people].sort((a, b) => ORDER(a) - ORDER(b));
   return (
-    <div className="space-y-1 text-xs">
-      {ROWS.map(({ status, label, icon: Icon, tone }) => {
-        const group = people.filter((person) => person.status === status);
-        if (group.length === 0) return null;
-        return (
-          <p key={status} className="flex items-start gap-1.5">
-            <Icon className={cn('mt-px size-3.5 shrink-0', tone)} />
-            <span>
-              <span className="font-semibold">
-                {label} {group.length}:
-              </span>{' '}
-              {group.map((person, index) => (
-                <span key={person.id} className={cn(!person.answered && 'text-muted-foreground')}>
-                  {person.name}
-                  {index < group.length - 1 && ', '}
-                </span>
-              ))}
-            </span>
-          </p>
-        );
-      })}
-      {silent > 0 && (
-        <p className="text-muted-foreground">
-          Grau: noch keine Antwort ({silent}), zählt trotzdem mit.
-        </p>
-      )}
+    <div className="space-y-1.5">
+      <p className="text-muted-foreground text-xs">
+        <span className="text-foreground font-semibold">{coming} dabei</span>
+        {people.length > coming && ` · ${people.length - coming} raus`}
+      </p>
+      <div className="flex flex-wrap gap-1">
+        {sorted.map((person) => (
+          <Badge
+            key={person.id}
+            variant={variantFor(person)}
+            className={variantFor(person) === 'outline' ? 'text-muted-foreground' : undefined}
+            title={
+              person.status === 'out'
+                ? 'raus'
+                : person.status === 'nofood'
+                  ? 'kommt ohne Essen'
+                  : person.answered
+                    ? 'hat zugesagt'
+                    : 'noch keine Antwort'
+            }
+          >
+            {person.name}
+          </Badge>
+        ))}
+      </div>
     </div>
   );
 }
