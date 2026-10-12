@@ -62,5 +62,5 @@ WhatsApp message is printed to the console instead of being sent.
 ## Docs
 
 - [Architecture](docs/architecture.md): data model, the Friday lifecycle, money, reminders.
-- [Deployment](docs/deployment.md): the Dockerfile on Coolify, DNS, linking WhatsApp.
+- [Deployment](docs/deployment.md): Docker Compose on Coolify, DNS, linking WhatsApp.
 - [Design](docs/design.md): how the park.fan look is reproduced.

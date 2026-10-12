@@ -1,0 +1,48 @@
+# Coolify: New Resource → this repository → build pack "Docker Compose".
+# Coolify fills in the SERVICE_* variables (database user and password) itself; set
+# ADMIN_NAME and ADMIN_PHONE under Environment Variables before the first deploy, and
+# enter the domain as https://freitach.arns.dev:3000 (the port is the container's, the
+# site stays on 443).
+# No `ports:`: Coolify's proxy routes the domain to port 3000 inside the container, so
+# nothing on the server (like whatever runs on 8080) gets in the way.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      - SERVICE_URL_APP_3000
+      - APP_URL=${APP_URL:-https://freitach.arns.dev}
+      - PORT=3000
+      - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@db:5432/freitach
+      - ADMIN_NAME=${ADMIN_NAME:?}
+      - ADMIN_PHONE=${ADMIN_PHONE:?}
+      - DEFAULT_RESTAURANT_NAME=${DEFAULT_RESTAURANT_NAME:-Pizzeria Rustica}
+      - DEFAULT_RESTAURANT_URL=${DEFAULT_RESTAURANT_URL:-https://www.lieferando.de/speisekarte/pizzeria-rustica-3?c_id=01a0f6bc-5014-7255-9c76-1fcad61fad69}
+      - PAIRING_PHONE=${PAIRING_PHONE:-}
+      - WHATSAPP_GROUP=${WHATSAPP_GROUP:-}
+      - WHATSAPP=${WHATSAPP:-}
+    volumes:
+      # The WhatsApp login; without it the bot has to be linked again after every deploy.
+      - freitach-data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DB=freitach
+    volumes:
+      - freitach-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d freitach']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  freitach-data:
+  freitach-db:
