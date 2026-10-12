@@ -1,0 +1,86 @@
+import { eq, like } from 'drizzle-orm';
+import { appUrl } from '@/lib/auth-tokens';
+import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
+import type { Db } from '@/lib/db/client';
+import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
+import { planReminders, type Outgoing } from '@/lib/reminders';
+import { getFridayRow, loadFriday, lockDueFridays } from '@/lib/services/fridays';
+import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
+
+type Send = (to: string, text: string) => Promise<SendResult>;
+
+async function defaultDishNames(db: Db, restaurantId: number | null): Promise<Map<number, string>> {
+  if (!restaurantId) return new Map();
+  const rows = await db
+    .select({ memberId: memberDefaults.memberId, name: dishes.name })
+    .from(memberDefaults)
+    .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
+    .where(eq(memberDefaults.restaurantId, restaurantId));
+  return new Map(rows.map((row) => [row.memberId, row.name]));
+}
+
+async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
+  const rows = await db
+    .select({ key: notifications.key })
+    .from(notifications)
+    .where(like(notifications.key, `%:${date}:%`));
+  return new Set(rows.map((row) => row.key));
+}
+
+/**
+ * Sends a message unless its key went out before. A refused send is retried next run; one
+ * that timed out is not, because it may have arrived.
+ */
+async function deliver(db: Db, message: Outgoing, send: Send) {
+  const claimed = await db
+    .insert(notifications)
+    .values({ key: message.key })
+    .onConflictDoNothing()
+    .returning();
+  if (claimed.length === 0) return false;
+  if ((await send(message.to, message.text)) === 'failed') {
+    await db.delete(notifications).where(eq(notifications.key, message.key));
+    return false;
+  }
+  return true;
+}
+
+// A burst of identical-looking messages is what gets a linked device blocked.
+const pauseBetweenMessages = () =>
+  new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 3000));
+
+/**
+ * One scheduler pass: close Fridays whose deadline passed, then send whatever reminders
+ * are due for this week's Friday and the two before it (for payment reminders).
+ */
+export async function runScheduler(
+  db: Db,
+  now: Date,
+  send: Send = sendWhatsApp,
+  pause: () => Promise<unknown> = pauseBetweenMessages
+): Promise<number> {
+  await lockDueFridays(db, now);
+  const thisWeek = currentFriday(now);
+  const dates: IsoDate[] = [addWeeks(thisWeek, -2), addWeeks(thisWeek, -1), thisWeek];
+  let sent = 0;
+  for (const date of dates) {
+    // Past Fridays nobody touched have nothing to remind anyone of.
+    if (date !== thisWeek && !(await getFridayRow(db, date))) continue;
+    const view = await loadFriday(db, date, now);
+    const messages = planReminders({
+      view,
+      now,
+      appUrl: appUrl(),
+      defaultDish: await defaultDishNames(db, view.restaurant?.id ?? null),
+      group: process.env.WHATSAPP_GROUP || null,
+      sent: await sentKeysFor(db, date),
+    });
+    for (const message of messages) {
+      if (await deliver(db, message, send)) {
+        sent++;
+        await pause();
+      }
+    }
+  }
+  return sent;
+}

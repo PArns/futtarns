@@ -1,0 +1,11 @@
+packages:
+  - .
+  - bot
+allowBuilds:
+  # esbuild ships prebuilt platform binaries; its postinstall only picks one.
+  esbuild: true
+  unrs-resolver: false
+  # Only an engine check and a protobufjs notice; nothing the bot needs.
+  baileys: false
+  protobufjs: false
+  sharp: false

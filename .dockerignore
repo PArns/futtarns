@@ -1,0 +1,8 @@
+node_modules
+bot/node_modules
+.next
+.data
+.git
+.env*
+coverage
+docs/screenshots

@@ -1,0 +1,181 @@
+import { asc, eq } from 'drizzle-orm';
+import { House, MessageCircle, ShieldCheck, UserPlus, Users, Wallet } from 'lucide-react';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { ChapterHeading } from '@/components/common/chapter-heading';
+import { PageHero } from '@/components/layout/page-hero';
+import { CreateMemberForm } from '@/components/people/create-member-form';
+import { EditMemberForm } from '@/components/people/edit-member-form';
+import { MemberActions } from '@/components/people/member-actions';
+import { WhatsAppCard } from '@/components/people/whatsapp-card';
+import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { GlassCard } from '@/components/ui/glass-card';
+import { getDb } from '@/lib/db';
+import { members } from '@/lib/db/schema';
+import { formatDayShort, formatEuro } from '@/lib/format';
+import { formatPhone } from '@/lib/phone';
+import { getGroupContext } from '@/lib/session';
+import { openBalances } from '@/lib/services/fridays';
+import { listMembers } from '@/lib/services/members';
+import { cn } from '@/lib/utils';
+
+export const metadata: Metadata = { title: 'Leute' };
+
+export default async function PeoplePage() {
+  const { viewer, canManage, currentFriday } = await getGroupContext();
+  if (!canManage) notFound();
+  const db = await getDb();
+  const [people, guests, balances] = await Promise.all([
+    listMembers(db),
+    db.select().from(members).where(eq(members.kind, 'guest')).orderBy(asc(members.name)),
+    openBalances(db, currentFriday, new Date()),
+  ]);
+
+  return (
+    <>
+      <PageHero kicker="Runde" title="Leute">
+        <p className="hero-item text-muted-foreground mt-3 max-w-2xl">
+          Wer hier steht, meldet sich mit seiner Handynummer an und zählt freitags als dabei,
+          solange er nicht absagt. Gäste brauchen kein Konto, sie werden am Freitag direkt
+          eingetragen.
+        </p>
+      </PageHero>
+
+      <div className="mx-auto max-w-5xl space-y-12 px-4">
+        {viewer.isAdmin && (
+          <section id="whatsapp">
+            <ChapterHeading icon={MessageCircle} kicker="Bot" title="WhatsApp" />
+            <WhatsAppCard />
+          </section>
+        )}
+
+        <section>
+          <ChapterHeading icon={UserPlus} kicker="Neu" title="Jemanden dazuholen" />
+          <GlassCard variant="tile" className="p-5">
+            <CreateMemberForm canGrantAdmin={viewer.isAdmin} />
+          </GlassCard>
+        </section>
+
+        {balances.length > 0 && (
+          <section>
+            <ChapterHeading
+              icon={Wallet}
+              kicker="Kasse"
+              title="Offene Beträge"
+              hint="Von abgerechneten Freitagen der letzten acht Wochen. Positiv: muss noch zahlen, negativ: bekommt Geld zurück."
+            />
+            <GlassCard variant="tile" className="p-5">
+              <ul className="divide-border/50 divide-y text-sm">
+                {balances.map((balance) => (
+                  <li
+                    key={`${balance.fridayDate}-${balance.member.id}`}
+                    className="flex items-center gap-3 py-2"
+                  >
+                    <Avatar
+                      name={balance.member.name}
+                      id={balance.member.id}
+                      className="size-7 text-[10px]"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-semibold">{balance.member.name}</span>
+                      <Link
+                        href={`/freitag/${balance.fridayDate}`}
+                        className="text-muted-foreground hover:text-primary block text-xs"
+                      >
+                        {formatDayShort(balance.fridayDate)} · {balance.title}
+                        {balance.payee && ` · an ${balance.payee.name}`}
+                      </Link>
+                    </span>
+                    <span
+                      className={cn(
+                        'font-bold tabular-nums',
+                        balance.money.openCents > 0 ? 'text-warning' : 'text-primary'
+                      )}
+                    >
+                      {formatEuro(balance.money.openCents)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </GlassCard>
+          </section>
+        )}
+
+        <section>
+          <ChapterHeading
+            icon={Users}
+            kicker="Mitglieder"
+            title={`${people.filter((p) => p.active).length} in der Runde`}
+          />
+          <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
+            {people.map((member) => (
+              <GlassCard
+                key={member.id}
+                variant="tile"
+                className={member.active ? 'p-4' : 'p-4 opacity-60'}
+              >
+                <div className="mb-3 flex items-center gap-3">
+                  <Avatar name={member.name} id={member.id} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <span className="truncate">{member.name}</span>
+                      {member.isAdmin && <ShieldCheck className="text-primary size-3.5 shrink-0" />}
+                      {member.isDefaultHost && <House className="text-primary size-3.5 shrink-0" />}
+                    </div>
+                    <div className="text-muted-foreground truncate text-xs">
+                      {[
+                        member.phone && formatPhone(member.phone),
+                        member.paypalMe && `PayPal: ${member.paypalMe}`,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'keine Angaben'}
+                    </div>
+                  </div>
+                  {!member.phone && <Badge variant="softWarning">ohne Nummer</Badge>}
+                </div>
+                {viewer.isAdmin && (
+                  <details className="mb-3">
+                    <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-xs font-semibold">
+                      Name oder Nummer ändern
+                    </summary>
+                    <div className="mt-2">
+                      <EditMemberForm id={member.id} name={member.name} phone={member.phone} />
+                    </div>
+                  </details>
+                )}
+                <MemberActions
+                  member={member}
+                  isAdminViewer={viewer.isAdmin}
+                  canIssueLink={viewer.isAdmin}
+                />
+              </GlassCard>
+            ))}
+          </div>
+        </section>
+
+        {guests.length > 0 && (
+          <section>
+            <ChapterHeading
+              kicker="Gäste"
+              title="Waren schon mal da"
+              hint="Wer öfter kommt, kann ein eigenes Konto bekommen."
+            />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {guests.map((guest) => (
+                <GlassCard key={guest.id} variant="tile" className="flex flex-col gap-3 p-4">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={guest.name} id={guest.id} />
+                    <span className="font-bold">{guest.name}</span>
+                  </div>
+                  <MemberActions member={guest} isAdminViewer={viewer.isAdmin} canIssueLink />
+                </GlassCard>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </>
+  );
+}

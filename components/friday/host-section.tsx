@@ -1,0 +1,161 @@
+import { Flame, Receipt, Settings2, ShoppingBag, Store } from 'lucide-react';
+import { CopyButton } from '@/components/common/copy-button';
+import { ExtrasForm } from '@/components/friday/extras-form';
+import { FlatForm } from '@/components/friday/flat-form';
+import {
+  CancelToggle,
+  HostPicker,
+  NoteEditor,
+  RestaurantPicker,
+} from '@/components/friday/host-tools';
+import { SettleForm } from '@/components/friday/settle-form';
+import { GlassCard } from '@/components/ui/glass-card';
+import { Notice } from '@/components/ui/notice';
+import { DRINKS_FEE_CENTS } from '@/lib/balance';
+import { centsToInput } from '@/lib/format';
+import type { OrderLine } from '@/lib/order-sheet';
+import { orderSheetText } from '@/lib/order-sheet';
+import type { FridayView, Participant } from '@/lib/services/fridays';
+
+/** What only the host and admins see: what's on, the order list, settling, settings. */
+export function HostSection({
+  view,
+  closed,
+  sheet,
+  hungry,
+  restaurants,
+  members,
+  defaultHostName,
+  viewerIsHost,
+}: {
+  view: FridayView;
+  closed: boolean;
+  sheet: OrderLine[];
+  hungry: Participant[];
+  restaurants: { id: number; name: string; isDefault: boolean }[];
+  members: { id: number; name: string }[];
+  defaultHostName: string | null;
+  viewerIsHost: boolean;
+}) {
+  const flat = view.mode === 'flat';
+  const hasOrders = sheet.length > 0;
+  return (
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+      {!view.cancelled && (
+        <GlassCard variant="tile" className="space-y-4 p-5">
+          <h3 className="flex items-center gap-2 font-bold">
+            <Store className="text-primary size-4" /> Was gibt’s?
+          </h3>
+          <RestaurantPicker
+            date={view.date}
+            restaurantId={view.restaurant?.id ?? null}
+            restaurants={restaurants}
+            hasOrders={hasOrders}
+            disabled={view.settled}
+          />
+          <details className="border-border/60 rounded-xl border p-3" open={flat}>
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
+              <Flame className="text-primary size-4" /> Oder Pauschale, z. B. Grillen
+            </summary>
+            <div className="mt-3">
+              <FlatForm
+                date={view.date}
+                title={view.flatTitle}
+                priceCents={view.flatPriceCents}
+                hasOrders={hasOrders}
+                disabled={view.locked}
+              />
+            </div>
+          </details>
+        </GlassCard>
+      )}
+
+      {!view.cancelled && !flat && view.restaurant && (
+        <GlassCard variant="tile" className="space-y-4 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 font-bold">
+              <ShoppingBag className="text-primary size-4" /> Bestellliste
+            </h3>
+            {hasOrders && <CopyButton text={orderSheetText(sheet)} />}
+          </div>
+          {hungry.length > 0 && (
+            <Notice>
+              <strong className="text-warning">Bekommen nichts, wenn sie nichts wählen:</strong>{' '}
+              {hungry.map((entry) => entry.member.name).join(', ')}
+            </Notice>
+          )}
+          {!hasOrders ? (
+            <p className="text-muted-foreground text-sm">Noch nichts bestellt.</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {sheet.map((line) => (
+                <li key={line.key} className="flex gap-2">
+                  <span className="text-primary w-7 shrink-0 font-extrabold tabular-nums">
+                    {line.count}×
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="font-semibold">{line.name}</span>
+                    {(line.options.length > 0 || line.notes.length > 0) && (
+                      <span className="text-muted-foreground block text-xs">
+                        {[...line.options, ...line.notes.map((note) => `„${note}“`)].join(' · ')}
+                      </span>
+                    )}
+                    <span className="text-muted-foreground block text-xs">
+                      {line.people.join(', ')}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {closed && hasOrders && (
+            <div className="border-border/60 border-t pt-4">
+              <h3 className="mb-3 flex items-center gap-2 font-bold">
+                <Receipt className="text-primary size-4" /> Abrechnen
+              </h3>
+              <SettleForm
+                date={view.date}
+                initial={centsToInput(view.finalTotalCents)}
+                settled={view.settled}
+              />
+            </div>
+          )}
+          {!view.host?.paypalMe && (
+            <p className="text-warning text-xs font-semibold">
+              {viewerIsHost
+                ? 'Trag in deinem Profil deinen PayPal.me-Namen ein, sonst gibt es keine Zahlungslinks.'
+                : `${view.host?.name ?? 'Der Gastgeber'} hat keinen PayPal.me-Namen im Profil, also gibt es keine Zahlungslinks.`}
+            </p>
+          )}
+        </GlassCard>
+      )}
+
+      <GlassCard variant="tile" className="p-5">
+        <details open={view.cancelled}>
+          <summary className="flex cursor-pointer list-none items-center gap-2 font-bold">
+            <Settings2 className="text-primary size-4" /> Gastgeber, Trinkgeld, Getränke, Absage
+          </summary>
+          <div className="mt-4 space-y-5">
+            <HostPicker
+              date={view.date}
+              hostId={view.host?.id ?? null}
+              hostIsDefault={view.hostIsDefault}
+              defaultHostName={defaultHostName}
+              members={members}
+            />
+            {!view.cancelled && (
+              <ExtrasForm
+                date={view.date}
+                tipCents={view.fixedTipCents}
+                drinksFeeCents={view.customDrinksFeeCents}
+                defaultDrinksFeeCents={DRINKS_FEE_CENTS}
+              />
+            )}
+            <NoteEditor date={view.date} note={view.note} />
+            <CancelToggle date={view.date} cancelled={view.cancelled} reason={view.cancelReason} />
+          </div>
+        </details>
+      </GlassCard>
+    </div>
+  );
+}
