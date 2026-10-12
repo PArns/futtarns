@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   CalendarDays,
   Check,
   ChefHat,
@@ -415,7 +416,15 @@ export async function FridayScreen({
                     ? 'Der Gastgeber sucht das Restaurant noch aus.'
                     : closed
                       ? 'Bestellschluss ist vorbei.'
-                      : 'Tippe unten auf ein Gericht, um es zu bestellen.'
+                      : canOrder && (
+                          <>
+                            Such dir{' '}
+                            <a href="#karte" className="text-primary font-semibold hover:underline">
+                              auf der Karte
+                            </a>{' '}
+                            was aus.
+                          </>
+                        )
               }
               action={
                 view.restaurant?.lieferandoUrl ? (
@@ -503,18 +512,51 @@ export async function FridayScreen({
               )}
               <MyMoney view={view} me={me} canEdit={editable(me)} />
             </GlassCard>
-            {view.restaurant && canOrder && (
-              <Menu
-                dishes={view.dishes}
-                mode="order"
-                date={date}
-                restaurantId={view.restaurant.id}
-                targets={targets}
-                initialTargetId={targets[0]!.id}
-                defaultDishId={myDefault?.dish?.id ?? null}
-                takenBy={takenBy}
-              />
-            )}
+          </section>
+        )}
+
+        {!view.cancelled && (view.estimate || flat) && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={Coins}
+              kicker="Kassensturz"
+              title="Wer zahlt was"
+              hint={
+                flat
+                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
+                  : view.settled
+                    ? 'Abgerechnet mit dem echten Betrag.'
+                    : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
+              }
+            />
+            <CostsSection view={view} />
+          </section>
+        )}
+
+        {me && view.restaurant && canOrder && (
+          <section id="karte" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={BookOpen}
+              kicker="Die Karte"
+              title={view.restaurant.name}
+              hint={
+                closed
+                  ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
+                  : 'Tippe auf ein Gericht, um es zu bestellen.'
+              }
+            />
+            <Menu
+              dishes={view.dishes}
+              mode="order"
+              date={date}
+              restaurantId={view.restaurant.id}
+              targets={targets}
+              initialTargetId={targets[0]!.id}
+              defaultDishId={myDefault?.dish?.id ?? null}
+              takenBy={takenBy}
+            />
           </section>
         )}
 
@@ -545,25 +587,6 @@ export async function FridayScreen({
                 <AddGuestForm date={date} />
               </div>
             )}
-          </section>
-        )}
-
-        {!view.cancelled && (view.estimate || flat) && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={Coins}
-              kicker="Kassensturz"
-              title="Wer zahlt was"
-              hint={
-                flat
-                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
-                  : view.settled
-                    ? 'Abgerechnet mit dem echten Betrag.'
-                    : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
-              }
-            />
-            <CostsSection view={view} />
           </section>
         )}
 
