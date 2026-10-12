@@ -30,7 +30,7 @@ function payLine(view: FridayView, cents: number) {
   const handle = view.host?.paypalMe;
   return handle
     ? `${paypalMeLink(handle, cents)} (bitte als „Freunde und Familie“)`
-    : `an ${view.host?.name ?? 'den Gastgeber'}`;
+    : `Bitte direkt an ${view.host?.name ?? 'den Gastgeber'} zahlen.`;
 }
 
 const ANSWER_HINT = 'Antworte mit\n1 – bin dabei\n2 – komme, esse aber nix\n3 – bin raus';

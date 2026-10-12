@@ -1,0 +1,211 @@
+/**
+ * The WhatsApp side of freitach: a linked device (Baileys) with a tiny HTTP API. The app
+ * calls POST /send; every direct message the bot receives is forwarded to the app, and
+ * the app's answer is sent back. The bot keeps no state of its own besides the login.
+ */
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
+import makeWASocket, {
+  Browsers,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
+  type WAMessage,
+  type WASocket,
+} from 'baileys';
+import pino from 'pino';
+import QRCode from 'qrcode';
+
+const PORT = Number(process.env.PORT ?? 3001);
+const AUTH_DIR = process.env.AUTH_DIR ?? './data/auth';
+const BOT_TOKEN = process.env.BOT_TOKEN ?? '';
+const APP_URL = (process.env.APP_INTERNAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+const PAIRING_PHONE = process.env.PAIRING_PHONE?.replace(/\D/g, '') || null;
+
+if (!BOT_TOKEN) {
+  console.error('BOT_TOKEN is required');
+  process.exit(1);
+}
+
+const logger = pino({ level: process.env.LOG_LEVEL ?? 'warn' });
+
+let socket: WASocket | null = null;
+let connected = false;
+let pendingQr: string | null = null;
+let pairingCode: string | null = null;
+
+function phoneToJid(to: string): string {
+  if (to.includes('@')) return to;
+  return `${to.replace(/\D/g, '')}@s.whatsapp.net`;
+}
+
+/** The sender's phone number in E.164, also when WhatsApp addresses them by a LID. */
+async function senderPhone(message: WAMessage): Promise<string | null> {
+  const key = message.key;
+  const candidates = [key.remoteJid, key.remoteJidAlt].filter((jid): jid is string => Boolean(jid));
+  for (const jid of candidates) {
+    if (jid.endsWith('@s.whatsapp.net')) return `+${jid.split('@')[0]!.split(':')[0]}`;
+  }
+  const lid = candidates.find((jid) => jid.endsWith('@lid'));
+  if (lid && socket) {
+    const pn = await socket.signalRepository.lidMapping.getPNForLID(lid).catch(() => null);
+    if (pn) return `+${pn.split('@')[0]!.split(':')[0]}`;
+  }
+  return null;
+}
+
+function textOf(message: WAMessage): string | null {
+  const content = message.message;
+  return content?.conversation ?? content?.extendedTextMessage?.text ?? null;
+}
+
+async function forward(phone: string, text: string): Promise<string | null> {
+  const response = await fetch(`${APP_URL}/api/whatsapp/incoming`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${BOT_TOKEN}` },
+    body: JSON.stringify({ from: phone, text }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`app answered ${response.status}`);
+  const body = (await response.json()) as { reply?: string | null };
+  return body.reply ?? null;
+}
+
+async function connect(): Promise<void> {
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  const { version } = await fetchLatestBaileysVersion();
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    logger,
+    browser: Browsers.ubuntu('freitach'),
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
+  });
+  socket = sock;
+
+  sock.ev.on('creds.update', saveCreds);
+
+  sock.ev.on('connection.update', async (update) => {
+    if (update.qr) {
+      pendingQr = update.qr;
+      if (PAIRING_PHONE && !sock.authState.creds.registered && !pairingCode) {
+        pairingCode = await sock.requestPairingCode(PAIRING_PHONE).catch((error: unknown) => {
+          console.error('Could not request a pairing code', error);
+          return null;
+        });
+        if (pairingCode) console.log(`Pairing code for +${PAIRING_PHONE}: ${pairingCode}`);
+      } else {
+        console.log('Not linked yet: open /qr?token=… or set PAIRING_PHONE for a pairing code.');
+      }
+    }
+    if (update.connection === 'open') {
+      connected = true;
+      pendingQr = null;
+      pairingCode = null;
+      console.log(`Connected as ${sock.user?.id ?? 'unknown'}`);
+    }
+    if (update.connection === 'close') {
+      connected = false;
+      const status = (
+        update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined
+      )?.output?.statusCode;
+      if (status === DisconnectReason.loggedOut) {
+        console.error(
+          'Logged out from WhatsApp. Delete the auth folder and link the device again.'
+        );
+        return;
+      }
+      console.warn(`Connection closed (${status ?? 'unknown'}), reconnecting`);
+      setTimeout(() => void connect(), 3_000);
+    }
+  });
+
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+    for (const message of messages) {
+      const jid = message.key.remoteJid ?? '';
+      if (message.key.fromMe || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
+      const text = textOf(message);
+      if (!text) continue;
+      try {
+        const phone = await senderPhone(message);
+        if (!phone) continue;
+        const reply = await forward(phone, text);
+        if (reply) await sock.sendMessage(jid, { text: reply }, { quoted: message });
+      } catch (error) {
+        console.error('Could not handle a message', error);
+      }
+    }
+  });
+}
+
+function authorized(request: IncomingMessage, url: URL): boolean {
+  const given =
+    request.headers.authorization?.replace(/^Bearer /, '') ?? url.searchParams.get('token') ?? '';
+  const a = Buffer.from(given);
+  const b = Buffer.from(BOT_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function json(response: ServerResponse, status: number, body: unknown) {
+  response.writeHead(status, { 'Content-Type': 'application/json' });
+  response.end(JSON.stringify(body));
+}
+
+async function readJson(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(chunk as Buffer);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+}
+
+const server = createServer(async (request, response) => {
+  const url = new URL(request.url ?? '/', 'http://bot');
+  try {
+    if (url.pathname === '/health')
+      return json(response, 200, {
+        connected,
+        linked: Boolean(socket?.authState.creds.registered),
+      });
+    if (!authorized(request, url)) return json(response, 401, { error: 'unauthorized' });
+
+    if (request.method === 'POST' && url.pathname === '/send') {
+      const body = (await readJson(request)) as { to?: string; text?: string };
+      if (!body.to || !body.text) return json(response, 400, { error: 'to and text are required' });
+      if (!socket || !connected) return json(response, 503, { error: 'not connected' });
+      await socket.sendMessage(phoneToJid(body.to), { text: body.text });
+      return json(response, 200, { ok: true });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/qr') {
+      if (connected) return json(response, 200, { linked: true });
+      if (pairingCode) return json(response, 200, { pairingCode });
+      if (!pendingQr)
+        return json(response, 404, { error: 'no QR yet, try again in a few seconds' });
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+      return response.end(await QRCode.toString(pendingQr, { type: 'svg', margin: 2 }));
+    }
+
+    if (request.method === 'GET' && url.pathname === '/groups') {
+      if (!socket || !connected) return json(response, 503, { error: 'not connected' });
+      const groups = await socket.groupFetchAllParticipating();
+      return json(
+        response,
+        200,
+        Object.values(groups).map((group) => ({
+          id: group.id,
+          subject: group.subject,
+          size: group.participants.length,
+        }))
+      );
+    }
+
+    json(response, 404, { error: 'not found' });
+  } catch (error) {
+    console.error(error);
+    json(response, 500, { error: 'internal error' });
+  }
+});
+
+server.listen(PORT, () => console.log(`Bot API on :${PORT}`));
+void connect();

@@ -1,5 +1,5 @@
 import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
-import { generateToken, hashToken } from '@/lib/auth-tokens';
+import { generateToken, hashToken, loginLink } from '@/lib/auth-tokens';
 import type { Db } from '@/lib/db/client';
 import { absences, attendance, members, type Member } from '@/lib/db/schema';
 import type { IsoDate } from '@/lib/dates';
@@ -94,6 +94,26 @@ export async function issueLoginToken(db: Db, memberId: number): Promise<string>
     .returning({ id: members.id });
   if (updated.length === 0) throw new ServiceError('Mitglied nicht gefunden');
   return loginToken;
+}
+
+/**
+ * On an empty database, creates the first admin from `ADMIN_NAME` and `ADMIN_PHONE` and
+ * prints their login link, so a fresh stack can be entered before the bot is paired.
+ */
+export async function bootstrapAdmin(
+  db: Db,
+  env: { name?: string; phone?: string | null },
+  log: (line: string) => void
+) {
+  if (!env.name) return;
+  const [someone] = await db.select({ id: members.id }).from(members).limit(1);
+  if (someone) return;
+  const { member, loginToken } = await createMember(
+    db,
+    { name: env.name, phone: env.phone ?? null, isAdmin: true, isDefaultHost: true },
+    null
+  );
+  log(`Created admin ${member.name}. Login link: ${loginLink(loginToken)}`);
 }
 
 export type ProfileUpdate = Partial<Pick<Member, 'name' | 'phone' | 'paypalMe' | 'address'>>;

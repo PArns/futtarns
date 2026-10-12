@@ -15,6 +15,12 @@ const ANSWER_REPLY = {
   out: 'Schade! Du bist für Freitag raus.',
 } as const;
 
+const STATUS_LINE = {
+  in: 'Du bist dabei.',
+  nofood: 'Du kommst ohne Essen.',
+  out: 'Du bist raus.',
+} as const;
+
 /** Answers a WhatsApp message from a member; strangers get no reply. */
 export async function handleIncoming(
   db: Db,
@@ -97,9 +103,7 @@ export async function handleIncoming(
         view.mode === 'flat'
           ? `${view.flatTitle ?? 'Pauschale'} für ${formatEuro(view.flatPriceCents ?? 0)}`
           : (view.restaurant?.name ?? 'Restaurant noch offen');
-      const status = me
-        ? ANSWER_REPLY[me.attendance.status].replace('Alles klar, d', 'D').replace('Schade! ', '')
-        : '';
+      const status = me ? STATUS_LINE[me.attendance.status] : '';
       const items = me?.items.length
         ? `\nBestellt: ${me.items.map((item) => item.name).join(', ')}`
         : '';
