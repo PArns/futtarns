@@ -266,6 +266,31 @@ describe('a Friday', () => {
     ).rejects.toThrow('nicht gefunden');
   });
 
+  it('shows in the calendar who comes, as the Friday page counts it', async () => {
+    const { anna, ben, clara, pizzeria } = await setup();
+    await setAttendance(db, FRIDAY, anna.id, 'out');
+    await setNoFoodDefault(db, ben.id, pizzeria.id);
+    await addAbsence(db, clara.id, '2026-10-10', '2026-10-20', 'Urlaub');
+    await addGuest(db, FRIDAY, 'Gast', anna.id);
+
+    const [entry] = await loadCalendar(db, FRIDAY, 1);
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    const byName = (list: { name: string; status: string }[]) =>
+      Object.fromEntries(list.map((person) => [person.name, person.status]));
+    expect(byName(entry!.people)).toEqual(
+      byName(view.participants.map((p) => ({ name: p.member.name, status: p.attendance.status })))
+    );
+    expect(byName(entry!.people)).toMatchObject({
+      Anna: 'out',
+      Ben: 'nofood',
+      Clara: 'out',
+      Gast: 'in',
+      Patrick: 'in',
+    });
+    expect(entry!.people.find((person) => person.name === 'Anna')?.answered).toBe(true);
+    expect(entry!.people.find((person) => person.name === 'Patrick')?.answered).toBe(false);
+  });
+
   it('deletes only a restaurant no Friday ran on', async () => {
     const { pizzeria } = await setup();
     const unused = await createRestaurant(db, {

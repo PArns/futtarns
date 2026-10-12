@@ -1,6 +1,7 @@
 import { CalendarDays, CalendarPlus, Flame, House, Plane, TriangleAlert } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { WhoComes } from '@/components/calendar/who-comes';
 import { FridayControls } from '@/components/calendar/friday-controls';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { CopyButton } from '@/components/common/copy-button';
@@ -8,7 +9,6 @@ import { PageHero } from '@/components/layout/page-hero';
 import { DutchFlag } from '@/components/pentecost/dutch-flag';
 import { HollandCountdown } from '@/components/pentecost/holland-countdown';
 import { AbsenceForm, RemoveAbsenceButton } from '@/components/profile/absence-form';
-import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -38,7 +38,6 @@ export default async function CalendarPage() {
     listAbsences(db, viewer.id, todayIso()),
   ]);
   const active = members.filter((member) => member.active);
-  const nameOf = (id: number) => members.find((member) => member.id === id)?.name ?? '?';
   const feed = viewer.calendarToken ? calendarLink(viewer.calendarToken) : null;
 
   const months = new Map<string, typeof entries>();
@@ -85,7 +84,6 @@ export default async function CalendarPage() {
                 // An absent host already reads „Du bist weg“ in the notice above the picker.
                 const meAway =
                   entry.absentMemberIds.includes(viewer.id) && entry.host?.id !== viewer.id;
-                const away = entry.absentMemberIds.filter((id) => id !== entry.host?.id);
                 const needsSubstitute = entry.hostAbsent && !entry.cancelled;
                 const holland = isHollandFriday(entry.date);
                 return (
@@ -183,21 +181,8 @@ export default async function CalendarPage() {
                     {entry.cancelled && entry.cancelReason && (
                       <p className="text-muted-foreground text-xs">{entry.cancelReason}</p>
                     )}
-                    {away.length > 0 && !entry.cancelled && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-muted-foreground text-xs">Weg:</span>
-                        <div className="flex -space-x-1.5">
-                          {away.map((id) => (
-                            <span key={id} title={nameOf(id)}>
-                              <Avatar
-                                name={nameOf(id)}
-                                id={id}
-                                className="ring-background size-6 text-[9px] ring-2"
-                              />
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                    {!entry.cancelled && entry.people.length > 0 && (
+                      <WhoComes people={entry.people} />
                     )}
                     {pickHost && (
                       <div className="border-border/50 mt-auto border-t pt-3">
