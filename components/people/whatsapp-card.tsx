@@ -2,12 +2,11 @@ import { CircleCheck, MessageCircle, PlugZap, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
-import { botGroups, botState } from '@/lib/whatsapp';
+import { botState } from '@/lib/whatsapp';
 
 /** For admins: is the bot linked, and if not, the QR code to link it from a phone. */
 export async function WhatsAppCard() {
   const state = await botState();
-  const groups = state.kind === 'connected' ? await botGroups() : [];
   return (
     <GlassCard variant="tile" className="space-y-4 p-5">
       <div className="flex items-center gap-3">
@@ -63,21 +62,6 @@ export async function WhatsAppCard() {
             </li>
             <li>Danach neu laden, hier steht dann „verbunden“.</li>
           </ol>
-        </div>
-      )}
-      {groups.length > 0 && (
-        <div className="text-sm">
-          <div className="text-muted-foreground mb-1 text-xs">
-            Gruppen des Bots (für Ankündigungen die ID als <code>WHATSAPP_GROUP</code> setzen):
-          </div>
-          <ul className="space-y-1">
-            {groups.map((group) => (
-              <li key={group.id} className="flex flex-wrap gap-x-2">
-                <span className="font-semibold">{group.subject}</span>
-                <code className="text-muted-foreground text-xs">{group.id}</code>
-              </li>
-            ))}
-          </ul>
         </div>
       )}
     </GlassCard>

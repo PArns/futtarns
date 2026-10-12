@@ -74,16 +74,3 @@ export async function botState(): Promise<BotState> {
     return { kind: 'unreachable' };
   }
 }
-
-/** The groups the bot is in, for picking WHATSAPP_GROUP. */
-export async function botGroups(): Promise<{ id: string; subject: string; size: number }[]> {
-  if (!process.env.BOT_URL) return [];
-  try {
-    const response = await botFetch('/groups');
-    return response.ok
-      ? ((await response.json()) as { id: string; subject: string; size: number }[])
-      : [];
-  } catch {
-    return [];
-  }
-}

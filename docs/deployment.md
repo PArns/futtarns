@@ -55,7 +55,8 @@ considers automated, so keep the volume to what the group needs.
 Open the people page (Leute) as admin: it shows whether the bot is connected and, if not, a
 QR code to scan in WhatsApp → Linked devices. With `PAIRING_PHONE` set to the bot's number
 (digits with country code) it shows a pairing code instead, for WhatsApp → Linked devices →
-Link with phone number. The same card lists the bot's groups; put a group's id into
+Link with phone number. Once connected, the bot writes the groups it is in, with their ids,
+to the container log (not to the page, so other admins don't see them); put one id into
 `WHATSAPP_GROUP` for announcements there.
 
 `WHATSAPP=off` runs the app without the bot; every message is then only written to the log.

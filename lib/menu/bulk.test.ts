@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseBulkDishes } from '@/lib/menu/bulk';
 
@@ -61,5 +63,41 @@ describe('parseBulkDishes', () => {
       'Zeile 1: „Margherita“ hat keinen Preis',
       'Zeile 3: Preis ohne Gericht davor',
     ]);
+  });
+
+  it('reads a Lieferando page with its doubled headings and the „Beliebt“ section', () => {
+    const page = readFileSync(join(__dirname, 'fixtures/lieferando.txt'), 'utf8');
+    const { dishes, errors } = parseBulkDishes(page);
+    expect(errors).toEqual(['„Angebot 3 (für 1 Person)“ ist gerade nicht verfügbar']);
+    expect(dishes.map((dish) => [dish.category, dish.name, dish.priceCents])).toEqual([
+      ['Angebote', 'Angebot 1 - Pizza', 2140],
+      ['Vorspeisen', 'Pizzabrötchen mit Kräutercreme', 340],
+      ['Amerikanisch - Pizza', 'Pizza Western', 940],
+      ['Salate', 'Salat Nagra', 893],
+      ['Pizza', 'Pizza Tonno', 840],
+      ['Pizza', 'Pizza Sucuk', 890],
+      ['Schnitzelgerichte', 'Hollandschnitzel', 1340],
+      ['Rumpsteak', 'Bistecca Funghi', 1590],
+      ['Beilagen', 'Reis', 340],
+      ['Alkoholfreie Getränke', 'Coca-Cola 1,0l (MEHRWEG)', 290],
+      ['Alkoholfreie Getränke', 'Durstlöscher Orange 0,5l', 170],
+      ['Alkoholische Getränke', 'Pils 0,5l', 240],
+    ]);
+    const byName = Object.fromEntries(dishes.map((dish) => [dish.name, dish]));
+    expect(byName['Angebot 1 - Pizza']!.description).toBe(
+      '1 Pizza (Ø 40cm) mit 2 Zutaten nach Wahl, 1 Salat nach Wahl, 1 alkoholfreies Getränk 1,0l nach Wahl'
+    );
+    expect(byName['Pizza Tonno']!.description).toBe('mit Thunfisch');
+    expect(byName['Pizza Sucuk']!.description).toBeNull();
+    expect(byName['Coca-Cola 1,0l (MEHRWEG)']!.description).toMatch(/^Coca-Cola steht für/);
+  });
+
+  it('keeps names and descriptions within what the import accepts', () => {
+    const long = 'x'.repeat(400);
+    const { dishes } = parseBulkDishes(
+      `${long}\n8,50 €\nKurz\nProduktinfo\n1,00 €\n${long}\n${long}\nB\nProduktinfo\n2,00 €`
+    );
+    expect(dishes.every((dish) => dish.name.length <= 120)).toBe(true);
+    expect(dishes.every((dish) => (dish.description?.length ?? 0) <= 300)).toBe(true);
   });
 });

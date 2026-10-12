@@ -14,7 +14,11 @@ import { formatDayList } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
+import { welcomeText } from '@/lib/welcome';
 import { botState, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
+
+// Validation messages reach the toast as they are, and the app speaks German.
+z.config(z.locales.de());
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
@@ -64,6 +68,8 @@ import {
   createDish,
   createDishes,
   createRestaurant,
+  deleteAllDishes,
+  deleteRestaurant,
   setHostRestaurant,
   setDishArchived,
   setRestaurantArchived,
@@ -534,7 +540,7 @@ export async function createMemberAction(
     if (whatsappConfigured()) {
       await sendWhatsApp(
         phone,
-        `Hi ${member.name}! ${viewer.name} hat dich bei freitach eingetragen, da organisieren wir den Freitag.\nAnmelden: ${loginLink(loginToken)}\n\nAntworte mit „hilfe“, um zu sehen, was ich kann.`
+        welcomeText({ name: member.name, invitedBy: viewer.name, link: loginLink(loginToken) })
       );
     }
     return { ok: true, message: `${member.name} ist angelegt`, link: loginLink(loginToken) };
@@ -816,7 +822,17 @@ export async function archiveRestaurantAction(
   return run(async () => {
     const { db } = await requireGroupManager();
     await setRestaurantArchived(db, z.number().int().positive().parse(id), archived);
+    return { ok: true, message: archived ? 'Nicht mehr im Angebot' : 'Wieder im Angebot' };
   });
+}
+
+export async function deleteRestaurantAction(id: number): Promise<ActionResult> {
+  const result = await run(async () => {
+    const { db } = await requireGroupManager();
+    await deleteRestaurant(db, z.number().int().positive().parse(id));
+  });
+  if (result.ok) redirect('/restaurants');
+  return result;
 }
 
 const dishForm = z.object({
@@ -877,10 +893,23 @@ export async function bulkAddDishesAction(
     const data = z
       .array(
         z.object({
-          category: z.string().trim().max(80).nullable(),
-          name: z.string().trim().min(1).max(120),
+          // A pasted menu is cut to fit rather than refused over one long line.
+          category: z
+            .string()
+            .trim()
+            .transform((text) => text.slice(0, 80))
+            .nullable(),
+          name: z
+            .string()
+            .trim()
+            .min(1)
+            .transform((text) => text.slice(0, 120)),
           priceCents: z.number().int().min(0).max(100_000),
-          description: z.string().trim().max(300).nullable(),
+          description: z
+            .string()
+            .trim()
+            .transform((text) => text.slice(0, 300))
+            .nullable(),
         })
       )
       .min(1, 'Keine Gerichte ausgewählt')
@@ -897,6 +926,14 @@ export async function bulkAddDishesAction(
         .filter(Boolean)
         .join(', '),
     };
+  });
+}
+
+export async function deleteAllDishesAction(restaurantId: number): Promise<ActionResult> {
+  return run(async () => {
+    const { db } = await requireGroupManager();
+    const removed = await deleteAllDishes(db, z.number().int().positive().parse(restaurantId));
+    return { ok: true, message: `${removed} ${removed === 1 ? 'Gericht' : 'Gerichte'} gelöscht` };
   });
 }
 
