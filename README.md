@@ -42,6 +42,8 @@ host's tools, people, light mode and desktop.
 
 ## Development
 
+Node 24 and pnpm 12 (`corepack enable` picks the version from `package.json`).
+
 ```bash
 pnpm install
 pnpm seed        # demo group, restaurants and Fridays in an embedded database (.data/)
