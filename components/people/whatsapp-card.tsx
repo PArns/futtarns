@@ -7,7 +7,7 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { formatPhone } from '@/lib/phone';
 import { botState } from '@/lib/whatsapp';
 
-/** For admins: is the bot linked, and if not, the QR code to link it from a phone. */
+/** For admins: is the bot linked, and if not, the QR or pairing code to link it, kept current. */
 export async function WhatsAppCard() {
   const state = await botState();
   return (

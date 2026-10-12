@@ -22,7 +22,16 @@ const PORT = Number(process.env.PORT ?? 3001);
 const AUTH_DIR = process.env.AUTH_DIR ?? './data/auth';
 const BOT_TOKEN = process.env.BOT_TOKEN ?? '';
 const APP_URL = (process.env.APP_INTERNAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-const PAIRING_PHONE = process.env.PAIRING_PHONE?.replace(/\D/g, '') || null;
+/** WhatsApp wants the number as digits with the country code; a German 0170 … works too. */
+function pairingDigits(raw: string | null | undefined): string | null {
+  const digits = raw?.replace(/\D/g, '') ?? '';
+  if (!digits) return null;
+  if (digits.startsWith('00')) return digits.slice(2);
+  if (digits.startsWith('0')) return `49${digits.slice(1)}`;
+  return digits;
+}
+
+const PAIRING_PHONE = pairingDigits(process.env.PAIRING_PHONE);
 // A relink from the app may ask for a pairing code for another number than PAIRING_PHONE.
 let pairingPhone = PAIRING_PHONE;
 
@@ -82,7 +91,14 @@ async function forward(phone: string, text: string): Promise<string | null> {
 }
 
 async function connect(): Promise<void> {
-  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  let { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+  // Asking for a pairing code stores `me` before anything is linked; `account` only comes
+  // with a successful pairing. With `me` alone the next connection would try to log in as a
+  // device WhatsApp never accepted, and no code would work again.
+  if (state.creds.me && !state.creds.account) {
+    await clearAuth();
+    ({ state, saveCreds } = await useMultiFileAuthState(AUTH_DIR));
+  }
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({
     version,
@@ -145,8 +161,8 @@ async function connect(): Promise<void> {
         setTimeout(() => void connect(), 2_000);
         return;
       }
-      // `creds.me` is set by a successful pairing; `registered` only by the pairing-code flow.
-      if (status === DisconnectReason.timedOut && !sock.authState.creds.me) {
+      // `account` is only set by a successful pairing (QR or code).
+      if (status === DisconnectReason.timedOut && !sock.authState.creds.account) {
         linkingPaused = true;
         console.log('Linking timed out; the people page asks for a new code when it is opened.');
         return;
@@ -265,7 +281,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/relink') {
       const body = (await readJson(request)) as { phone?: string | null };
-      await relink(body.phone?.replace(/\D/g, '') || null);
+      await relink(pairingDigits(body.phone));
       return json(response, 200, { ok: true });
     }
 

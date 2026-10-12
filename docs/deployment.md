@@ -67,10 +67,13 @@ considers automated, so keep the volume to what the group needs.
 
 Open the people page (Leute) as admin: it shows whether the bot is connected and, if not, a
 QR code to scan in WhatsApp → Linked devices. With `PAIRING_PHONE` set to the bot's number
-(digits with country code) it shows a pairing code instead, for WhatsApp → Linked devices →
-Link with phone number. Once connected, the bot writes the groups it is in, with their ids,
-to the container log (not to the page, so other admins don't see them); put one id into
-`WHATSAPP_GROUP` for announcements there.
+(`491701234567`; a German `0170 1234567` works too) it shows a pairing code instead, for
+WhatsApp → Linked devices → Link with phone number, entered on the phone with that number.
+WhatsApp Business works the same way. WhatsApp drops an unlinked connection after about two
+and a half minutes, and its code with it; while the page is open it fetches a fresh one by
+itself, and the bot does not ask for one while nobody is looking. Once connected, the bot
+writes the groups it is in, with their ids, to the container log (not to the page, so other
+admins don't see them); put one id into `WHATSAPP_GROUP` for announcements there.
 
 To move the bot to another number, use "Andere Nummer verknüpfen" on the same card: it logs
 the current phone out, deletes the stored login and shows a new QR code, or a pairing code
