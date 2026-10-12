@@ -5,7 +5,8 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -128,7 +129,7 @@ async function connect(): Promise<void> {
       if (status === DisconnectReason.loggedOut) {
         // The old login is useless now; start over so a new QR code shows up in the app.
         console.error('Logged out from WhatsApp, waiting to be linked again.');
-        await rm(AUTH_DIR, { recursive: true, force: true });
+        await clearAuth();
         pairingCode = null;
         setTimeout(() => void connect(), 2_000);
         return;
@@ -159,6 +160,17 @@ async function connect(): Promise<void> {
 }
 
 /**
+ * Deletes the stored login. AUTH_DIR is usually a mounted volume, which can be emptied but
+ * not removed: removing it fails with EBUSY.
+ */
+async function clearAuth(): Promise<void> {
+  await mkdir(AUTH_DIR, { recursive: true });
+  for (const name of await readdir(AUTH_DIR)) {
+    await rm(join(AUTH_DIR, name), { recursive: true, force: true });
+  }
+}
+
+/**
  * Logs the linked phone out and starts over, so another number can be linked: with a
  * pairing code for `phone` if given, otherwise with a QR code.
  */
@@ -177,7 +189,7 @@ async function relink(phone: string | null): Promise<void> {
       // Already closed by the logout.
     }
   }
-  await rm(AUTH_DIR, { recursive: true, force: true });
+  await clearAuth();
   console.log(
     pairingPhone ? `Relinking with a pairing code for +${pairingPhone}` : 'Relinking with a QR code'
   );
