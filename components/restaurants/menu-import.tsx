@@ -25,7 +25,13 @@ function useIncomingMenu(): string {
     () => window.location.hash,
     () => ''
   );
-  return hash.startsWith(IMPORT_HASH) ? decodeURIComponent(hash.slice(IMPORT_HASH.length)) : '';
+  if (!hash.startsWith(IMPORT_HASH)) return '';
+  try {
+    return decodeURIComponent(hash.slice(IMPORT_HASH.length));
+  } catch {
+    // A broken link should not take the whole page down.
+    return '';
+  }
 }
 
 /**

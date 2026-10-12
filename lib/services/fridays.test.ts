@@ -22,6 +22,7 @@ import {
 import { addAbsence, addGuest, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
 import {
+  addMissingDish,
   createDish,
   createRestaurant,
   deleteAllDishes,
@@ -29,6 +30,7 @@ import {
   getRestaurant,
   listDishes,
   setHostRestaurant,
+  setRestaurantArchived,
 } from '@/lib/services/restaurants';
 import { createTestDb } from '@/test/db';
 
@@ -243,6 +245,25 @@ describe('a Friday', () => {
       { name: 'Margherita', unitPriceCents: 800, dishId: null },
     ]);
     expect(byName.Ben!.hasDefault).toBe(false);
+  });
+
+  it('takes a missing dish only once and at a sane price', async () => {
+    const { anna, pizzeria } = await setup();
+    const dish = { name: 'Tonno', description: null, priceCents: 950 };
+    expect(await addMissingDish(db, pizzeria.id, dish, anna.id)).toMatchObject({
+      category: 'Selbst eingetragen',
+      createdById: anna.id,
+    });
+    await expect(
+      addMissingDish(db, pizzeria.id, { ...dish, name: 'tonno' }, anna.id)
+    ).rejects.toThrow('schon auf der Karte');
+    await expect(
+      addMissingDish(db, pizzeria.id, { ...dish, name: 'Gold', priceCents: 10_001 }, anna.id)
+    ).rejects.toThrow('100 €');
+    await setRestaurantArchived(db, pizzeria.id, true);
+    await expect(
+      addMissingDish(db, pizzeria.id, { ...dish, name: 'Hawaii' }, anna.id)
+    ).rejects.toThrow('nicht gefunden');
   });
 
   it('deletes only a restaurant no Friday ran on', async () => {

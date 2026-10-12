@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.16.0",
+  "packageManager": "pnpm@12.11.2",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "next dev",
@@ -30,7 +30,7 @@
     "drizzle-orm": "^0.45.4",
     "geist": "^1.7.2",
     "lucide-react": "^1.55.0",
-    "next": "16.3.8",
+    "next": "16.4.0",
     "next-themes": "^0.4.6",
     "postgres": "^3.4.9",
     "react": "19.3.0",
@@ -41,12 +41,12 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^22.20.5",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10.12.0",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.0",
     "playwright": "^1.64.0",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",

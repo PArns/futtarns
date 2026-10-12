@@ -35,11 +35,11 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
-COPY --from=bot-deps --chown=node:node /app/node_modules /opt/bot/node_modules
-COPY --from=bot-deps --chown=node:node /app/bot/node_modules /opt/bot/bot/node_modules
-COPY --chown=node:node bot/package.json /opt/bot/bot/package.json
-COPY --chown=node:node bot/src /opt/bot/bot/src
-COPY --chown=node:node scripts/start.mjs ./start.mjs
+COPY --from=bot-deps /app/node_modules /opt/bot/node_modules
+COPY --from=bot-deps /app/bot/node_modules /opt/bot/bot/node_modules
+COPY bot/package.json /opt/bot/bot/package.json
+COPY bot/src /opt/bot/bot/src
+COPY scripts/start.mjs ./start.mjs
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # The entrypoint starts as root to hand the mounted /data/whatsapp to node, then drops to it.
 RUN apk add --no-cache su-exec && chmod +x /usr/local/bin/docker-entrypoint.sh \

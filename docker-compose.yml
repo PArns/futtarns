@@ -38,7 +38,9 @@ services:
       # The WhatsApp login; without it the bot has to be linked again after every deploy.
       - /data/freitach/whatsapp:/data/whatsapp
     ports:
-      - '3500:3500'
+      # Only on the server itself: from outside, the site goes through Coolify's proxy
+      # with HTTPS, never as plain HTTP on this port.
+      - '127.0.0.1:3500:3500'
     depends_on:
       db:
         condition: service_healthy

@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
 
 const ALL = '__all__';
+const byName = new Intl.Collator('de', { numeric: true }).compare;
 const TAKEN = '__taken__';
 const NAMES_SHOWN = 3;
 
@@ -74,6 +75,22 @@ export function Menu({
   }, [dishes, deferredQuery, deferredCategory, takenBy]);
   const takenCount = dishes.filter((dish) => takenBy[dish.id]).length;
 
+  // Under „Alles“ the menu reads like the restaurant's: one heading per category.
+  const groups = useMemo(() => {
+    const sorted = [...visible].sort((a, b) => byName(a.name, b.name));
+    if (deferredCategory !== ALL) return [{ key: '', name: null, dishes: sorted }];
+    const byCategory = new Map<string | null, MenuDish[]>();
+    for (const name of [...categories, null]) byCategory.set(name, []);
+    for (const dish of sorted) byCategory.get(dish.category ?? null)!.push(dish);
+    return [...byCategory.entries()]
+      .filter(([, list]) => list.length > 0)
+      .map(([name, list]) => ({
+        key: name ?? '',
+        name: name ?? (categories.length > 0 ? 'Sonstiges' : null),
+        dishes: list,
+      }));
+  }, [visible, deferredCategory, categories]);
+
   if (dishes.length === 0) {
     return (
       <div className="space-y-3">
@@ -99,7 +116,7 @@ export function Menu({
           />
         </div>
         {(categories.length > 1 || takenCount > 0) && (
-          <div className="-mx-4 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-4 pb-1">
+          <div className="flex flex-wrap gap-1.5">
             <Chip selected={category === ALL} onClick={() => setCategory(ALL)}>
               Alles
             </Chip>
@@ -117,55 +134,68 @@ export function Menu({
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {visible.map((dish) => (
-          <button
-            key={dish.id}
-            type="button"
-            onClick={() => {
-              setOpenCount(openCount + 1);
-              setOpened({ dish, instance: openCount + 1 });
-            }}
-            className="group bg-card/60 hover:border-primary/50 relative flex items-start gap-3 rounded-xl border p-3 text-left transition-colors"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="group-hover:text-primary truncate text-[15px] font-bold transition-colors">
-                  {dish.name}
+      <div className="space-y-6">
+        {groups.map((group) => (
+          <section key={group.key}>
+            {group.name && (
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold">
+                {group.name}
+                <span className="text-muted-foreground text-xs font-normal tabular-nums">
+                  {group.dishes.length}
                 </span>
-                {dish.id === defaultDishId && (
-                  <span className="border-primary/30 bg-primary/10 text-primary shrink-0 rounded-full border px-1.5 text-[10px] font-bold tracking-wider uppercase">
-                    Standard
+                <span className="bg-border h-px flex-1" aria-hidden />
+              </h3>
+            )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {group.dishes.map((dish) => (
+                <button
+                  key={dish.id}
+                  type="button"
+                  onClick={() => {
+                    setOpenCount(openCount + 1);
+                    setOpened({ dish, instance: openCount + 1 });
+                  }}
+                  className="group bg-card/60 hover:border-primary/50 relative flex items-start gap-3 rounded-xl border p-3 text-left transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="group-hover:text-primary truncate text-[15px] font-bold transition-colors">
+                        {dish.name}
+                      </span>
+                      {dish.id === defaultDishId && (
+                        <span className="border-primary/30 bg-primary/10 text-primary shrink-0 rounded-full border px-1.5 text-[10px] font-bold tracking-wider uppercase">
+                          Standard
+                        </span>
+                      )}
+                    </div>
+                    {dish.description && (
+                      <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                        {dish.description}
+                      </p>
+                    )}
+                    <p className="mt-1.5 text-sm font-semibold tabular-nums">
+                      {dish.optionGroups.length > 0 && (
+                        <span className="text-muted-foreground font-normal">ab </span>
+                      )}
+                      {formatEuro(dish.priceCents)}
+                    </p>
+                    {takenBy[dish.id] && (
+                      <p className="text-primary mt-1 flex items-center gap-1 text-xs font-medium">
+                        <Users className="size-3 shrink-0" />
+                        <span className="truncate">{whoTook(takenBy[dish.id]!)}</span>
+                      </p>
+                    )}
+                  </div>
+                  <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white">
+                    <Plus className="size-4" />
                   </span>
-                )}
-              </div>
-              {dish.description && (
-                <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
-                  {dish.description}
-                </p>
-              )}
-              <p className="mt-1.5 text-sm font-semibold tabular-nums">
-                {dish.optionGroups.length > 0 && (
-                  <span className="text-muted-foreground font-normal">ab </span>
-                )}
-                {formatEuro(dish.priceCents)}
-              </p>
-              {takenBy[dish.id] && (
-                <p className="text-primary mt-1 flex items-center gap-1 text-xs font-medium">
-                  <Users className="size-3 shrink-0" />
-                  <span className="truncate">{whoTook(takenBy[dish.id]!)}</span>
-                </p>
-              )}
+                </button>
+              ))}
             </div>
-            <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white">
-              <Plus className="size-4" />
-            </span>
-          </button>
+          </section>
         ))}
         {visible.length === 0 && (
-          <p className="text-muted-foreground col-span-full py-6 text-center text-sm">
-            Nichts gefunden.
-          </p>
+          <p className="text-muted-foreground py-6 text-center text-sm">Nichts gefunden.</p>
         )}
       </div>
 

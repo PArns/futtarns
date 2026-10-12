@@ -197,9 +197,16 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body));
 }
 
+const MAX_BODY_BYTES = 64 * 1024;
+
 async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of request) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY_BYTES) throw new Error('request body too large');
+    chunks.push(chunk as Buffer);
+  }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
@@ -248,5 +255,6 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Bot API on :${PORT}`));
+// Only the app in the same container talks to the bot.
+server.listen(PORT, '127.0.0.1', () => console.log(`Bot API on 127.0.0.1:${PORT}`));
 void connect();

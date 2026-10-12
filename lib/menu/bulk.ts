@@ -35,7 +35,7 @@ const NAME_MAX = 120;
 const DESCRIPTION_MAX = 300;
 const PRODUCT_INFO = /^produktinfo$/i;
 const AFTER_INFO = /^(altersbeschränkung.*|\d+\+|nicht verfügbar)$/i;
-const DEPOSIT = /zzgl\.\s*pfand\s*\((\d+[.,]\d{2})\s*€\)/i;
+const DEPOSIT = /zzgl\.\s*pfand\s*\((\d{1,3}[.,]\d{2})\s*€\)/i;
 
 /**
  * Reads the text of a Lieferando menu page, copied with Ctrl+A or taken by the bookmarklet.

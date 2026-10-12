@@ -26,18 +26,31 @@ only to hand `/data/whatsapp` to the `node` user (`docker-entrypoint.sh`), then 
    Rustica.
 
 3. Domains: enter `https://freitach.arns.dev:3500` for the `app` service. The `:3500` only
-   tells Coolify's proxy which container port to use; the site is served on 443. The app is
-   also published on the server's port 3500.
+   tells Coolify's proxy which container port to use; the site is served on 443. Port 3500
+   is also published, but only on `127.0.0.1`, so from outside the site is reachable over
+   HTTPS through the proxy and never as plain HTTP.
 4. Deploy. The app migrates the database on start; `GET /api/health` answers once it is up.
-5. Open the login link from the log, then link WhatsApp on the people page (Leute). Until an
-   admin has logged in, every start prints a fresh link, so a restart brings back a lost one.
-   Logging in with a phone number works once the bot is linked.
+5. Open the login link from the log, press "Anmelden", then link WhatsApp on the people page
+   (Leute). Until an admin has logged in, every start prints a fresh link, so a restart
+   brings back a lost one. Logging in with a phone number works once the bot is linked.
 
 ## Without Compose
 
 The `Dockerfile` also runs on its own: give it `DATABASE_URL` (Postgres), `APP_URL`, a mount
 at `/data/whatsapp` and the variables from `.env.example`. It listens on `PORT` (default
 3500). The bot's own port (`BOT_PORT`, default 3001) is only used inside the container.
+
+## Login
+
+Members log in with their phone number and a six-digit code the bot sends. A code works once,
+for ten minutes and five guesses; each number gets at most five codes an hour and the whole
+group 30, since every code is a WhatsApp message and a flood of them gets the bot's number
+blocked. A number that is not registered gets the same answer as a registered one, and no
+message goes out.
+
+A personal login link (from Leute, or from the log on first start) works once: it opens a
+page with an "Anmelden" button, and only pressing it uses the link up, so a chat app's link
+preview cannot spend it.
 
 ## Domain
 
