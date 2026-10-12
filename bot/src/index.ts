@@ -105,6 +105,15 @@ async function connect(): Promise<void> {
       pendingQr = null;
       pairingCode = null;
       console.log(`Connected as ${sock.user?.id ?? 'unknown'}`);
+      // Group ids only go to the log, which only whoever runs the server can read.
+      sock
+        .groupFetchAllParticipating()
+        .then((groups) => {
+          const lines = Object.values(groups).map((group) => `  ${group.subject}: ${group.id}`);
+          if (lines.length)
+            console.log(`Groups (one id goes into WHATSAPP_GROUP):\n${lines.join('\n')}`);
+        })
+        .catch((error: unknown) => console.error('Could not list groups', error));
     }
     if (update.connection === 'close') {
       connected = false;
@@ -193,20 +202,6 @@ const server = createServer(async (request, response) => {
         return json(response, 404, { error: 'no QR yet, try again in a few seconds' });
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
       return response.end(await QRCode.toString(pendingQr, { type: 'svg', margin: 2 }));
-    }
-
-    if (request.method === 'GET' && url.pathname === '/groups') {
-      if (!socket || !connected) return json(response, 503, { error: 'not connected' });
-      const groups = await socket.groupFetchAllParticipating();
-      return json(
-        response,
-        200,
-        Object.values(groups).map((group) => ({
-          id: group.id,
-          subject: group.subject,
-          size: group.participants.length,
-        }))
-      );
     }
 
     json(response, 404, { error: 'not found' });

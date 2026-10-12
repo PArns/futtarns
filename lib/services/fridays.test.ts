@@ -23,6 +23,9 @@ import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders
 import {
   createDish,
   createRestaurant,
+  deleteAllDishes,
+  deleteRestaurant,
+  getRestaurant,
   listDishes,
   setHostRestaurant,
 } from '@/lib/services/restaurants';
@@ -219,6 +222,44 @@ describe('a Friday', () => {
     const locked = await loadFriday(db, later, new Date('2026-10-30T18:05:00Z'));
     expect(locked.restaurant?.id).toBe(sushi.id);
     expect(locked.restaurantIsDefault).toBe(false);
+  });
+
+  it('clears a menu but keeps what was already ordered', async () => {
+    const { anna, ben, pizzeria, margherita, salami } = await setup();
+    await addItem(db, FRIDAY, anna.id, {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+      quantity: 1,
+    });
+    await setDefaultDish(db, ben.id, pizzeria.id, { dishId: salami.id, selection: {}, note: null });
+
+    expect(await deleteAllDishes(db, pizzeria.id)).toBe(2);
+    expect(await listDishes(db, pizzeria.id, true)).toEqual([]);
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    const byName = Object.fromEntries(view.participants.map((p) => [p.member.name, p]));
+    expect(byName.Anna!.items).toMatchObject([
+      { name: 'Margherita', unitPriceCents: 800, dishId: null },
+    ]);
+    expect(byName.Ben!.hasDefault).toBe(false);
+  });
+
+  it('deletes only a restaurant no Friday ran on', async () => {
+    const { pizzeria } = await setup();
+    const unused = await createRestaurant(db, {
+      name: 'Nie benutzt',
+      cuisine: null,
+      lieferandoUrl: null,
+      minOrderCents: 0,
+      deliveryFeeCents: 0,
+      freeDeliveryFromCents: null,
+      serviceFeeCents: 0,
+      notes: null,
+    });
+    await expect(deleteRestaurant(db, pizzeria.id)).rejects.toThrow('aus dem Angebot');
+    await deleteRestaurant(db, unused.id);
+    expect(await getRestaurant(db, unused.id)).toBeNull();
+    expect(await getRestaurant(db, pizzeria.id)).not.toBeNull();
   });
 
   it('locks due Fridays from the timer, but not a cancelled one', async () => {

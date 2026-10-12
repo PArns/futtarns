@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import type { Db } from '@/lib/db/client';
-import { dishes, members, restaurants, type Dish, type Restaurant } from '@/lib/db/schema';
+import { dishes, fridays, members, restaurants, type Dish, type Restaurant } from '@/lib/db/schema';
 import type { BulkDish } from '@/lib/menu/bulk';
 import type { OptionGroup } from '@/lib/menu/options';
 import { ServiceError } from '@/lib/services/members';
@@ -71,6 +71,24 @@ export async function createRestaurant(db: Db, input: RestaurantInput): Promise<
 
 export async function updateRestaurant(db: Db, id: number, input: Partial<RestaurantInput>) {
   await db.update(restaurants).set(input).where(eq(restaurants.id, id));
+}
+
+/**
+ * Deletes a restaurant together with its menu. One a Friday already ran on stays for that
+ * Friday's sake and can only be taken off the list.
+ */
+export async function deleteRestaurant(db: Db, id: number) {
+  const [used] = await db
+    .select({ date: fridays.date })
+    .from(fridays)
+    .where(eq(fridays.restaurantId, id))
+    .limit(1);
+  if (used) {
+    throw new ServiceError(
+      'Bei diesem Restaurant wurde schon bestellt. Nimm es stattdessen aus dem Angebot.'
+    );
+  }
+  await db.delete(restaurants).where(eq(restaurants.id, id));
 }
 
 export async function setRestaurantArchived(db: Db, id: number, archived: boolean) {
@@ -160,6 +178,18 @@ export async function updateDish(db: Db, restaurantId: number, dishId: number, i
     .update(dishes)
     .set(input)
     .where(and(eq(dishes.id, dishId), eq(dishes.restaurantId, restaurantId)));
+}
+
+/**
+ * Clears a restaurant's whole menu, e.g. before importing it again. Orders keep the name
+ * and price they copied; defaults pointing at these dishes go with them.
+ */
+export async function deleteAllDishes(db: Db, restaurantId: number): Promise<number> {
+  const removed = await db
+    .delete(dishes)
+    .where(eq(dishes.restaurantId, restaurantId))
+    .returning({ id: dishes.id });
+  return removed.length;
 }
 
 /** Archives instead of deleting, because past orders and defaults point at the dish. */

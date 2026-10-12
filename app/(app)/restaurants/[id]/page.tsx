@@ -17,10 +17,15 @@ import {
   NoFoodDefaultButton,
   RemoveDefaultButton,
 } from '@/components/profile/remove-default-button';
-import { ArchiveDishButton, DishForm } from '@/components/restaurants/dish-form';
+import {
+  ArchiveDishButton,
+  DeleteAllDishesButton,
+  DishForm,
+} from '@/components/restaurants/dish-form';
 import { DefaultRestaurantButton } from '@/components/restaurants/default-restaurant-button';
 import { LieferandoBookmarklet } from '@/components/restaurants/lieferando-bookmarklet';
 import { MenuImport } from '@/components/restaurants/menu-import';
+import { RestaurantActions } from '@/components/restaurants/restaurant-actions';
 import { RestaurantForm } from '@/components/restaurants/restaurant-form';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -63,9 +68,11 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
     <>
       <PageHero
         kicker={
-          hosts
-            ? `Standard bei ${hosts} · ${restaurant.cuisine ?? 'Restaurant'}`
-            : (restaurant.cuisine ?? 'Restaurant')
+          restaurant.archived
+            ? 'Nicht mehr im Angebot'
+            : hosts
+              ? `Standard bei ${hosts} · ${restaurant.cuisine ?? 'Restaurant'}`
+              : (restaurant.cuisine ?? 'Restaurant')
         }
         title={restaurant.name}
       >
@@ -84,7 +91,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           )}
         </div>
         {restaurant.notes && <p className="hero-item mt-3 text-sm">{restaurant.notes}</p>}
-        {(restaurant.lieferandoUrl || !mineAsHost) && (
+        {(restaurant.lieferandoUrl || (!mineAsHost && !restaurant.archived)) && (
           <div className="hero-item mt-5 flex flex-wrap gap-2">
             {restaurant.lieferandoUrl && (
               <a
@@ -96,7 +103,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
                 <ExternalLink /> Bei Lieferando ansehen
               </a>
             )}
-            {!mineAsHost && <DefaultRestaurantButton id={restaurant.id} />}
+            {!mineAsHost && !restaurant.archived && <DefaultRestaurantButton id={restaurant.id} />}
           </div>
         )}
       </PageHero>
@@ -178,6 +185,9 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
                   kicker="Karte"
                   title="Gerichte bearbeiten"
                   hint="Archivierte Gerichte bleiben in alten Bestellungen erhalten."
+                  action={
+                    <DeleteAllDishesButton restaurantId={restaurant.id} count={allDishes.length} />
+                  }
                 />
                 <div className="space-y-2">
                   {allDishes.map((dish) => (
@@ -224,8 +234,15 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
 
             <section>
               <ChapterHeading icon={Settings2} kicker="Laden" title="Daten und Gebühren" />
-              <GlassCard variant="tile" className="p-5">
+              <GlassCard variant="tile" className="space-y-5 p-5">
                 <RestaurantForm restaurant={restaurant} />
+                <div className="border-border/50 border-t pt-4">
+                  <RestaurantActions
+                    id={restaurant.id}
+                    name={restaurant.name}
+                    archived={restaurant.archived}
+                  />
+                </div>
               </GlassCard>
             </section>
           </>

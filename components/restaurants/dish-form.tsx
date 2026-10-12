@@ -1,8 +1,8 @@
 'use client';
 
-import { Archive, ArchiveRestore, Plus, Save } from 'lucide-react';
+import { Archive, ArchiveRestore, Plus, Save, Trash2 } from 'lucide-react';
 import { useActionState, useState } from 'react';
-import { archiveDishAction, saveDishAction } from '@/app/actions';
+import { archiveDishAction, deleteAllDishesAction, saveDishAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Hint, Input, Label, Textarea } from '@/components/ui/input';
 import type { ActionResult } from '@/lib/action-result';
@@ -133,6 +133,36 @@ export function ArchiveDishButton({
       onClick={() => execute(() => archiveDishAction(restaurantId, dishId, !archived))}
     >
       {archived ? <ArchiveRestore /> : <Archive />}
+    </Button>
+  );
+}
+
+/** Empties the menu in one go, for starting over with a fresh import. */
+export function DeleteAllDishesButton({
+  restaurantId,
+  count,
+}: {
+  restaurantId: number;
+  count: number;
+}) {
+  const { pending, execute } = useAction();
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="text-error"
+      disabled={pending}
+      onClick={() => {
+        if (
+          window.confirm(
+            `Alle ${count} Gerichte löschen? Standardgerichte dafür gehen verloren, schon bestellte Gerichte bleiben in den Bestellungen.`
+          )
+        ) {
+          execute(() => deleteAllDishesAction(restaurantId));
+        }
+      }}
+    >
+      <Trash2 /> Alle löschen
     </Button>
   );
 }

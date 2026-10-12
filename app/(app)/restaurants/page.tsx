@@ -1,4 +1,4 @@
-import { Plus, Sparkles, Store, Truck } from 'lucide-react';
+import { Archive, Plus, Sparkles, Store, Truck } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChapterHeading } from '@/components/common/chapter-heading';
@@ -19,8 +19,8 @@ export const metadata: Metadata = { title: 'Restaurants' };
 export default async function RestaurantsPage() {
   const { viewer, canManage } = await getGroupContext();
   const db = await getDb();
-  const [restaurants, defaults, people, dishCounts] = await Promise.all([
-    listRestaurants(db),
+  const [everyRestaurant, defaults, people, dishCounts] = await Promise.all([
+    listRestaurants(db, canManage),
     listDefaults(db, viewer.id),
     listMembers(db),
     db
@@ -29,6 +29,9 @@ export default async function RestaurantsPage() {
       .where(eq(dishes.archived, false))
       .groupBy(dishes.restaurantId),
   ]);
+
+  const restaurants = everyRestaurant.filter((restaurant) => !restaurant.archived);
+  const retired = everyRestaurant.filter((restaurant) => restaurant.archived);
 
   return (
     <>
@@ -101,6 +104,29 @@ export default async function RestaurantsPage() {
             </div>
           )}
         </section>
+
+        {retired.length > 0 && (
+          <section>
+            <ChapterHeading
+              icon={Archive}
+              kicker="Archiv"
+              title="Nicht mehr im Angebot"
+              hint="Nur für Admins und den Gastgeber sichtbar. Auf der Seite des Restaurants lässt es sich wieder anbieten oder löschen."
+            />
+            <GlassCard variant="tile" className="divide-border/50 divide-y p-0">
+              {retired.map((restaurant) => (
+                <Link
+                  key={restaurant.id}
+                  href={`/restaurants/${restaurant.id}`}
+                  className="hover:text-primary flex items-center gap-3 px-5 py-3 text-sm font-semibold transition-colors"
+                >
+                  <Store className="text-muted-foreground size-4" />
+                  {restaurant.name}
+                </Link>
+              ))}
+            </GlassCard>
+          </section>
+        )}
 
         {canManage && (
           <section>
