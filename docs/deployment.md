@@ -26,9 +26,9 @@ only to hand `/data/whatsapp` to the `node` user (`docker-entrypoint.sh`), then 
    Rustica.
 
 3. Domains: enter `https://freitach.arns.dev:3500` for the `app` service. The `:3500` only
-   tells Coolify's proxy which container port to use; the site is served on 443. Port 3500
-   is also published, but only on `127.0.0.1`, so from outside the site is reachable over
-   HTTPS through the proxy and never as plain HTTP.
+   tells Coolify's proxy which container port to use; the site is served on 443. The app is
+   also published on the server's port 3500, and the way in from Cloudflare uses it, so it
+   must not be bound to `127.0.0.1` only (that answers every request with a 502).
 4. Deploy. The app migrates the database on start; `GET /api/health` answers once it is up.
 5. Open the login link from the log, press "Anmelden", then link WhatsApp on the people page
    (Leute). Until an admin has logged in, every start prints a fresh link, so a restart
