@@ -1,10 +1,34 @@
 import { CupSoda, HandCoins, Receipt, TriangleAlert, Truck, UtensilsCrossed } from 'lucide-react';
 import { AmountRow } from '@/components/ui/amount-row';
+import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
 import { formatEuro } from '@/lib/format';
+import type { Money } from '@/lib/balance';
 import type { FridayView } from '@/lib/services/fridays';
-import { cn } from '@/lib/utils';
+
+/**
+ * Where someone stands, as a pill: red still owes, green has paid it all, blue gets money
+ * back. The host collects, so their row says so instead.
+ */
+function MoneyPill({ money, isHost }: { money: Money; isHost: boolean }) {
+  if (isHost) return <Badge className="text-muted-foreground">Gastgeber</Badge>;
+  const open = money.openCents;
+  if (open > 0)
+    return (
+      <Badge variant="softError" className="tabular-nums">
+        {formatEuro(open)} offen
+      </Badge>
+    );
+  if (open < 0)
+    return (
+      <Badge variant="soft" className="tabular-nums">
+        {formatEuro(-open)} zurück
+      </Badge>
+    );
+  if (money.paidCents > 0) return <Badge variant="softSuccess">bezahlt</Badge>;
+  return <span className="text-muted-foreground">–</span>;
+}
 
 /** What the Friday costs in total and what everyone pays and still owes. */
 export function CostsSection({ view }: { view: FridayView }) {
@@ -128,15 +152,8 @@ export function CostsSection({ view }: { view: FridayView }) {
                     <td className="text-muted-foreground py-2 text-right tabular-nums">
                       {entry.money.drinksCents ? formatEuro(entry.money.drinksCents) : '–'}
                     </td>
-                    <td
-                      className={cn(
-                        'py-2 text-right font-bold tabular-nums',
-                        entry.money.openCents > 0 && 'text-warning',
-                        entry.money.openCents < 0 && 'text-primary',
-                        isHost && 'text-muted-foreground text-xs font-medium'
-                      )}
-                    >
-                      {isHost ? 'Gastgeber' : formatEuro(entry.money.openCents)}
+                    <td className="py-2 text-right">
+                      <MoneyPill money={entry.money} isHost={isHost} />
                     </td>
                   </tr>
                 );

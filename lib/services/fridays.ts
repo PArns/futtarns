@@ -1,5 +1,9 @@
 import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { effectiveAttendance, type EffectiveAttendance } from '@/lib/attendance';
+import {
+  effectiveAttendance,
+  type AttendancePerson,
+  type EffectiveAttendance,
+} from '@/lib/attendance';
 import { DRINKS_FEE_CENTS, moneyFor, type Money } from '@/lib/balance';
 import {
   addWeeks,
@@ -576,13 +580,7 @@ export type CalendarEntry = {
   people: CalendarPerson[];
 };
 
-export type CalendarPerson = {
-  id: number;
-  name: string;
-  status: AttendanceStatus;
-  /** False when the status is only what silence means (or an absence). */
-  answered: boolean;
-};
+export type CalendarPerson = AttendancePerson;
 
 /** The coming Fridays with host, restaurant and who is away, for the calendar. */
 export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promise<CalendarEntry[]> {

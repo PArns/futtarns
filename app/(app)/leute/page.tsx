@@ -1,16 +1,9 @@
 import { asc, eq } from 'drizzle-orm';
-import {
-  CalendarCog,
-  House,
-  MessageCircle,
-  ShieldCheck,
-  UserPlus,
-  Users,
-  Wallet,
-} from 'lucide-react';
+import { MessageCircle, UserPlus, Users, Wallet } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { AttendancePill } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { PageHero } from '@/components/layout/page-hero';
 import { CreateMemberForm } from '@/components/people/create-member-form';
@@ -25,11 +18,19 @@ import { members, type Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro } from '@/lib/format';
 import { formatPhone } from '@/lib/phone';
 import { getGroupContext } from '@/lib/session';
-import { openBalances } from '@/lib/services/fridays';
+import { answerKind, type AnswerKind } from '@/lib/attendance';
+import { loadCalendar, openBalances } from '@/lib/services/fridays';
 import { listMembers } from '@/lib/services/members';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Leute' };
+
+const ANSWER_LABEL: Record<AnswerKind, string> = {
+  yes: 'dabei',
+  silent: 'keine Antwort',
+  nofood: 'ohne Essen',
+  out: 'raus',
+};
 
 // The client component gets only what it shows: a full row would put calendar tokens and
 // login-link hashes into the page source.
@@ -50,11 +51,13 @@ export default async function PeoplePage() {
   const { viewer, canManage, currentFriday } = await getGroupContext();
   if (!canManage) notFound();
   const db = await getDb();
-  const [people, guests, balances] = await Promise.all([
+  const [people, guests, balances, [friday]] = await Promise.all([
     listMembers(db),
     db.select().from(members).where(eq(members.kind, 'guest')).orderBy(asc(members.name)),
     openBalances(db, currentFriday, new Date()),
+    loadCalendar(db, currentFriday, 1),
   ]);
+  const thisFriday = new Map(friday?.people.map((person) => [person.id, person]));
 
   return (
     <>
@@ -149,11 +152,6 @@ export default async function PeoplePage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 font-bold">
                       <span className="truncate">{member.name}</span>
-                      {member.isAdmin && <ShieldCheck className="text-primary size-3.5 shrink-0" />}
-                      {member.isDefaultHost && <House className="text-primary size-3.5 shrink-0" />}
-                      {member.assignsHosts && (
-                        <CalendarCog className="text-primary size-3.5 shrink-0" />
-                      )}
                     </div>
                     <div className="text-muted-foreground truncate text-xs">
                       {[
@@ -165,6 +163,17 @@ export default async function PeoplePage() {
                     </div>
                   </div>
                   {!member.phone && <Badge variant="softWarning">ohne Nummer</Badge>}
+                </div>
+                <div className="mb-3 flex flex-wrap gap-1">
+                  {thisFriday.has(member.id) && (
+                    <AttendancePill
+                      person={thisFriday.get(member.id)!}
+                      label={`Freitag: ${ANSWER_LABEL[answerKind(thisFriday.get(member.id)!)]}`}
+                    />
+                  )}
+                  {member.isAdmin && <Badge variant="soft">Admin</Badge>}
+                  {member.isDefaultHost && <Badge variant="soft">Standard-Gastgeber</Badge>}
+                  {member.assignsHosts && <Badge variant="soft">Gastgeber</Badge>}
                 </div>
                 {viewer.isAdmin && (
                   <details className="mb-3">
