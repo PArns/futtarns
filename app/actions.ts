@@ -49,6 +49,7 @@ import {
 import {
   addAbsence,
   addGuest,
+  consumeLoginToken,
   createMember,
   issueLoginToken,
   removeAbsence,
@@ -65,6 +66,7 @@ import {
   setNoFoodDefault,
 } from '@/lib/services/orders';
 import {
+  addMissingDish,
   createDish,
   createDishes,
   createRestaurant,
@@ -80,6 +82,11 @@ import {
 const fridayDate = z.string().refine(isFridayIso, 'Das ist kein Freitag');
 const isoDate = z.string().refine(isIsoDate, 'Ungültiges Datum');
 const memberId = z.coerce.number().int().positive();
+const recordId = z.number().int().positive();
+const flag = z.boolean();
+// Amounts arrive as typed text; anything else is read as nothing typed.
+const typedAmount = z.string().max(20).catch('');
+const loginField = z.string().max(30).catch('');
 const optionalText = z
   .string()
   .trim()
@@ -101,6 +108,15 @@ async function run(body: () => Promise<ActionResult | void>): Promise<ActionResu
     if (error instanceof z.ZodError) return fail(error.issues[0]?.message ?? 'Ungültige Eingabe');
     throw error;
   }
+}
+
+/** An optional phone field: null when left empty, an error when it is not a number. */
+function optionalPhone(input: unknown): string | null {
+  const raw = z.string().trim().max(30).parse(input);
+  if (!raw) return null;
+  const phone = normalizePhone(raw);
+  if (!phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+  return phone;
 }
 
 function formObject(form: FormData): Record<string, string> {
@@ -169,7 +185,7 @@ export async function setAnswerAction(input: {
 const dishChoice = z.object({
   date: fridayDate,
   memberId,
-  dishId: z.number().int().positive(),
+  dishId: recordId,
   selection: z.record(z.string(), z.array(z.string()).max(30)),
   quantity: z.number().int().min(1).max(20),
   note: optionalText,
@@ -198,7 +214,7 @@ export async function setItemQuantityAction(
   return run(async () => {
     const { viewer } = await getGroupContext();
     const db = await getDb();
-    const item = await getItem(db, z.number().int().positive().parse(itemId));
+    const item = await getItem(db, recordId.parse(itemId));
     if (!item) throw new ServiceError('Gibt es nicht mehr');
     await orderAccess(viewer, item.fridayDate, item.memberId);
     await setItemQuantity(db, item.id, z.number().int().min(0).max(20).parse(quantity));
@@ -219,8 +235,8 @@ export async function saveDefaultAction(input: {
     const { viewer } = await getGroupContext();
     const data = z
       .object({
-        restaurantId: z.number().int().positive(),
-        dishId: z.number().int().positive(),
+        restaurantId: recordId,
+        dishId: recordId,
         selection: z.record(z.string(), z.array(z.string()).max(30)),
         note: optionalText,
       })
@@ -233,11 +249,7 @@ export async function saveDefaultAction(input: {
 export async function setNoFoodDefaultAction(restaurantId: number): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
-    await setNoFoodDefault(
-      await getDb(),
-      viewer.id,
-      z.number().int().positive().parse(restaurantId)
-    );
+    await setNoFoodDefault(await getDb(), viewer.id, recordId.parse(restaurantId));
     return { ok: true, message: 'Standard: nix essen' };
   });
 }
@@ -245,11 +257,7 @@ export async function setNoFoodDefaultAction(restaurantId: number): Promise<Acti
 export async function removeDefaultAction(restaurantId: number): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
-    await removeDefaultDish(
-      await getDb(),
-      viewer.id,
-      z.number().int().positive().parse(restaurantId)
-    );
+    await removeDefaultDish(await getDb(), viewer.id, recordId.parse(restaurantId));
   });
 }
 
@@ -284,11 +292,7 @@ export async function chooseRestaurantAction(
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    await setRestaurant(
-      db,
-      day,
-      restaurantId === null ? null : z.number().int().positive().parse(restaurantId)
-    );
+    await setRestaurant(db, day, restaurantId === null ? null : recordId.parse(restaurantId));
   });
 }
 
@@ -308,7 +312,7 @@ export async function setCancelledAction(
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    await setCancelled(db, day, cancelled, optionalText.parse(reason));
+    await setCancelled(db, day, flag.parse(cancelled), optionalText.parse(reason));
   });
 }
 
@@ -324,7 +328,7 @@ export async function settleAction(date: string, total: string): Promise<ActionR
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    const cents = parseEuroToCents(total);
+    const cents = parseEuroToCents(typedAmount.parse(total));
     if (cents === null || cents <= 0)
       throw new ServiceError('Bitte den Betrag wie „87,40“ eingeben');
     await settleFriday(db, day, cents, new Date());
@@ -354,27 +358,20 @@ export async function setFlatAction(
       .min(1, 'Wie heißt der Abend? Zum Beispiel „Grillen“')
       .max(60)
       .parse(title);
-    const cents = parseEuroToCents(price);
+    const typed = typedAmount.parse(price).trim();
+    const cents = parseEuroToCents(typed);
     if (cents === null || cents <= 0)
       throw new ServiceError('Bitte einen Betrag wie „15“ eingeben');
     await setFlat(db, day, name, cents);
-    return { ok: true, message: `${name} für ${price.trim()} € pro Person` };
+    return { ok: true, message: `${name} für ${typed} € pro Person` };
   });
 }
 
-/**
- * Books a payment the viewer says they sent: for themselves, or for a guest they brought.
- * The amount is the one their PayPal link carried, so the ledger matches the money.
- */
-export async function payAction(
-  date: string,
-  target: number,
-  amountCents: number
-): Promise<ActionResult> {
+/** „Hab bezahlt“: books what is open, as the server works it out, never a sum from the browser. */
+export async function payAction(date: string, target: number): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
     const id = memberId.parse(target);
-    const amount = z.number().int().min(1).max(100_000).parse(amountCents);
     const { viewer } = await getGroupContext();
     const db = await getDb();
     if (id !== viewer.id) {
@@ -386,10 +383,13 @@ export async function payAction(
         throw new ServiceError('Das darfst du nicht für jemand anderen eintragen');
       }
     }
+    const view = await loadFriday(db, day, new Date());
+    const open = view.participants.find((entry) => entry.member.id === id)?.money.openCents ?? 0;
+    if (open <= 0) throw new ServiceError('Da ist nichts offen');
     await recordPayment(db, {
       date: day,
       memberId: id,
-      amountCents: amount,
+      amountCents: open,
       recordedById: viewer.id,
     });
     return { ok: true, message: 'Danke! Als bezahlt vermerkt' };
@@ -420,12 +420,14 @@ export async function setExtrasAction(
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    const tipCents = tip.trim() ? parseEuroToCents(tip) : null;
-    if (tip.trim() && (tipCents === null || tipCents < 0)) {
+    const tipText = typedAmount.parse(tip).trim();
+    const tipCents = tipText ? parseEuroToCents(tipText) : null;
+    if (tipText && (tipCents === null || tipCents < 0)) {
       throw new ServiceError('Trinkgeld: bitte einen Betrag wie „3“ eingeben oder leer lassen');
     }
-    const drinksCents = drinksFee.trim() ? parseEuroToCents(drinksFee) : null;
-    if (drinksFee.trim() && (drinksCents === null || drinksCents < 0)) {
+    const drinksText = typedAmount.parse(drinksFee).trim();
+    const drinksCents = drinksText ? parseEuroToCents(drinksText) : null;
+    if (drinksText && (drinksCents === null || drinksCents < 0)) {
       throw new ServiceError('Getränkepauschale: bitte einen Betrag wie „1,50“ eingeben');
     }
     await setTip(db, day, tipCents);
@@ -467,10 +469,14 @@ export async function clearPaymentsAction(date: string, target: number): Promise
 
 export async function requestCodeAction(phoneInput: string): Promise<ActionResult> {
   try {
-    const phone = normalizePhone(phoneInput);
+    const phone = normalizePhone(loginField.parse(phoneInput));
     if (!phone) return fail('Das sieht nicht nach einer Handynummer aus');
     const db = await getDb();
-    const { code } = await requestLoginCode(db, phone);
+    const issued = await requestLoginCode(db, phone);
+    // The same answer whether or not the number is ours, so it can't be used to look people up.
+    const onItsWay = 'Wenn die Nummer bei uns eingetragen ist, kommt der Code gleich per WhatsApp.';
+    if (!issued) return { ok: true, message: onItsWay };
+    const { code } = issued;
     const result = await sendWhatsApp(
       phone,
       `Dein Code für freitach: ${code}\nEr gilt 10 Minuten.`
@@ -488,20 +494,29 @@ export async function requestCodeAction(phoneInput: string): Promise<ActionResul
     }
     if (result === 'logged')
       return fail('Der WhatsApp-Bot ist nicht eingerichtet. Frag den Gastgeber nach deinem Link.');
-    return { ok: true, message: 'Code ist unterwegs – schau in WhatsApp' };
+    return { ok: true, message: onItsWay };
   } catch (error) {
     if (error instanceof ServiceError) return fail(error.message);
     throw error;
   }
 }
 
+/** Uses up a personal login link and signs its member in on this device. */
+export async function signInWithLinkAction(token: string): Promise<void> {
+  const db = await getDb();
+  const member = await consumeLoginToken(db, z.string().max(200).parse(token));
+  if (!member) redirect('/login?link=invalid');
+  (await cookies()).set(SESSION_COOKIE, await createSession(db, member.id), sessionCookieOptions());
+  redirect('/');
+}
+
 export async function verifyCodeAction(phoneInput: string, code: string): Promise<ActionResult> {
-  const phone = normalizePhone(phoneInput);
+  const phone = normalizePhone(loginField.parse(phoneInput));
   if (!phone) return fail('Das sieht nicht nach einer Handynummer aus');
   let token: string;
   try {
     const db = await getDb();
-    const member = await verifyLoginCode(db, phone, code);
+    const member = await verifyLoginCode(db, phone, loginField.parse(code));
     token = await createSession(db, member.id);
   } catch (error) {
     if (error instanceof ServiceError) return fail(error.message);
@@ -552,9 +567,7 @@ export async function relinkWhatsAppAction(phoneInput: string): Promise<ActionRe
   return run(async () => {
     const { viewer } = await getGroupContext();
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
-    const raw = z.string().trim().max(30).parse(phoneInput);
-    const phone = raw ? normalizePhone(raw) : null;
-    if (raw && !phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    const phone = optionalPhone(phoneInput);
     if (!(await relinkBot(phone))) throw new ServiceError('Der Bot antwortet gerade nicht');
     return {
       ok: true,
@@ -596,17 +609,14 @@ export async function setRolesAction(
     const { viewer } = await getGroupContext();
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
     const id = memberId.parse(target);
-    if (id === viewer.id && (roles.isAdmin === false || roles.active === false)) {
+    const changes = z
+      .object({ isAdmin: flag, isDefaultHost: flag, active: flag })
+      .partial()
+      .parse(roles);
+    if (id === viewer.id && (changes.isAdmin === false || changes.active === false)) {
       throw new ServiceError('Dich selbst kannst du hier nicht aussperren');
     }
-    await setRoles(
-      await getDb(),
-      id,
-      z
-        .object({ isAdmin: z.boolean(), isDefaultHost: z.boolean(), active: z.boolean() })
-        .partial()
-        .parse(roles)
-    );
+    await setRoles(await getDb(), id, changes);
   });
 }
 
@@ -626,7 +636,7 @@ export async function updateProfileAction(
           .string()
           .optional()
           .transform((value) => (value ? Number(value) : null))
-          .pipe(z.number().int().positive().nullable()),
+          .pipe(recordId.nullable()),
       })
       .parse(formObject(form));
     const paypalMe = data.paypalMe ? normalizePaypalHandle(data.paypalMe) : null;
@@ -648,9 +658,7 @@ export async function updateMemberAction(
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
     const id = memberId.parse(target);
     const cleanName = z.string().trim().min(1, 'Bitte einen Namen angeben').max(60).parse(name);
-    const phone = phoneInput.trim() ? normalizePhone(phoneInput) : null;
-    if (phoneInput.trim() && !phone)
-      throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    const phone = optionalPhone(phoneInput);
     await updateProfile(await getDb(), id, { name: cleanName, phone }).catch((error: unknown) => {
       if (String(error).includes('unique'))
         throw new ServiceError('Diese Nummer gehört schon jemand anderem');
@@ -690,7 +698,7 @@ export async function addAbsenceAction(
 export async function removeAbsenceAction(absenceId: number): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
-    await removeAbsence(await getDb(), viewer.id, z.number().int().positive().parse(absenceId));
+    await removeAbsence(await getDb(), viewer.id, recordId.parse(absenceId));
   });
 }
 
@@ -777,7 +785,7 @@ export async function updateRestaurantAction(
 export async function setHostRestaurantAction(id: number): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
-    await setHostRestaurant(await getDb(), viewer.id, z.number().int().positive().parse(id));
+    await setHostRestaurant(await getDb(), viewer.id, recordId.parse(id));
     return { ok: true, message: 'Gemerkt: Wenn du Gastgeber bist, bestellen wir hier' };
   });
 }
@@ -797,7 +805,7 @@ export async function addMissingDishAction(input: {
     const { viewer } = await getGroupContext();
     const data = z
       .object({
-        restaurantId: z.number().int().positive(),
+        restaurantId: recordId,
         name: z.string().trim().min(1, 'Wie heißt das Gericht?').max(120),
         price: z.string(),
         description: optionalText,
@@ -805,24 +813,18 @@ export async function addMissingDishAction(input: {
       })
       .parse(input);
     const priceCents = parseEuroToCents(data.price);
-    if (priceCents === null || priceCents <= 0) {
+    if (priceCents === null)
       throw new ServiceError('Preis: bitte einen Betrag wie „8,50“ eingeben');
-    }
+    // Checked before the dish exists, so a refused order leaves no stray dish behind.
+    if (data.date) await orderAccess(viewer, data.date, viewer.id);
     const db = await getDb();
-    const dish = await createDish(
+    const dish = await addMissingDish(
       db,
       data.restaurantId,
-      {
-        category: 'Selbst eingetragen',
-        name: data.name,
-        description: data.description,
-        priceCents,
-        optionGroups: [],
-      },
+      { name: data.name, description: data.description, priceCents },
       viewer.id
     );
     if (!data.date) return { ok: true, message: `${dish.name} steht jetzt auf der Karte` };
-    await orderAccess(viewer, data.date, viewer.id);
     await addItem(db, data.date, viewer.id, {
       dishId: dish.id,
       selection: {},
@@ -839,7 +841,7 @@ export async function archiveRestaurantAction(
 ): Promise<ActionResult> {
   return run(async () => {
     const { db } = await requireGroupManager();
-    await setRestaurantArchived(db, z.number().int().positive().parse(id), archived);
+    await setRestaurantArchived(db, recordId.parse(id), flag.parse(archived));
     return { ok: true, message: archived ? 'Nicht mehr im Angebot' : 'Wieder im Angebot' };
   });
 }
@@ -847,7 +849,7 @@ export async function archiveRestaurantAction(
 export async function deleteRestaurantAction(id: number): Promise<ActionResult> {
   const result = await run(async () => {
     const { db } = await requireGroupManager();
-    await deleteRestaurant(db, z.number().int().positive().parse(id));
+    await deleteRestaurant(db, recordId.parse(id));
   });
   if (result.ok) redirect('/restaurants');
   return result;
@@ -933,11 +935,7 @@ export async function bulkAddDishesAction(
       .min(1, 'Keine Gerichte ausgewählt')
       .max(500)
       .parse(dishes);
-    const { added, updated } = await createDishes(
-      db,
-      z.number().int().positive().parse(restaurantId),
-      data
-    );
+    const { added, updated } = await createDishes(db, recordId.parse(restaurantId), data);
     return {
       ok: true,
       message: [added && `${added} neu`, updated && `${updated} aktualisiert`]
@@ -950,7 +948,7 @@ export async function bulkAddDishesAction(
 export async function deleteAllDishesAction(restaurantId: number): Promise<ActionResult> {
   return run(async () => {
     const { db } = await requireGroupManager();
-    const removed = await deleteAllDishes(db, z.number().int().positive().parse(restaurantId));
+    const removed = await deleteAllDishes(db, recordId.parse(restaurantId));
     return { ok: true, message: `${removed} ${removed === 1 ? 'Gericht' : 'Gerichte'} gelöscht` };
   });
 }
@@ -962,6 +960,11 @@ export async function archiveDishAction(
 ): Promise<ActionResult> {
   return run(async () => {
     const { db } = await requireGroupManager();
-    await setDishArchived(db, restaurantId, dishId, archived);
+    await setDishArchived(
+      db,
+      recordId.parse(restaurantId),
+      recordId.parse(dishId),
+      flag.parse(archived)
+    );
   });
 }

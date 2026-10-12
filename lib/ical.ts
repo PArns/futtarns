@@ -18,7 +18,7 @@ function stamp(date: Date): string {
 function escapeText(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/\n/g, '\\n')
+    .replace(/\r\n?|\n/g, '\\n')
     .replace(/[,;]/g, (match) => `\\${match}`);
 }
 

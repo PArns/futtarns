@@ -69,7 +69,7 @@ export function PayBox({
           variant="outline"
           size="xl"
           disabled={pending}
-          onClick={() => execute(() => payAction(date, memberId, money.openCents))}
+          onClick={() => execute(() => payAction(date, memberId))}
           className="sm:flex-1"
         >
           <Check /> Hab bezahlt

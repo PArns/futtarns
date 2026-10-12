@@ -135,6 +135,35 @@ export async function createDish(
   return dish!;
 }
 
+const MISSING_DISH_MAX_CENTS = 10_000;
+
+/**
+ * A dish somebody found missing while ordering. Every member may add one, so it gets its
+ * own category, a sane price and no second entry for a dish the card already has.
+ */
+export async function addMissingDish(
+  db: Db,
+  restaurantId: number,
+  input: Pick<Dish, 'name' | 'description' | 'priceCents'>,
+  createdById: number
+): Promise<Dish> {
+  const restaurant = await getRestaurant(db, restaurantId);
+  if (!restaurant || restaurant.archived) throw new ServiceError('Restaurant nicht gefunden');
+  if (input.priceCents <= 0 || input.priceCents > MISSING_DISH_MAX_CENTS) {
+    throw new ServiceError('Preis: bitte einen Betrag zwischen 0,01 € und 100 € eingeben');
+  }
+  const name = input.name.toLowerCase();
+  if ((await listDishes(db, restaurantId)).some((dish) => dish.name.toLowerCase() === name)) {
+    throw new ServiceError(`${input.name} steht schon auf der Karte – such einfach danach`);
+  }
+  return createDish(
+    db,
+    restaurantId,
+    { ...input, category: 'Selbst eingetragen', optionGroups: [] },
+    createdById
+  );
+}
+
 /**
  * Adds the dishes from a pasted menu in the order they were written. A dish that is already
  * on the card (same name) gets the new price and text instead of a second entry, so pasting

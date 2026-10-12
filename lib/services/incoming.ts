@@ -95,7 +95,9 @@ export async function handleIncoming(
       // The code goes straight to the member's own number, never back in the HTTP answer,
       // so knowing the webhook's token is not enough to sign in as someone.
       try {
-        const { code } = await requestLoginCode(db, phone, now);
+        const issued = await requestLoginCode(db, phone, now);
+        if (!issued) return null;
+        const { code } = issued;
         await send(
           phone,
           `Dein Code für freitach: ${code}\nOder direkt anmelden: ${appUrl()}/login?phone=${encodeURIComponent(phone)}&code=${code}`

@@ -13,7 +13,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
 import { getDb } from '@/lib/db';
-import { members } from '@/lib/db/schema';
+import { members, type Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro } from '@/lib/format';
 import { formatPhone } from '@/lib/phone';
 import { getGroupContext } from '@/lib/session';
@@ -22,6 +22,12 @@ import { listMembers } from '@/lib/services/members';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Leute' };
+
+// The client component gets only what it shows: a full row would put calendar tokens and
+// login-link hashes into the page source.
+function forActions({ id, name, phone, isAdmin, isDefaultHost, active, kind }: Member) {
+  return { id, name, phone, isAdmin, isDefaultHost, active, kind };
+}
 
 export default async function PeoplePage() {
   const { viewer, canManage, currentFriday } = await getGroupContext();
@@ -146,7 +152,7 @@ export default async function PeoplePage() {
                   </details>
                 )}
                 <MemberActions
-                  member={member}
+                  member={forActions(member)}
                   isAdminViewer={viewer.isAdmin}
                   canIssueLink={viewer.isAdmin}
                 />
@@ -169,7 +175,11 @@ export default async function PeoplePage() {
                     <Avatar name={guest.name} id={guest.id} />
                     <span className="font-bold">{guest.name}</span>
                   </div>
-                  <MemberActions member={guest} isAdminViewer={viewer.isAdmin} canIssueLink />
+                  <MemberActions
+                    member={forActions(guest)}
+                    isAdminViewer={viewer.isAdmin}
+                    canIssueLink
+                  />
                 </GlassCard>
               ))}
             </div>

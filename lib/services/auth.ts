@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto';
-import { and, desc, eq, gt, isNull, lt } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
 import { generateToken, hashToken } from '@/lib/auth-tokens';
 import type { Db } from '@/lib/db/client';
 import { loginCodes, members, sessions, type Member } from '@/lib/db/schema';
@@ -10,6 +10,7 @@ const CODE_MINUTES = 10;
 const CODE_RESEND_SECONDS = 45;
 const CODE_ATTEMPTS = 5;
 const CODES_PER_HOUR = 5;
+const CODES_PER_HOUR_TOTAL = 30;
 
 export async function createSession(db: Db, memberId: number, now = new Date()): Promise<string> {
   const token = generateToken();
@@ -65,12 +66,21 @@ export async function requestLoginCode(
   db: Db,
   phone: string,
   now = new Date()
-): Promise<{ member: Member; code: string }> {
+): Promise<{ member: Member; code: string } | null> {
   const member = await activeMemberByPhone(db, phone);
-  if (!member)
+  // Unknown numbers get no code and the caller answers as if one was sent, so the login
+  // page does not tell strangers who is a member.
+  if (!member) return null;
+  const allLastHour = await db
+    .select({ id: loginCodes.id })
+    .from(loginCodes)
+    .where(gt(loginCodes.createdAt, new Date(now.getTime() - 3_600_000)));
+  // Each code is a WhatsApp message from the bot; a flood of them gets its number banned.
+  if (allLastHour.length >= CODES_PER_HOUR_TOTAL) {
     throw new ServiceError(
-      'Diese Nummer kennen wir nicht. Frag den Gastgeber, ob er dich eingetragen hat.'
+      'Gerade melden sich sehr viele an. Versuch es in ein paar Minuten nochmal.'
     );
+  }
   const [latest] = await db
     .select()
     .from(loginCodes)
@@ -121,7 +131,7 @@ export async function verifyLoginCode(
   now = new Date()
 ): Promise<Member> {
   const member = await activeMemberByPhone(db, phone);
-  if (!member) throw new ServiceError('Diese Nummer kennen wir nicht.');
+  if (!member) throw new ServiceError('Der Code stimmt nicht.');
   const [latest] = await db
     .select()
     .from(loginCodes)
@@ -134,16 +144,30 @@ export async function verifyLoginCode(
     )
     .orderBy(desc(loginCodes.createdAt))
     .limit(1);
-  if (!latest || latest.attempts >= CODE_ATTEMPTS) {
-    throw new ServiceError('Der Code ist abgelaufen. Fordere einfach einen neuen an.');
-  }
+  const expired = new ServiceError('Der Code ist abgelaufen. Fordere einfach einen neuen an.');
+  if (!latest) throw expired;
+  // The attempt is counted in the same statement that checks the limit, so parallel
+  // guesses cannot all slip through on one reading of the counter.
+  const [counted] = await db
+    .update(loginCodes)
+    .set({ attempts: sql`${loginCodes.attempts} + 1` })
+    .where(
+      and(
+        eq(loginCodes.id, latest.id),
+        lt(loginCodes.attempts, CODE_ATTEMPTS),
+        isNull(loginCodes.usedAt)
+      )
+    )
+    .returning({ id: loginCodes.id });
+  if (!counted) throw expired;
   if (latest.codeHash !== hashCode(member.id, code.replace(/\s/g, ''))) {
-    await db
-      .update(loginCodes)
-      .set({ attempts: latest.attempts + 1 })
-      .where(eq(loginCodes.id, latest.id));
     throw new ServiceError('Der Code stimmt nicht.');
   }
-  await db.update(loginCodes).set({ usedAt: now }).where(eq(loginCodes.id, latest.id));
+  const [used] = await db
+    .update(loginCodes)
+    .set({ usedAt: now })
+    .where(and(eq(loginCodes.id, latest.id), isNull(loginCodes.usedAt)))
+    .returning({ id: loginCodes.id });
+  if (!used) throw expired;
   return member;
 }

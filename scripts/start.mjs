@@ -17,10 +17,22 @@ if (botEnabled) env.BOT_URL ||= `http://127.0.0.1:${botPort}`;
 let stopping = false;
 let bot = null;
 
+// The bot reads messages from strangers; it gets only what it needs, not the database URL.
+function botEnv() {
+  const keys = ['PATH', 'HOME', 'TZ', 'NODE_ENV', 'AUTH_DIR', 'PAIRING_PHONE', 'LOG_LEVEL'];
+  const picked = Object.fromEntries(keys.filter((key) => env[key]).map((key) => [key, env[key]]));
+  return {
+    ...picked,
+    PORT: botPort,
+    BOT_TOKEN: env.BOT_TOKEN,
+    APP_INTERNAL_URL: env.APP_INTERNAL_URL,
+  };
+}
+
 function startBot() {
   bot = spawn('node', ['src/index.ts'], {
     cwd: '/opt/bot/bot',
-    env: { ...env, PORT: botPort },
+    env: botEnv(),
     stdio: 'inherit',
   });
   bot.on('exit', (code) => {

@@ -32,7 +32,8 @@ export function optionId(label: string): string {
 /** Parses a euro amount as typed by a German user ("2,50", "2.5", "+1") into cents. */
 export function parseEuroToCents(input: string): number | null {
   const cleaned = input.trim().replace(/€/g, '').replace(/\s/g, '');
-  if (!/^[+-]?\d+([.,]\d{1,2})?$/.test(cleaned)) return null;
+  // Six digits keep a mistyped amount inside a Postgres integer instead of failing the insert.
+  if (!/^[+-]?\d{1,6}([.,]\d{1,2})?$/.test(cleaned)) return null;
   const [whole, fraction = ''] = cleaned.replace(',', '.').split('.');
   const sign = whole!.startsWith('-') ? -1 : 1;
   const euros = Math.abs(Number(whole));

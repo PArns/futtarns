@@ -17,7 +17,7 @@ describe('parseEuroToCents', () => {
     ['0', 0],
   ])('reads %s', (input, cents) => expect(parseEuroToCents(input)).toBe(cents));
 
-  it.each(['', 'abc', '1,234', '1.2.3'])('rejects %s', (input) =>
+  it.each(['', 'abc', '1,234', '1.2.3', '99999999999'])('rejects %s', (input) =>
     expect(parseEuroToCents(input)).toBeNull()
   );
 });

@@ -32,6 +32,30 @@ export async function findMemberByLoginToken(
   return member ?? null;
 }
 
+/**
+ * Signs in with a login link once: the link is used up, so a forwarded or leaked one no
+ * longer works. Null if it is unknown, expired or already used.
+ */
+export async function consumeLoginToken(
+  db: Db,
+  token: string,
+  now = new Date()
+): Promise<Member | null> {
+  const [member] = await db
+    .update(members)
+    .set({ loginTokenHash: null, loginTokenExpiresAt: null })
+    .where(
+      and(
+        eq(members.loginTokenHash, hashToken(token)),
+        gt(members.loginTokenExpiresAt, now),
+        eq(members.active, true),
+        eq(members.kind, 'member')
+      )
+    )
+    .returning();
+  return member ?? null;
+}
+
 export async function findMemberByCalendarToken(db: Db, token: string): Promise<Member | null> {
   const [member] = await db
     .select()
@@ -214,7 +238,12 @@ export async function addGuest(
       .values({ fridayDate: friday, memberId: guest.id, status: 'in', addedById })
       .onConflictDoUpdate({
         target: [attendance.fridayDate, attendance.memberId],
-        set: { status: 'in', addedById, updatedAt: new Date() },
+        // Whoever brought the guest first keeps them; others can't take over their order.
+        set: {
+          status: 'in',
+          addedById: sql`coalesce(${attendance.addedById}, ${addedById})`,
+          updatedAt: new Date(),
+        },
       });
     return guest;
   });
