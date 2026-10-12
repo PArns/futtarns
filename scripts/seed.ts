@@ -22,7 +22,12 @@ import {
 } from '@/lib/services/fridays';
 import { addAbsence, addGuest, createMember, updateProfile } from '@/lib/services/members';
 import { addItem, setDefaultDish } from '@/lib/services/orders';
-import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
+import {
+  createDish,
+  createRestaurant,
+  listDishes,
+  setHostRestaurant,
+} from '@/lib/services/restaurants';
 
 const url = process.env.DATABASE_URL || '.data/pglite';
 const { db, close } = await openDb(url);
@@ -65,6 +70,7 @@ const pizzeria = await createRestaurant(db, {
   serviceFeeCents: 99,
   notes: 'Pizza immer gut durch bestellen.',
 });
+await setHostRestaurant(db, id('Patrick'), pizzeria.id);
 const size = 'Größe (1): Normal 28 cm | Groß 32 cm +2,50';
 const extras =
   'Extras (0-4): Extra Käse +1,00 | Salami +1,50 | Champignons +1,00 | Jalapeños +0,80 | Rucola +1,00';
@@ -126,6 +132,7 @@ for (const [category, name, price] of [
     optionGroups: [],
   });
 }
+await setHostRestaurant(db, id('Anna'), burger.id);
 await createRestaurant(db, {
   name: 'Sakura Sushi',
   cuisine: 'Sushi',
@@ -231,6 +238,10 @@ const nextWeek = addWeeks(thisWeek, 1);
 await setHost(db, nextWeek, id('Anna'));
 await setFlat(db, nextWeek, 'Grillen bei Anna', 1500);
 await setCancelled(db, addWeeks(thisWeek, 2), true, 'Patrick ist im Urlaub');
+// Anna stands in a week later and orders from her usual place; the week after that
+// Patrick is away and nobody has taken over yet.
+await setHost(db, addWeeks(thisWeek, 3), id('Anna'));
+await addAbsence(db, id('Patrick'), addWeeks(thisWeek, 4), addWeeks(thisWeek, 4), 'Hochzeit');
 
 console.log('Seeded. Login links:');
 for (const name of ['Patrick', 'Anna', 'Ben'])

@@ -36,7 +36,7 @@ export function DishForm({
   const preview = parseOptionGroups(options);
 
   return (
-    <form action={formAction} className="grid gap-3 sm:grid-cols-[1fr_1.6fr_0.8fr]">
+    <form action={formAction} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.6fr_0.8fr]">
       <input type="hidden" name="restaurantId" value={restaurantId} />
       {dish && <input type="hidden" name="dishId" value={dish.id} />}
       <Label>

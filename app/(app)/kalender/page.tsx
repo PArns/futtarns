@@ -5,15 +5,19 @@ import { FridayControls } from '@/components/calendar/friday-controls';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { CopyButton } from '@/components/common/copy-button';
 import { PageHero } from '@/components/layout/page-hero';
+import { DutchFlag } from '@/components/pentecost/dutch-flag';
+import { HollandCountdown } from '@/components/pentecost/holland-countdown';
 import { AbsenceForm, RemoveAbsenceButton } from '@/components/profile/absence-form';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
+import { Notice } from '@/components/ui/notice';
 import { calendarLink } from '@/lib/auth-tokens';
 import { todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatMonth } from '@/lib/format';
+import { isHollandFriday } from '@/lib/pentecost';
 import { canManageFriday } from '@/lib/permissions';
 import { getGroupContext } from '@/lib/session';
 import { loadCalendar } from '@/lib/services/fridays';
@@ -25,7 +29,7 @@ export const metadata: Metadata = { title: 'Kalender' };
 const WEEKS = 16;
 
 export default async function CalendarPage() {
-  const { viewer, currentFriday } = await getGroupContext();
+  const { viewer, currentFriday, now } = await getGroupContext();
   const db = await getDb();
   const [entries, members, defaultHost, myAbsences] = await Promise.all([
     loadCalendar(db, currentFriday, WEEKS),
@@ -62,6 +66,10 @@ export default async function CalendarPage() {
       </PageHero>
 
       <div className="mx-auto max-w-5xl space-y-12 px-4">
+        <GlassCard id="pfingsten" variant="tile" className="scroll-mt-20 p-4 sm:p-5">
+          <HollandCountdown serverNow={now} />
+        </GlassCard>
+
         {[...months.entries()].map(([key, monthEntries]) => (
           <section key={key}>
             <ChapterHeading
@@ -69,11 +77,15 @@ export default async function CalendarPage() {
               title={formatMonth(monthEntries[0]!.date)}
               className="mb-4"
             />
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {monthEntries.map((entry) => {
                 const manage = canManageFriday(viewer, entry.host?.id ?? null);
-                const meAway = entry.absentMemberIds.includes(viewer.id);
+                // An absent host already reads „Du bist weg“ in the notice above the picker.
+                const meAway =
+                  entry.absentMemberIds.includes(viewer.id) && entry.host?.id !== viewer.id;
                 const away = entry.absentMemberIds.filter((id) => id !== entry.host?.id);
+                const needsSubstitute = entry.hostAbsent && !entry.cancelled;
+                const holland = isHollandFriday(entry.date);
                 return (
                   <GlassCard
                     key={entry.date}
@@ -99,13 +111,14 @@ export default async function CalendarPage() {
                         <div
                           className={cn(
                             'group-hover:text-primary truncate font-bold transition-colors',
-                            entry.cancelled && 'line-through opacity-60'
+                            entry.cancelled && 'text-error'
                           )}
                         >
-                          {entry.mode === 'flat'
-                            ? (entry.flatTitle ?? 'Pauschale')
-                            : (entry.restaurant?.name ??
-                              (entry.cancelled ? 'Freitag' : 'Restaurant offen'))}
+                          {entry.cancelled
+                            ? 'Fällt aus'
+                            : entry.mode === 'flat'
+                              ? (entry.flatTitle ?? 'Pauschale')
+                              : (entry.restaurant?.name ?? 'Restaurant noch offen')}
                         </div>
                         <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
                           {entry.host && (
@@ -124,25 +137,47 @@ export default async function CalendarPage() {
                       </div>
                     </Link>
 
-                    <div className="flex flex-wrap gap-1.5">
-                      {entry.date === currentFriday && <Badge variant="primary">Diese Woche</Badge>}
-                      {entry.cancelled && <Badge variant="error">Fällt aus</Badge>}
-                      {!entry.hostIsDefault && !entry.cancelled && (
-                        <Badge variant="soft">Vertretung</Badge>
-                      )}
-                      {entry.hostAbsent && !entry.cancelled && (
-                        <Badge variant="softWarning">
-                          <TriangleAlert /> Gastgeber weg
-                        </Badge>
-                      )}
-                      {meAway && (
-                        <Badge variant="softWarning">
-                          <Plane /> Du bist weg
-                        </Badge>
-                      )}
-                    </div>
+                    {needsSubstitute && entry.host && (
+                      <Notice className="flex items-start gap-2">
+                        <TriangleAlert className="text-warning" />
+                        <span>
+                          <strong className="text-warning block">
+                            {entry.host.id === viewer.id ? 'Du bist' : `${entry.host.name} ist`} weg
+                            – wer übernimmt?
+                          </strong>
+                          <span className="text-muted-foreground">
+                            {manage
+                              ? 'Unten eine Vertretung wählen oder den Freitag absagen.'
+                              : `${entry.host.name} oder ein Admin trägt die Vertretung ein.`}
+                          </span>
+                        </span>
+                      </Notice>
+                    )}
+                    {(entry.date === currentFriday ||
+                      (!entry.hostIsDefault && !entry.cancelled) ||
+                      meAway ||
+                      holland) && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {entry.date === currentFriday && (
+                          <Badge variant="primary">Diese Woche</Badge>
+                        )}
+                        {holland && (
+                          <Badge variant="soft">
+                            <DutchFlag className="h-2.5 w-[15px]" /> Pfingsten in Holland
+                          </Badge>
+                        )}
+                        {!entry.hostIsDefault && !entry.cancelled && (
+                          <Badge variant="soft">Vertretung</Badge>
+                        )}
+                        {meAway && (
+                          <Badge variant="softWarning">
+                            <Plane /> Du bist weg
+                          </Badge>
+                        )}
+                      </div>
+                    )}
                     {entry.cancelled && entry.cancelReason && (
-                      <p className="text-muted-foreground -mt-1 text-xs">{entry.cancelReason}</p>
+                      <p className="text-muted-foreground text-xs">{entry.cancelReason}</p>
                     )}
                     {away.length > 0 && !entry.cancelled && (
                       <div className="flex items-center gap-1.5">
@@ -169,6 +204,7 @@ export default async function CalendarPage() {
                           defaultHostName={defaultHost?.name ?? null}
                           members={active.map(({ id, name }) => ({ id, name }))}
                           cancelled={entry.cancelled}
+                          needsSubstitute={needsSubstitute}
                         />
                       </div>
                     )}

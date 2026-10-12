@@ -4,7 +4,7 @@ import { Save } from 'lucide-react';
 import { useActionState } from 'react';
 import { updateProfileAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
-import { Hint, Input, Label, Textarea } from '@/components/ui/input';
+import { Hint, Input, Label, Select, Textarea } from '@/components/ui/input';
 import type { ActionResult } from '@/lib/action-result';
 import { formatPhone } from '@/lib/phone';
 
@@ -13,31 +13,30 @@ export function ProfileForm({
   phone,
   paypalMe,
   address,
+  defaultRestaurantId,
+  restaurants,
 }: {
   name: string;
   phone: string | null;
   paypalMe: string | null;
   address: string | null;
+  defaultRestaurantId: number | null;
+  restaurants: { id: number; name: string }[];
 }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     updateProfileAction,
     null
   );
   return (
-    <form action={formAction} className="grid gap-4 sm:grid-cols-2">
+    <form action={formAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <Label>
         Name
         <Input name="name" defaultValue={name} required maxLength={60} />
       </Label>
       <Label>
         Handynummer
-        <Input
-          name="phone"
-          defaultValue={phone ?? ''}
-          placeholder="+49 170 1234567"
-          inputMode="tel"
-        />
-        <Hint>Für die WhatsApp-Erinnerungen.</Hint>
+        <Input value={phone ? formatPhone(phone) : 'keine'} readOnly disabled />
+        <Hint>Damit meldest du dich an. Ändern kann sie ein Admin.</Hint>
       </Label>
       <Label>
         PayPal.me-Name
@@ -45,6 +44,18 @@ export function ProfileForm({
         <Hint>Nur nötig, wenn du Gastgeber bist und das Geld bekommst.</Hint>
       </Label>
       <Label>
+        Dein Restaurant als Gastgeber
+        <Select name="defaultRestaurantId" defaultValue={defaultRestaurantId ?? ''}>
+          <option value="">– keins, ich such jedes Mal aus –</option>
+          {restaurants.map((restaurant) => (
+            <option key={restaurant.id} value={restaurant.id}>
+              {restaurant.name}
+            </option>
+          ))}
+        </Select>
+        <Hint>Hier bestellen wir an deinen Freitagen, solange keiner ein anderes aussucht.</Hint>
+      </Label>
+      <Label className="sm:col-span-2">
         Lieferadresse
         <Textarea
           name="address"

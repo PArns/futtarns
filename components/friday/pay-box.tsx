@@ -2,6 +2,7 @@
 
 import { Check, Wallet } from 'lucide-react';
 import { payAction } from '@/app/actions';
+import { AmountRow } from '@/components/ui/amount-row';
 import { Button, buttonVariants } from '@/components/ui/button';
 import type { Money } from '@/lib/balance';
 import { formatEuro } from '@/lib/format';
@@ -30,8 +31,8 @@ export function PayBox({
 }) {
   const { pending, execute } = useAction();
   const lines = [
-    { label: 'Essen inkl. Gebühren und Trinkgeld', cents: money.foodCents },
-    { label: 'Getränkepauschale', cents: money.drinksCents },
+    { label: 'Essen mit Gebühren und Trinkgeld', cents: money.foodCents },
+    { label: 'Getränke', cents: money.drinksCents },
     { label: 'Schon bezahlt', cents: -money.paidCents },
   ].filter((line) => line.cents !== 0);
 
@@ -49,10 +50,7 @@ export function PayBox({
       {lines.length > 1 && (
         <dl className="border-primary/20 space-y-1 border-t pt-3 text-sm">
           {lines.map((line) => (
-            <div key={line.label} className="flex justify-between gap-3">
-              <dt className="text-muted-foreground">{line.label}</dt>
-              <dd className="tabular-nums">{formatEuro(line.cents)}</dd>
-            </div>
+            <AmountRow key={line.label} label={line.label} cents={line.cents} />
           ))}
         </dl>
       )}
@@ -62,7 +60,7 @@ export function PayBox({
             href={paypalMeLink(paypalMe, money.openCents)}
             target="_blank"
             rel="noreferrer"
-            className={cn(buttonVariants({ size: 'xl' }), 'flex-1')}
+            className={cn(buttonVariants({ size: 'xl' }), 'sm:flex-1')}
           >
             <Wallet /> Mit PayPal zahlen
           </a>
@@ -72,7 +70,7 @@ export function PayBox({
           size="xl"
           disabled={pending}
           onClick={() => execute(() => payAction(date, memberId, money.openCents))}
-          className="flex-1"
+          className="sm:flex-1"
         >
           <Check /> Hab bezahlt
         </Button>

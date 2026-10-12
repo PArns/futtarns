@@ -1,5 +1,5 @@
 {
-  "id": "f870058f-a87d-42cb-a50f-80d4ac7ae34b",
+  "id": "8fb0b40e-da85-43ac-a38d-f8fff4f8e343",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -269,6 +269,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -300,6 +306,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "dishes_created_by_id_members_id_fk": {
+          "name": "dishes_created_by_id_members_id_fk",
+          "tableFrom": "dishes",
+          "tableTo": "members",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -596,7 +615,7 @@
           "name": "dish_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "options": {
           "name": "options",
@@ -723,6 +742,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "default_restaurant_id": {
+          "name": "default_restaurant_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "login_token_hash": {
           "name": "login_token_hash",
           "type": "text",
@@ -763,7 +788,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "members_default_restaurant_id_restaurants_id_fk": {
+          "name": "members_default_restaurant_id_restaurants_id_fk",
+          "tableFrom": "members",
+          "tableTo": "restaurants",
+          "columnsFrom": [
+            "default_restaurant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "members_phone_unique": {

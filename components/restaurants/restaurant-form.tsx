@@ -15,7 +15,7 @@ export function RestaurantForm({ restaurant }: { restaurant?: Restaurant }) {
     null
   );
   return (
-    <form action={formAction} className="grid gap-4 sm:grid-cols-2">
+    <form action={formAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {restaurant && <input type="hidden" name="id" value={restaurant.id} />}
       <Label>
         Name

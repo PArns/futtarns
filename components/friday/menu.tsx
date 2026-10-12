@@ -8,9 +8,10 @@ import {
   type OpenedDish,
   type OrderTarget,
 } from '@/components/friday/dish-dialog';
+import { MissingDishForm } from '@/components/friday/missing-dish-form';
+import { Chip } from '@/components/ui/chip';
 import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
-import { cn } from '@/lib/utils';
 
 const ALL = '__all__';
 
@@ -61,9 +62,12 @@ export function Menu({
 
   if (dishes.length === 0) {
     return (
-      <p className="text-muted-foreground bg-muted/30 rounded-xl border p-6 text-center text-sm">
-        Für dieses Restaurant sind noch keine Gerichte eingetragen.
-      </p>
+      <div className="space-y-3">
+        <p className="text-muted-foreground bg-muted/30 rounded-xl border p-6 text-center text-sm">
+          Für dieses Restaurant sind noch keine Gerichte eingetragen.
+        </p>
+        <MissingDishForm restaurantId={restaurantId} date={mode === 'order' ? date : undefined} />
+      </div>
     );
   }
 
@@ -83,25 +87,15 @@ export function Menu({
         {categories.length > 1 && (
           <div className="-mx-4 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-4 pb-1">
             {[ALL, ...categories].map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => setCategory(name)}
-                className={cn(
-                  'h-8 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors max-sm:h-9',
-                  category === name
-                    ? 'border-primary/50 bg-primary/15 text-foreground'
-                    : 'border-border text-muted-foreground hover:text-foreground'
-                )}
-              >
+              <Chip key={name} selected={category === name} onClick={() => setCategory(name)}>
                 {name === ALL ? 'Alles' : name}
-              </button>
+              </Chip>
             ))}
           </div>
         )}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {visible.map((dish) => (
           <button
             key={dish.id}
@@ -145,6 +139,10 @@ export function Menu({
             Nichts gefunden.
           </p>
         )}
+      </div>
+
+      <div className="mt-3">
+        <MissingDishForm restaurantId={restaurantId} date={mode === 'order' ? date : undefined} />
       </div>
 
       <DishDialog

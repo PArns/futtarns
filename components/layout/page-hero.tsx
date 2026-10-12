@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Pill } from '@/components/ui/pill';
 import { cn } from '@/lib/utils';
 
 /**
@@ -29,9 +30,9 @@ export function PageHero({
         {(kicker || aside) && (
           <div className="hero-item mb-3 flex items-center justify-between gap-2">
             {kicker && (
-              <div className="border-primary/30 bg-primary/10 text-primary inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold tracking-[0.14em] uppercase">
+              <Pill size="label" className="min-w-0 shadow-none">
                 {kicker}
-              </div>
+              </Pill>
             )}
             {aside && <div className="-my-2 -mr-2 flex shrink-0 items-center">{aside}</div>}
           </div>

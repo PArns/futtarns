@@ -2,6 +2,7 @@
 
 import { CupSoda } from 'lucide-react';
 import { setDrinksAction } from '@/app/actions';
+import { SwitchKnob } from '@/components/ui/switch-knob';
 import { formatEuro } from '@/lib/format';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
@@ -39,30 +40,14 @@ export function DrinksToggle({
     >
       <CupSoda className={cn('size-5 shrink-0', on ? 'text-primary' : 'text-muted-foreground')} />
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold">
-          Getränkepauschale {formatEuro(feeCents)}
-          <span className="text-muted-foreground font-normal"> · freiwillig</span>
-        </span>
+        <span className="block text-sm font-semibold">Getränke {formatEuro(feeCents)}</span>
         {!compact && (
           <span className="text-muted-foreground block text-xs">
-            {on ? 'Für Cola und Co., die der Gastgeber für alle holt' : 'Abgewählt – kein Problem'}
+            {on ? 'Freiwillig, für Cola und Co. vom Gastgeber' : 'Abgewählt – trinkst nichts mit'}
           </span>
         )}
       </span>
-      <span
-        aria-hidden
-        className={cn(
-          'relative h-6 w-10 shrink-0 rounded-full border transition-colors',
-          on ? 'border-primary bg-primary' : 'border-border bg-muted'
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-1/2 size-4.5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-[left] duration-200',
-            on ? 'left-[calc(100%-1.25rem)]' : 'left-0.5'
-          )}
-        />
-      </span>
+      <SwitchKnob on={on} />
     </button>
   );
 }

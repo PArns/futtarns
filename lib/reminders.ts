@@ -1,4 +1,4 @@
-import { berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
+import { berlinAt, daysBetween, todayIso } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
@@ -47,6 +47,7 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
   const day = formatDayShort(date);
   const link = `${appUrl}/freitag/${date}`;
   const host = view.host?.name ?? 'uns';
+  const place = view.hostAbsent ? ' (wo, klären wir noch)' : `, bei ${host}`;
   const hostPhone = view.host?.phone ?? null;
   const flat = view.mode === 'flat';
   const reachable = view.participants.filter(
@@ -69,6 +70,22 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
       if (group) out.push({ key: `cancel:${date}:group`, to: group, text });
     }
     return out;
+  }
+
+  // An absent host would order from the beach, so they hear about it until someone takes over.
+  if (view.hostAbsent && hostPhone) {
+    for (const [key, at] of [
+      ['mon', berlinAt(date, -4, 18)],
+      ['wed', berlinAt(date, -2, 10)],
+    ] as const) {
+      if (between(now, at, view.deadline)) {
+        out.push({
+          key: `hostaway:${date}:${key}`,
+          to: hostPhone,
+          text: `Freitag (${day}) bist du weg, stehst aber als Gastgeber drin. Trag ein, wer übernimmt, oder sag den Freitag ab:\n${appUrl}/kalender`,
+        });
+      }
+    }
   }
 
   const noRestaurant = !flat && !view.restaurant;
@@ -104,14 +121,14 @@ export function planReminders({ view, now, appUrl, defaultDish, group, sent }: I
       out.push({
         key: `${noRestaurant ? 'invite-open' : 'invite'}:${date}:${id}`,
         to: entry.member.phone!,
-        text: `Hi ${entry.member.name}! Freitag (${day}) ${what}, bei ${host}.\nBist du dabei? ${ANSWER_HINT}\n\n${rule}\n${link}`,
+        text: `Hi ${entry.member.name}! Freitag (${day}) ${what}${place}.\nBist du dabei? ${ANSWER_HINT}\n\n${rule}\n${link}`,
       });
     }
     if (group && !sent.has(`invite:${date}:group`)) {
       out.push({
         key: `invite:${date}:group`,
         to: group,
-        text: `Freitag (${day}) ${what}, bei ${host}. Schluss ist um ${formatTime(view.deadline)}.\n${link}`,
+        text: `Freitag (${day}) ${what}${place}. ${flat ? 'Anmeldeschluss' : 'Bestellschluss'} ist um ${formatTime(view.deadline)}.\n${link}`,
       });
     }
   }

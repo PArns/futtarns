@@ -15,12 +15,17 @@ import { calendarLink } from '@/lib/auth-tokens';
 import { getDb } from '@/lib/db';
 import { getGroupContext } from '@/lib/session';
 import { listDefaults } from '@/lib/services/orders';
+import { listRestaurants } from '@/lib/services/restaurants';
 
 export const metadata: Metadata = { title: 'Ich' };
 
 export default async function ProfilePage() {
   const { viewer } = await getGroupContext();
-  const defaults = await listDefaults(await getDb(), viewer.id);
+  const db = await getDb();
+  const [defaults, restaurants] = await Promise.all([
+    listDefaults(db, viewer.id),
+    listRestaurants(db),
+  ]);
   const feed = viewer.calendarToken ? calendarLink(viewer.calendarToken) : null;
 
   return (
@@ -47,6 +52,8 @@ export default async function ProfilePage() {
               phone={viewer.phone}
               paypalMe={viewer.paypalMe}
               address={viewer.address}
+              defaultRestaurantId={viewer.defaultRestaurantId}
+              restaurants={restaurants.map(({ id, name }) => ({ id, name }))}
             />
           </GlassCard>
         </section>
@@ -79,7 +86,7 @@ export default async function ProfilePage() {
                         {restaurant.name}
                       </Link>
                       <div className="truncate font-semibold">
-                        {dish.name}
+                        {dish ? dish.name : 'Nix essen'}
                         {entry.options.length > 0 && (
                           <span className="text-muted-foreground font-normal">
                             {' '}

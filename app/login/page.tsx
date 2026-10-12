@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { LoginForm } from '@/components/login/login-form';
 import { BrandMark } from '@/components/layout/brand';
+import { Notice } from '@/components/ui/notice';
 import { getViewer } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Anmelden' };
@@ -31,9 +32,9 @@ export default async function LoginPage(props: PageProps<'/login'>) {
           </div>
         </div>
         {invalidLink && (
-          <p className="hero-item border-warning/40 bg-warning/10 text-warning mt-6 rounded-xl border p-3 text-sm font-semibold">
+          <Notice className="hero-item text-warning mt-6 text-sm font-semibold">
             Der Link ist nicht mehr gültig. Melde dich einfach mit deiner Nummer an.
-          </p>
+          </Notice>
         )}
         <div className="hero-item mt-6">
           <LoginForm initialPhone={phone} initialCode={code} />

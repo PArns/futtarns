@@ -86,6 +86,8 @@ await shot(anna, 'profil', true);
 const patrick = await newPage(PHONE);
 await login(patrick, '+49 170 1111111');
 await shot(patrick, 'gastgeber', true);
+await patrick.goto(`${BASE}/kalender`);
+await shot(patrick, 'kalender-gastgeber', true);
 await patrick.goto(`${BASE}/leute`);
 await shot(patrick, 'leute', true);
 

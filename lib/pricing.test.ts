@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoTipCents, estimateFees, splitTotal } from '@/lib/pricing';
+import { estimateFees, splitTotal } from '@/lib/pricing';
 
 const restaurant = {
   minOrderCents: 2000,
@@ -9,29 +9,24 @@ const restaurant = {
 };
 
 describe('estimateFees', () => {
-  it('adds delivery, service fee and a 10 % tip below the free-delivery threshold', () => {
+  it('adds delivery, service fee and the 2,50 € tip below the free-delivery threshold', () => {
     expect(estimateFees(1500, restaurant)).toEqual({
       subtotalCents: 1500,
       deliveryFeeCents: 299,
       serviceFeeCents: 99,
-      tipCents: 150,
-      tipIsAuto: true,
-      sharedCents: 548,
-      totalCents: 2048,
+      tipCents: 250,
+      sharedCents: 648,
+      totalCents: 2148,
       missingForMinimumCents: 500,
     });
   });
 
-  it('takes the host’s fixed tip instead', () => {
-    expect(estimateFees(1500, restaurant, 300)).toMatchObject({ tipCents: 300, tipIsAuto: false });
+  it('takes the tip the host set', () => {
+    expect(estimateFees(1500, restaurant, 350)).toMatchObject({ tipCents: 350, totalCents: 2248 });
   });
 
   it('drops the delivery fee from the threshold on', () => {
-    expect(estimateFees(5000, restaurant)).toMatchObject({ deliveryFeeCents: 0, totalCents: 5599 });
-  });
-
-  it('rounds the automatic tip to 50 cents', () => {
-    expect([autoTipCents(4330), autoTipCents(4180), autoTipCents(0)]).toEqual([450, 400, 0]);
+    expect(estimateFees(5000, restaurant)).toMatchObject({ deliveryFeeCents: 0, totalCents: 5349 });
   });
 
   it('charges nothing for an empty order', () => {
@@ -68,11 +63,9 @@ describe('splitTotal', () => {
     expect(shares.map((share) => share.sharedCents)).toEqual([-100, -100, -100]);
   });
 
-  it('splits the tip by what everyone ordered and the rest equally', () => {
-    const shares = splitTotal(items, 3000 + 300 + 300, 300);
-    // Tip 300 over 1100/1000/900, then 300 delivery equally.
-    expect(shares.map((share) => share.sharedCents)).toEqual([110 + 100, 100 + 100, 90 + 100]);
-    expect(shares.reduce((sum, share) => sum + share.totalCents, 0)).toBe(3600);
+  it('splits the tip equally like every other fee', () => {
+    const shares = splitTotal(items, 3000 + 300 + 300);
+    expect(shares.map((share) => share.sharedCents)).toEqual([200, 200, 200]);
   });
 
   it('leaves out people who ordered nothing', () => {

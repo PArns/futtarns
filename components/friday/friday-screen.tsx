@@ -3,79 +3,52 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock,
   ExternalLink,
   Flame,
-  House,
-  Receipt,
-  ShoppingBag,
   Sparkles,
   Store,
   TriangleAlert,
-  Undo2,
   Wallet,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AddGuestForm } from '@/components/friday/add-guest-form';
 import { AnswerControl } from '@/components/friday/answer-control';
-import { AnswerSelect } from '@/components/friday/answer-select';
+import { CostsSection } from '@/components/friday/costs-section';
 import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
-import { DrinksToggle } from '@/components/friday/drinks-toggle';
-import { ExtrasForm } from '@/components/friday/extras-form';
-import { FlatForm } from '@/components/friday/flat-form';
-import {
-  CancelToggle,
-  HostPicker,
-  NoteEditor,
-  RestaurantPicker,
-} from '@/components/friday/host-tools';
+import { HostSection } from '@/components/friday/host-section';
 import { ItemRow } from '@/components/friday/item-row';
 import { Menu } from '@/components/friday/menu';
-import { MoneyStatus } from '@/components/friday/money-status';
+import { MyMoney } from '@/components/friday/my-money';
+import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
-import { SettleForm } from '@/components/friday/settle-form';
+import { TimeLine } from '@/components/friday/time-line';
 import { ChapterHeading } from '@/components/common/chapter-heading';
-import { CopyButton } from '@/components/common/copy-button';
 import { PageHero } from '@/components/layout/page-hero';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
-import { DRINKS_FEE_CENTS } from '@/lib/balance';
-import { AUTO_TIP_PERCENT } from '@/lib/pricing';
 import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
-import { centsToInput, formatDay, formatDayShort, formatEuro, formatTime } from '@/lib/format';
-import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
+import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { buildOrderSheet } from '@/lib/order-sheet';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, type Participant } from '@/lib/services/fridays';
-import { absencesOverlapping, getDefaultHost, listMembers } from '@/lib/services/members';
+import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
 import { listRestaurants } from '@/lib/services/restaurants';
 import { cn } from '@/lib/utils';
 
-const STATUS_BADGE = {
-  in: { label: 'Dabei', variant: 'softSuccess' },
-  nofood: { label: 'Isst nix', variant: 'soft' },
-  out: { label: 'Raus', variant: 'outline' },
-} as const;
-
-function reasonLabel(participant: Participant): string | null {
-  if (participant.attendance.reason === 'silent') return 'noch keine Antwort';
-  if (participant.attendance.reason === 'absent') return 'abwesend eingetragen';
-  return null;
-}
-
-/** Answer, pick, pay: where the viewer stands this Friday, as three ticks. */
+/** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
 function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
   return (
-    <ol className="flex items-center gap-2 text-xs font-semibold">
+    <ol className="flex max-w-md items-center gap-1.5 text-xs font-semibold">
       {steps.map((step, index) => (
-        <li key={step.label} className="flex items-center gap-2">
-          {index > 0 && <span className="bg-border h-px w-4 sm:w-8" aria-hidden />}
+        <li key={step.label} className={cn('flex items-center gap-1.5', index > 0 && 'flex-1')}>
+          {index > 0 && <span className="bg-border h-px min-w-2 flex-1" aria-hidden />}
           <span
             className={cn(
               'flex size-6 items-center justify-center rounded-full border text-[11px] tabular-nums',
@@ -86,7 +59,12 @@ function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
           >
             {step.done ? <Check className="size-3.5" /> : index + 1}
           </span>
-          <span className={step.done ? 'text-foreground' : 'text-muted-foreground'}>
+          <span
+            className={cn(
+              'whitespace-nowrap',
+              step.done ? 'text-foreground' : 'text-muted-foreground'
+            )}
+          >
             {step.label}
           </span>
         </li>
@@ -120,9 +98,6 @@ export async function FridayScreen({
   const [restaurants, members, defaultHost] = manage
     ? await Promise.all([listRestaurants(db), listMembers(db), getDefaultHost(db)])
     : [[], [], null];
-  const hostAbsent = hostId
-    ? (await absencesOverlapping(db, date, date)).some((absence) => absence.memberId === hostId)
-    : false;
 
   const editable = (participant: Participant) =>
     canEditOrderOf(
@@ -155,13 +130,26 @@ export async function FridayScreen({
 
   const nameOf = (id: number) =>
     view.participants.find((p) => p.member.id === id)?.member.name ?? '?';
-  const count = (status: 'in' | 'nofood' | 'out') =>
-    view.participants.filter((p) => p.attendance.status === status).length;
+  const silent = view.participants.filter(
+    (p) => p.member.kind === 'member' && p.attendance.reason === 'silent'
+  );
+  const counted = (status: 'in' | 'nofood' | 'out') =>
+    view.participants.filter(
+      (p) => p.attendance.status === status && !(flat && p.attendance.reason === 'silent')
+    ).length;
+  const countHint = [
+    `${counted('in')} ${flat ? 'dabei' : 'essen mit'}`,
+    `${counted('nofood')} ohne Essen`,
+    `${counted('out')} raus`,
+    ...(silent.length ? [`${silent.length} ohne Antwort`] : []),
+  ].join(' · ');
   const visibleParticipants = view.participants.filter(
     (participant) => participant.member.kind === 'member' || participant.attendance.status !== 'out'
   );
-  const allItems = view.participants.flatMap((participant) => participant.items);
-  const sheet = buildOrderSheet(allItems, nameOf);
+  const sheet = buildOrderSheet(
+    view.participants.flatMap((participant) => participant.items),
+    nameOf
+  );
   const hungry = closed
     ? []
     : view.participants.filter(
@@ -172,21 +160,47 @@ export async function FridayScreen({
           entry.member.id !== hostId
       );
   const amHost = viewer.id === hostId;
-  const myOpen = me?.money.openCents ?? 0;
   const title = view.cancelled
     ? 'Fällt aus'
     : flat
       ? (view.flatTitle ?? 'Pauschale')
       : (view.restaurant?.name ?? 'Was essen wir?');
+
+  const silentHint = !me
+    ? ''
+    : flat
+      ? `Für ${view.flatTitle ?? 'diesen Abend'} brauchen wir deine Zusage, sonst planen wir dich nicht ein.`
+      : myDefault && !myDefault.dish
+        ? 'Ohne Antwort kommst du ohne Essen – dein Standard hier ist „nix“.'
+        : myDefault?.dish
+          ? `Ohne Antwort zählst du als dabei und bekommst um ${formatTime(view.deadline)} dein Standardgericht (${myDefault.dish.name}).`
+          : view.restaurant
+            ? 'Ohne Antwort zählst du als dabei, hast hier aber kein Standardgericht – ohne Auswahl gibt es nichts.'
+            : 'Ohne Antwort zählst du als dabei.';
+  const answerHint = !me
+    ? ''
+    : me.attendance.reason === 'silent'
+      ? silentHint
+      : me.attendance.reason === 'absent'
+        ? 'Du bist für diesen Tag abwesend eingetragen.'
+        : closed
+          ? `${flat ? 'Anmeldeschluss' : 'Bestellschluss'} ist vorbei. Änderungen nur noch über den Gastgeber.`
+          : `Ändern geht bis ${formatTime(view.deadline)} Uhr.`;
+  const payDone =
+    amHost ||
+    (me
+      ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
+      : false);
+
   let chapter = 0;
 
   return (
     <>
       <PageHero
         kicker={
-          <>
-            {isCurrent ? 'Diesen Freitag' : 'Freitag'} · {formatDay(date)}
-          </>
+          <span className="whitespace-nowrap">
+            {isCurrent ? 'Diese Woche' : 'Freitag'} · {formatDayShort(date)}
+          </span>
         }
         aside={
           <>
@@ -215,7 +229,7 @@ export async function FridayScreen({
               <span>
                 bei <strong>{view.host.name}</strong>
               </span>
-              {hostAbsent && (
+              {view.hostAbsent && (
                 <Badge variant="softWarning">
                   <TriangleAlert /> abwesend eingetragen
                 </Badge>
@@ -228,17 +242,37 @@ export async function FridayScreen({
               Person
             </span>
           )}
-          {!view.cancelled && (
-            <span className="text-muted-foreground inline-flex items-center gap-1.5">
-              <Clock className="text-primary size-3.5" />
-              Schluss {formatTime(view.deadline)}
-              {!flat &&
-                ` · Bestellung ${formatTime(view.orderTime)} · Essen ~${formatTime(deliveryTime(date))}`}
-            </span>
-          )}
         </div>
+        {!view.cancelled && (
+          <div className="hero-item mt-2">
+            <TimeLine
+              serverNow={now.getTime()}
+              moments={[
+                {
+                  label: flat ? 'Anmeldeschluss' : 'Bestellschluss',
+                  at: view.deadline.getTime(),
+                  time: formatTime(view.deadline),
+                },
+                ...(flat
+                  ? []
+                  : [
+                      {
+                        label: 'Bestellung',
+                        at: view.orderTime.getTime(),
+                        time: formatTime(view.orderTime),
+                      },
+                      {
+                        label: 'Essen ~',
+                        at: deliveryTime(date).getTime(),
+                        time: formatTime(deliveryTime(date)),
+                      },
+                    ]),
+              ]}
+            />
+          </div>
+        )}
 
-        <div className="hero-item mt-4 flex flex-wrap items-center gap-3">
+        <div className="hero-item mt-4">
           <DeadlinePill
             deadline={view.deadline.getTime()}
             deadlineLabel={formatTime(view.deadline)}
@@ -246,6 +280,7 @@ export async function FridayScreen({
             locked={closed}
             settled={view.settled}
             cancelled={view.cancelled}
+            flat={flat}
           />
         </div>
 
@@ -271,12 +306,7 @@ export async function FridayScreen({
                         done: me.items.length > 0 || me.attendance.status !== 'in',
                       },
                     ]),
-                {
-                  label: 'Zahlen',
-                  done:
-                    amHost ||
-                    (myOpen <= 0 && (me.money.dueCents > 0 || me.attendance.status !== 'in')),
-                },
+                { label: 'Zahlen', done: payDone },
               ]}
             />
             <AnswerControl
@@ -287,57 +317,19 @@ export async function FridayScreen({
               disabled={!editable(me)}
               hasItems={me.items.length > 0}
             />
-            <p className="text-muted-foreground text-xs">
-              {me.attendance.reason === 'silent'
-                ? `Du hast noch nicht geantwortet. Ohne Antwort zählst du als dabei${
-                    flat
-                      ? ` und zahlst ${formatEuro(view.flatPriceCents ?? 0)}.`
-                      : myDefault
-                        ? ` und bekommst um ${formatTime(view.deadline)} dein Standardgericht (${myDefault.dish.name}).`
-                        : view.restaurant
-                          ? ', hast hier aber kein Standardgericht – ohne Auswahl gibt es nichts.'
-                          : '.'
-                  }`
-                : me.attendance.reason === 'absent'
-                  ? 'Du bist für diesen Tag abwesend eingetragen.'
-                  : closed
-                    ? 'Schluss ist vorbei. Änderungen nur noch über den Gastgeber.'
-                    : `Ändern geht bis ${formatTime(view.deadline)} Uhr.`}
-            </p>
-            {me.attendance.status !== 'out' && view.drinksFeeCents > 0 && !amHost && (
-              <DrinksToggle
-                date={date}
-                memberId={viewer.id}
-                feeCents={view.drinksFeeCents}
-                on={!me.drinksOptOut}
-                disabled={!editable(me)}
-              />
-            )}
+            <p className="text-muted-foreground text-xs">{answerHint}</p>
           </div>
         )}
-
-        {!view.cancelled && me && view.host && !amHost && myOpen > 0 && (
+        {view.cancelled && me && (
           <div className="hero-item mt-5">
-            <PayBox
-              date={date}
-              memberId={viewer.id}
-              money={me.money}
-              payeeName={view.host.name}
-              paypalMe={view.host.paypalMe}
-            />
+            <MyMoney view={view} me={me} canEdit={false} />
           </div>
-        )}
-        {me && view.host && !amHost && myOpen < 0 && (
-          <p className="hero-item border-primary/40 bg-primary/10 mt-5 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm">
-            <Undo2 className="text-primary size-4 shrink-0" />
-            Du hast {formatEuro(-myOpen)} zu viel gezahlt. {view.host.name} gibt dir das zurück.
-          </p>
         )}
       </PageHero>
 
       <div className="mx-auto max-w-5xl space-y-12 px-4">
         {otherBalances.length > 0 && (
-          <GlassCard variant="tile" className="border-warning/40 space-y-3 p-4 sm:p-5">
+          <GlassCard variant="tile" className="border-warning/40 space-y-4 p-4 sm:p-5">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Wallet className="text-warning size-4" /> Von früheren Freitagen
             </div>
@@ -374,18 +366,20 @@ export async function FridayScreen({
           </GlassCard>
         )}
 
-        {!view.cancelled && !flat && (
+        {!view.cancelled && me && (
           <section>
             <ChapterHeading
               number={++chapter}
-              kicker="Essen"
-              title="Deine Bestellung"
+              kicker={flat ? 'Beitrag' : 'Essen'}
+              title={flat ? 'Dein Beitrag' : 'Deine Bestellung'}
               hint={
-                view.restaurant
-                  ? closed
-                    ? 'Bestellschluss ist vorbei.'
-                    : 'Tippe auf ein Gericht, um es zu bestellen.'
-                  : 'Der Gastgeber sucht das Restaurant noch aus.'
+                flat
+                  ? `${formatEuro(view.flatPriceCents ?? 0)} pro Person, für alle gleich.`
+                  : !view.restaurant
+                    ? 'Der Gastgeber sucht das Restaurant noch aus.'
+                    : closed
+                      ? 'Bestellschluss ist vorbei.'
+                      : 'Tippe unten auf ein Gericht, um es zu bestellen.'
               }
               action={
                 view.restaurant?.lieferandoUrl ? (
@@ -394,50 +388,74 @@ export async function FridayScreen({
                     target="_blank"
                     rel="noreferrer"
                     className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                    aria-label="Bei Lieferando ansehen"
                   >
                     <ExternalLink /> <span className="max-sm:sr-only">Lieferando</span>
                   </a>
                 ) : undefined
               }
             />
-            {me && (me.items.length > 0 || myDefault) && (
-              <GlassCard variant="tile" className="mb-6 p-4 sm:p-5">
-                {me.items.length > 0 ? (
-                  <>
-                    <ul className="divide-border/50 divide-y">
-                      {me.items.map((item) => (
-                        <ItemRow key={item.id} item={item} editable={editable(me)} />
-                      ))}
-                    </ul>
-                    {me.share && (
-                      <div className="border-border/60 mt-2 flex items-baseline justify-between gap-2 border-t pt-3 text-sm">
-                        <span className="text-muted-foreground">
-                          {view.settled
-                            ? 'Dein Betrag'
-                            : 'Mit deinem Anteil an Liefer-, Servicegebühr und Trinkgeld'}
-                        </span>
-                        <span className="text-lg font-extrabold tabular-nums">
-                          {formatEuro(me.share.totalCents)}
-                        </span>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  myDefault && (
-                    <p className="flex items-center gap-2 text-sm">
-                      <Sparkles className="text-warning size-4 shrink-0" />
-                      <span>
-                        Dein Standard hier: <strong>{myDefault.dish.name}</strong>
-                        {myDefault.entry.options.length > 0 &&
-                          ` (${myDefault.entry.options.map((option) => option.choiceName).join(', ')})`}
-                        . Den bekommst du, wenn du bis {formatTime(view.deadline)} nichts anderes
-                        wählst.
+            <GlassCard variant="tile" className="mb-6 space-y-4 p-4 sm:p-5">
+              {!flat && me.items.length > 0 && (
+                <div>
+                  <ul className="divide-border/50 divide-y">
+                    {me.items.map((item) => (
+                      <ItemRow key={item.id} item={item} editable={editable(me)} />
+                    ))}
+                  </ul>
+                  {me.share && (
+                    <div className="border-border/60 mt-2 flex items-baseline justify-between gap-3 border-t pt-3 text-sm">
+                      <span className="text-muted-foreground">
+                        {view.settled
+                          ? 'Dein Essen'
+                          : 'Mit deinem Anteil an Gebühren und Trinkgeld'}
                       </span>
-                    </p>
-                  )
+                      <span className="shrink-0 text-lg font-extrabold tabular-nums">
+                        {formatEuro(me.share.totalCents)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!flat &&
+                me.items.length === 0 &&
+                myDefault &&
+                !myDefault.dish &&
+                me.attendance.reason === 'silent' && (
+                  <p className="text-muted-foreground text-sm">
+                    Dein Standard hier ist „nix“ – ohne Bestellung kommst du ohne Essen.
+                  </p>
                 )}
-              </GlassCard>
-            )}
+              {!flat &&
+                me.items.length === 0 &&
+                myDefault?.dish &&
+                me.attendance.status === 'in' && (
+                  <p className="flex items-start gap-2 text-sm">
+                    <Sparkles className="text-warning mt-0.5 size-4 shrink-0" />
+                    <span>
+                      Dein Standard hier: <strong>{myDefault.dish.name}</strong>
+                      {myDefault.entry.options.length > 0 &&
+                        ` (${myDefault.entry.options.map((option) => option.choiceName).join(', ')})`}
+                      . Den bekommst du, wenn du bis {formatTime(view.deadline)} nichts anderes
+                      wählst.
+                    </span>
+                  </p>
+                )}
+              {!flat &&
+                me.items.length === 0 &&
+                !myDefault &&
+                me.attendance.status === 'in' &&
+                view.restaurant && (
+                  <p className="text-muted-foreground text-sm">Noch nichts ausgesucht.</p>
+                )}
+              {!flat && !view.restaurant && (
+                <p className="flex items-center gap-2 text-sm">
+                  <Store className="text-primary size-4 shrink-0" />
+                  Sobald das Restaurant feststeht, kannst du hier aussuchen.
+                </p>
+              )}
+              <MyMoney view={view} me={me} canEdit={editable(me)} />
+            </GlassCard>
             {view.restaurant && canOrder && (
               <Menu
                 dishes={view.dishes}
@@ -446,15 +464,8 @@ export async function FridayScreen({
                 restaurantId={view.restaurant.id}
                 targets={targets}
                 initialTargetId={targets[0]!.id}
-                defaultDishId={myDefault?.dish.id ?? null}
+                defaultDishId={myDefault?.dish?.id ?? null}
               />
-            )}
-            {!view.restaurant && (
-              <GlassCard variant="flat" className="flex items-center gap-3 p-5 text-sm">
-                <Store className="text-primary size-5 shrink-0" />
-                Sobald das Restaurant feststeht, kannst du hier aussuchen
-                {viewer.phone ? ' – du bekommst eine WhatsApp.' : '.'}
-              </GlassCard>
             )}
           </section>
         )}
@@ -465,97 +476,20 @@ export async function FridayScreen({
               number={++chapter}
               kicker="Runde"
               title="Wer ist dabei"
-              hint={`${count('in')} ${flat ? 'dabei' : 'essen mit'} · ${count('nofood')} ohne Essen · ${count('out')} raus`}
+              hint={countHint}
             />
-            <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {visibleParticipants.map((participant) => {
-                const badge = STATUS_BADGE[participant.attendance.status];
-                const reason = reasonLabel(participant);
-                const canEdit = editable(participant);
-                const isHost = participant.member.id === hostId;
-                const showMoney =
-                  participant.money.dueCents !== 0 ||
-                  participant.money.paidCents !== 0 ||
-                  participant.money.drinksCents !== 0;
-                return (
-                  <GlassCard
-                    key={participant.member.id}
-                    variant="tile"
-                    className={cn('p-4', participant.attendance.status === 'out' && 'opacity-60')}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Avatar name={participant.member.name} id={participant.member.id} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate font-bold">{participant.member.name}</span>
-                          {isHost && <House className="text-primary size-3.5 shrink-0" />}
-                        </div>
-                        <div className="text-muted-foreground truncate text-xs">
-                          {participant.member.kind === 'guest'
-                            ? `Gast${participant.addedById ? ` von ${nameOf(participant.addedById)}` : ''}`
-                            : (reason ??
-                              (participant.drinksOptOut && participant.attendance.status !== 'out'
-                                ? 'ohne Getränkepauschale'
-                                : participant.hasDefault && !flat
-                                  ? 'hat einen Standard'
-                                  : ''))}
-                        </div>
-                      </div>
-                      {canEdit && participant.member.id !== viewer.id ? (
-                        <AnswerSelect
-                          date={date}
-                          memberId={participant.member.id}
-                          status={participant.attendance.status}
-                        />
-                      ) : (
-                        <Badge variant={badge.variant}>{badge.label}</Badge>
-                      )}
-                    </div>
-                    {participant.items.length > 0 && (
-                      <ul className="divide-border/50 mt-2 divide-y">
-                        {participant.items.map((item) => (
-                          <ItemRow
-                            key={item.id}
-                            item={item}
-                            editable={canEdit && participant.member.id !== viewer.id}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                    {showMoney && (
-                      <div className="border-border/60 mt-2 flex items-center justify-between gap-2 border-t pt-2 text-sm">
-                        <MoneyStatus
-                          date={date}
-                          memberId={participant.member.id}
-                          money={participant.money}
-                          isHost={isHost}
-                          canManage={manage}
-                        />
-                        {!isHost && participant.money.dueCents > 0 && (
-                          <span className="shrink-0 font-extrabold tabular-nums">
-                            {formatEuro(participant.money.dueCents)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {canEdit &&
-                      participant.member.id !== viewer.id &&
-                      !isHost &&
-                      participant.attendance.status !== 'out' &&
-                      view.drinksFeeCents > 0 && (
-                        <div className="mt-2">
-                          <DrinksToggle
-                            date={date}
-                            memberId={participant.member.id}
-                            feeCents={view.drinksFeeCents}
-                            on={!participant.drinksOptOut}
-                            compact
-                          />
-                        </div>
-                      )}
-                  </GlassCard>
-                );
-              })}
+            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleParticipants.map((participant) => (
+                <ParticipantCard
+                  key={participant.member.id}
+                  participant={participant}
+                  view={view}
+                  isViewer={participant.member.id === viewer.id}
+                  canEdit={editable(participant)}
+                  canManage={manage}
+                  nameOf={nameOf}
+                />
+              ))}
             </div>
             {(!closed || manage) && (
               <div className="mt-4 max-w-md">
@@ -579,136 +513,7 @@ export async function FridayScreen({
                     : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
               }
             />
-            <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
-              <GlassCard variant="tile" className="p-5">
-                <dl className="space-y-2 text-sm">
-                  {flat ? (
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">
-                        {view.shares.length} × {formatEuro(view.flatPriceCents ?? 0)}
-                      </dt>
-                      <dd className="font-bold tabular-nums">
-                        {formatEuro(view.shares.length * (view.flatPriceCents ?? 0))}
-                      </dd>
-                    </div>
-                  ) : (
-                    view.estimate && (
-                      <>
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Gerichte</dt>
-                          <dd className="tabular-nums">
-                            {formatEuro(view.estimate.subtotalCents)}
-                          </dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">Liefergebühr</dt>
-                          <dd className="tabular-nums">
-                            {formatEuro(view.estimate.deliveryFeeCents)}
-                          </dd>
-                        </div>
-                        {view.estimate.serviceFeeCents > 0 && (
-                          <div className="flex justify-between">
-                            <dt className="text-muted-foreground">Servicegebühr</dt>
-                            <dd className="tabular-nums">
-                              {formatEuro(view.estimate.serviceFeeCents)}
-                            </dd>
-                          </div>
-                        )}
-                        <div className="flex justify-between">
-                          <dt className="text-muted-foreground">
-                            Trinkgeld{view.estimate.tipIsAuto ? ` (${AUTO_TIP_PERCENT} %)` : ''}
-                          </dt>
-                          <dd className="tabular-nums">{formatEuro(view.estimate.tipCents)}</dd>
-                        </div>
-                        <div className="border-border/60 flex justify-between border-t pt-2 font-bold">
-                          <dt>{view.finalTotalCents !== null ? 'Geschätzt' : 'Summe'}</dt>
-                          <dd className="tabular-nums">{formatEuro(view.estimate.totalCents)}</dd>
-                        </div>
-                        {view.finalTotalCents !== null && (
-                          <div className="flex justify-between text-base font-extrabold">
-                            <dt>Wirklich bezahlt</dt>
-                            <dd className="tabular-nums">{formatEuro(view.finalTotalCents)}</dd>
-                          </div>
-                        )}
-                      </>
-                    )
-                  )}
-                  {view.drinksTotalCents > 0 && (
-                    <div className="text-muted-foreground flex justify-between pt-2">
-                      <dt>
-                        Getränkepauschale ({view.drinksTotalCents / view.drinksFeeCents} ×{' '}
-                        {formatEuro(view.drinksFeeCents)})
-                      </dt>
-                      <dd className="tabular-nums">{formatEuro(view.drinksTotalCents)}</dd>
-                    </div>
-                  )}
-                </dl>
-                {!flat &&
-                  view.estimate &&
-                  view.estimate.missingForMinimumCents > 0 &&
-                  view.estimate.subtotalCents > 0 && (
-                    <p className="border-warning/40 bg-warning/10 text-warning mt-4 flex items-start gap-2 rounded-xl border p-3 text-xs font-semibold">
-                      <TriangleAlert className="size-4 shrink-0" />
-                      Es fehlen noch {formatEuro(view.estimate.missingForMinimumCents)} bis zum
-                      Mindestbestellwert.
-                    </p>
-                  )}
-              </GlassCard>
-              <GlassCard variant="tile" className="p-5">
-                {view.shares.length === 0 && view.drinksTotalCents === 0 ? (
-                  <p className="text-muted-foreground text-sm">Noch ist niemand mit Essen dabei.</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-muted-foreground text-left text-xs">
-                        <th className="pb-2 font-medium">Wer</th>
-                        <th className="pb-2 text-right font-medium">
-                          {flat ? 'Pauschale' : 'Essen'}
-                        </th>
-                        <th className="pb-2 text-right font-medium">Getränke</th>
-                        <th className="pb-2 text-right font-medium">Offen</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-border/50 divide-y">
-                      {view.participants
-                        .filter((p) => p.share || p.money.dueCents !== 0 || p.money.paidCents !== 0)
-                        .map((p) => (
-                          <tr key={p.member.id}>
-                            <td className="py-2 font-medium">
-                              {p.member.name}
-                              {p.projectedDefault && (
-                                <span className="text-muted-foreground block text-[11px] font-normal">
-                                  Standard: {p.projectedDefault.name}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 text-right tabular-nums">
-                              {p.share ? formatEuro(p.share.totalCents) : '–'}
-                              {p.share && !flat && p.share.sharedCents !== 0 && (
-                                <span className="text-muted-foreground block text-[11px]">
-                                  davon {formatEuro(p.share.sharedCents)} Gebühren
-                                </span>
-                              )}
-                            </td>
-                            <td className="text-muted-foreground py-2 text-right tabular-nums">
-                              {p.money.drinksCents ? formatEuro(p.money.drinksCents) : '–'}
-                            </td>
-                            <td
-                              className={cn(
-                                'py-2 text-right font-bold tabular-nums',
-                                p.money.openCents > 0 && 'text-warning',
-                                p.money.openCents < 0 && 'text-primary'
-                              )}
-                            >
-                              {p.member.id === hostId ? 'Gastgeber' : formatEuro(p.money.openCents)}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
-              </GlassCard>
-            </div>
+            <CostsSection view={view} />
           </section>
         )}
 
@@ -721,121 +526,22 @@ export async function FridayScreen({
               title="Für den Gastgeber"
               hint="Nur du und die Admins sehen diesen Teil."
             />
-            <div className="grid gap-4 lg:grid-cols-2">
-              <GlassCard variant="tile" className="space-y-5 p-5">
-                {!view.cancelled && (
-                  <div className="space-y-4">
-                    <h3 className="flex items-center gap-2 font-bold">
-                      <Store className="text-primary size-4" /> Was gibt’s?
-                    </h3>
-                    <RestaurantPicker
-                      date={date}
-                      restaurantId={view.restaurant?.id ?? null}
-                      restaurants={restaurants.map(({ id, name }) => ({ id, name }))}
-                      hasOrders={allItems.length > 0}
-                      disabled={view.locked}
-                    />
-                    <details className="group border-border/60 rounded-xl border p-3" open={flat}>
-                      <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
-                        <Flame className="text-primary size-4" /> Oder Pauschale, z. B. Grillen
-                      </summary>
-                      <div className="mt-3">
-                        <FlatForm
-                          date={date}
-                          title={view.flatTitle}
-                          priceCents={view.flatPriceCents}
-                          hasOrders={allItems.length > 0}
-                          disabled={view.locked}
-                        />
-                      </div>
-                    </details>
-                  </div>
-                )}
-                <HostPicker
-                  date={date}
-                  hostId={hostId}
-                  hostIsDefault={view.hostIsDefault}
-                  defaultHostName={defaultHost?.name ?? null}
-                  members={members
-                    .filter((member) => member.active)
-                    .map(({ id, name }) => ({ id, name }))}
-                />
-                {!view.cancelled && (
-                  <ExtrasForm
-                    date={date}
-                    tipCents={view.fixedTipCents}
-                    drinksFeeCents={view.customDrinksFeeCents}
-                    defaultDrinksFeeCents={DRINKS_FEE_CENTS}
-                  />
-                )}
-                <NoteEditor date={date} note={view.note} />
-                <CancelToggle date={date} cancelled={view.cancelled} reason={view.cancelReason} />
-              </GlassCard>
-
-              {!view.cancelled && !flat && view.restaurant && (
-                <GlassCard variant="tile" className="space-y-4 p-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="flex items-center gap-2 font-bold">
-                      <ShoppingBag className="text-primary size-4" /> Bestellliste
-                    </h3>
-                    {sheet.length > 0 && <CopyButton text={orderSheetText(sheet)} />}
-                  </div>
-                  {hungry.length > 0 && (
-                    <p className="border-warning/40 bg-warning/10 rounded-xl border p-3 text-xs">
-                      <strong className="text-warning">
-                        Bekommen nichts, wenn sie nichts wählen:
-                      </strong>{' '}
-                      {hungry.map((entry) => entry.member.name).join(', ')}
-                    </p>
-                  )}
-                  {sheet.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">Noch nichts bestellt.</p>
-                  ) : (
-                    <ul className="space-y-2 text-sm">
-                      {sheet.map((line) => (
-                        <li key={line.key} className="flex gap-2">
-                          <span className="text-primary w-7 shrink-0 font-extrabold tabular-nums">
-                            {line.count}×
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="font-semibold">{line.name}</span>
-                            {(line.options.length > 0 || line.notes.length > 0) && (
-                              <span className="text-muted-foreground block text-xs">
-                                {[...line.options, ...line.notes.map((note) => `„${note}“`)].join(
-                                  ' · '
-                                )}
-                              </span>
-                            )}
-                            <span className="text-muted-foreground block text-xs">
-                              {line.people.join(', ')}
-                            </span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {closed && sheet.length > 0 && (
-                    <div className="border-border/60 border-t pt-4">
-                      <h3 className="mb-3 flex items-center gap-2 font-bold">
-                        <Receipt className="text-primary size-4" /> Abrechnen
-                      </h3>
-                      <SettleForm
-                        date={date}
-                        initial={centsToInput(view.finalTotalCents)}
-                        settled={view.settled}
-                      />
-                    </div>
-                  )}
-                  {!view.host?.paypalMe && (
-                    <p className="text-warning text-xs font-semibold">
-                      {amHost
-                        ? 'Trag in deinem Profil deinen PayPal.me-Namen ein, sonst gibt es keine Zahlungslinks.'
-                        : `${view.host?.name ?? 'Der Gastgeber'} hat keinen PayPal.me-Namen im Profil, also gibt es keine Zahlungslinks.`}
-                    </p>
-                  )}
-                </GlassCard>
-              )}
-            </div>
+            <HostSection
+              view={view}
+              closed={closed}
+              sheet={sheet}
+              hungry={hungry}
+              restaurants={restaurants.map(({ id, name }) => ({
+                id,
+                name,
+                isDefault: id === view.host?.defaultRestaurantId,
+              }))}
+              members={members
+                .filter((member) => member.active)
+                .map(({ id, name }) => ({ id, name }))}
+              defaultHostName={defaultHost?.name ?? null}
+              viewerIsHost={amHost}
+            />
           </section>
         )}
 

@@ -13,7 +13,7 @@ const INLINE_PRICE =
 const PRICE_ONLY = /^(?:ab\s+)?(\d{1,3}(?:[.,]\d{2}))\s*€$/i;
 // Lines a copied delivery page is full of that never name a dish.
 const NOISE =
-  /^(beliebt|neu|vegan|vegetarisch|scharf|produktinfo|allergene.*|zusatzstoffe.*|\+|hinzufügen|mehr anzeigen)$/i;
+  /^(beliebt|neu|vegan|vegetarisch|scharf|produktinfo|allergene.*|zusatzstoffe.*|\+|hinzufügen|mehr anzeigen|(mindestbestellwert|liefergebühr|lieferkosten|servicegebühr|kostenlose lieferung|gratis lieferung|\d+ bewertungen?).*)$/i;
 
 /**
  * Reads a menu typed or pasted as text. Two shapes work and can be mixed:

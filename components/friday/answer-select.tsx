@@ -5,7 +5,7 @@ import type { AttendanceStatus } from '@/lib/db/schema';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
 
-const LABELS: Record<AttendanceStatus, string> = { in: 'Dabei', nofood: 'Isst nix', out: 'Raus' };
+const LABELS: Record<AttendanceStatus, string> = { in: 'Dabei', nofood: 'Ohne Essen', out: 'Raus' };
 
 /** Compact answer switch the host uses for someone else. */
 export function AnswerSelect({

@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '@/lib/db/client';
 import { recordPayment, setRestaurant, settleFriday } from '@/lib/services/fridays';
 import { handleIncoming } from '@/lib/services/incoming';
-import { createMember } from '@/lib/services/members';
-import { addItem, setDefaultDish } from '@/lib/services/orders';
+import { addAbsence, createMember } from '@/lib/services/members';
+import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
 import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
 import { runScheduler } from '@/lib/services/scheduler';
 import { createTestDb } from '@/test/db';
@@ -78,6 +78,15 @@ describe('reminders', () => {
     expect(order[0]!.text).toContain('Standard (Margherita)');
   });
 
+  it('does not remind someone whose default is „nix“ to order', async () => {
+    const { anna, ben, restaurant } = await setup();
+    await setNoFoodDefault(db, anna.id, restaurant.id);
+    await setNoFoodDefault(db, ben.id, restaurant.id);
+    await runScheduler(db, at('2026-10-16T15:05:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T16:35:00Z'), send, noPause);
+    expect(sent.filter((message) => message.text.includes('kannst du bei'))).toEqual([]);
+  });
+
   it('sends the host the order list at the deadline, and settled amounts afterwards', async () => {
     const { anna, dish } = await setup();
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 2 });
@@ -93,7 +102,7 @@ describe('reminders', () => {
       amountCents: 1000,
       recordedById: anna.id,
     });
-    // 1800 dishes + 200 tip + 100 delivery; Anna also has the 1,50 € drinks fee.
+    // 1800 dishes, tip and delivery: 2100 in total; Anna also has the 1,50 € drinks fee.
     await settleFriday(db, FRIDAY, 2100, at('2026-10-16T17:40:00Z'));
     sent = [];
     await runScheduler(db, at('2026-10-16T17:45:00Z'), send, noPause);
@@ -128,6 +137,20 @@ describe('reminders', () => {
     await runScheduler(db, at('2026-10-15T16:10:00Z'), send, noPause);
     expect(sent.map((message) => message.to).sort()).toEqual(['+491702222222', '+491703333333']);
     expect(sent[0]!.text).toContain('steht es fest: Bella Napoli');
+  });
+
+  it('asks an absent host to find someone, and leaves the host out of the invitation', async () => {
+    const { host } = await setup();
+    await addAbsence(db, host.id, '2026-10-12', '2026-10-18', null);
+    await runScheduler(db, at('2026-10-12T16:05:00Z'), send, noPause);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: '+491701111111' });
+    expect(sent[0]!.text).toContain('wer übernimmt');
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    const invites = sent.filter((message) => message.text.startsWith('Hi '));
+    expect(invites).toHaveLength(2);
+    expect(invites[0]!.text).toContain('wo, klären wir noch');
+    expect(invites[0]!.text).not.toContain('bei Patrick');
   });
 
   it('understands WhatsApp replies', async () => {

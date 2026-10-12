@@ -39,17 +39,21 @@ export type GroupContext = {
   currentFriday: string;
   currentHostId: number | null;
   canManage: boolean;
+  /** The request's clock reading, so every part of a page counts from the same moment. */
+  now: number;
 };
 
 /** The viewer plus what decides their rights this week: who hosts the coming Friday. */
 export const getGroupContext = cache(async (): Promise<GroupContext> => {
   const viewer = await requireViewer();
-  const friday = currentFriday();
+  const now = Date.now();
+  const friday = currentFriday(new Date(now));
   const currentHostId = await hostIdFor(await getDb(), friday);
   return {
     viewer,
     currentFriday: friday,
     currentHostId,
     canManage: canManageGroup(viewer, currentHostId),
+    now,
   };
 });

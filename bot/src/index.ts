@@ -5,6 +5,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import makeWASocket, {
   Browsers,
   DisconnectReason,
@@ -111,9 +112,11 @@ async function connect(): Promise<void> {
         update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined
       )?.output?.statusCode;
       if (status === DisconnectReason.loggedOut) {
-        console.error(
-          'Logged out from WhatsApp. Delete the auth folder and link the device again.'
-        );
+        // The old login is useless now; start over so a new QR code shows up in the app.
+        console.error('Logged out from WhatsApp, waiting to be linked again.');
+        await rm(AUTH_DIR, { recursive: true, force: true });
+        pairingCode = null;
+        setTimeout(() => void connect(), 2_000);
         return;
       }
       console.warn(`Connection closed (${status ?? 'unknown'}), reconnecting`);
@@ -130,7 +133,13 @@ async function connect(): Promise<void> {
       if (!text) continue;
       try {
         const phone = await senderPhone(message);
-        if (!phone) continue;
+        if (!phone) {
+          console.warn(`Could not map ${jid} to a phone number`);
+          await sock.sendMessage(jid, {
+            text: 'Ich kann deine Nummer gerade nicht zuordnen. Melde dich bitte direkt auf der Webseite an.',
+          });
+          continue;
+        }
         const reply = await forward(phone, text);
         if (reply) await sock.sendMessage(jid, { text: reply }, { quoted: message });
       } catch (error) {

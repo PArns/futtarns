@@ -1,6 +1,7 @@
 import { migrateDb, openDb, type Db } from '@/lib/db/client';
 import { normalizePhone } from '@/lib/phone';
 import { bootstrapAdmin } from '@/lib/services/members';
+import { bootstrapRestaurant } from '@/lib/services/restaurants';
 
 export type { Db } from '@/lib/db/client';
 
@@ -30,6 +31,10 @@ export function getDb(): Promise<Db> {
       },
       (line) => console.log(line)
     );
+    await bootstrapRestaurant(db, {
+      name: process.env.DEFAULT_RESTAURANT_NAME,
+      url: process.env.DEFAULT_RESTAURANT_URL,
+    });
     return db;
   })().catch((error: unknown) => {
     globalForDb.futtarnsDb = undefined;

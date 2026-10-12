@@ -31,7 +31,8 @@ CREATE TABLE "dishes" (
 	"price_cents" integer NOT NULL,
 	"option_groups" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"sort_order" integer DEFAULT 0 NOT NULL,
-	"archived" boolean DEFAULT false NOT NULL
+	"archived" boolean DEFAULT false NOT NULL,
+	"created_by_id" integer
 );
 --> statement-breakpoint
 CREATE TABLE "drinks_opt_outs" (
@@ -71,7 +72,7 @@ CREATE TABLE "login_codes" (
 CREATE TABLE "member_defaults" (
 	"member_id" integer NOT NULL,
 	"restaurant_id" integer NOT NULL,
-	"dish_id" integer NOT NULL,
+	"dish_id" integer,
 	"options" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"note" text,
 	CONSTRAINT "member_defaults_member_id_restaurant_id_pk" PRIMARY KEY("member_id","restaurant_id")
@@ -86,6 +87,7 @@ CREATE TABLE "members" (
 	"is_default_host" boolean DEFAULT false NOT NULL,
 	"paypal_me" text,
 	"address" text,
+	"default_restaurant_id" integer,
 	"login_token_hash" text,
 	"login_token_expires_at" timestamp with time zone,
 	"calendar_token" text,
@@ -151,6 +153,7 @@ ALTER TABLE "attendance" ADD CONSTRAINT "attendance_member_id_members_id_fk" FOR
 ALTER TABLE "attendance" ADD CONSTRAINT "attendance_added_by_id_members_id_fk" FOREIGN KEY ("added_by_id") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "charges" ADD CONSTRAINT "charges_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "dishes" ADD CONSTRAINT "dishes_restaurant_id_restaurants_id_fk" FOREIGN KEY ("restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "dishes" ADD CONSTRAINT "dishes_created_by_id_members_id_fk" FOREIGN KEY ("created_by_id") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "drinks_opt_outs" ADD CONSTRAINT "drinks_opt_outs_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fridays" ADD CONSTRAINT "fridays_host_id_members_id_fk" FOREIGN KEY ("host_id") REFERENCES "public"."members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "fridays" ADD CONSTRAINT "fridays_restaurant_id_restaurants_id_fk" FOREIGN KEY ("restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -158,6 +161,7 @@ ALTER TABLE "login_codes" ADD CONSTRAINT "login_codes_member_id_members_id_fk" F
 ALTER TABLE "member_defaults" ADD CONSTRAINT "member_defaults_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member_defaults" ADD CONSTRAINT "member_defaults_restaurant_id_restaurants_id_fk" FOREIGN KEY ("restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member_defaults" ADD CONSTRAINT "member_defaults_dish_id_dishes_id_fk" FOREIGN KEY ("dish_id") REFERENCES "public"."dishes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "members" ADD CONSTRAINT "members_default_restaurant_id_restaurants_id_fk" FOREIGN KEY ("default_restaurant_id") REFERENCES "public"."restaurants"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_dish_id_dishes_id_fk" FOREIGN KEY ("dish_id") REFERENCES "public"."dishes"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payments" ADD CONSTRAINT "payments_member_id_members_id_fk" FOREIGN KEY ("member_id") REFERENCES "public"."members"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

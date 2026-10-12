@@ -4,10 +4,10 @@ import { Flame } from 'lucide-react';
 import { useState } from 'react';
 import { setFlatAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import { Chip } from '@/components/ui/chip';
 import { Input, Label } from '@/components/ui/input';
 import { centsToInput } from '@/lib/format';
 import { useAction } from '@/lib/hooks/use-action';
-import { cn } from '@/lib/utils';
 
 const QUICK = [1000, 1500, 2000];
 
@@ -41,7 +41,7 @@ export function FlatForm({
         execute(() => setFlatAction(date, name, price));
       }}
     >
-      <div className="grid gap-3 sm:grid-cols-[1.4fr_1fr]">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr]">
         <Label>
           Was gibt’s?
           <Input
@@ -63,20 +63,14 @@ export function FlatForm({
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {QUICK.map((cents) => (
-          <button
+          <Chip
             key={cents}
-            type="button"
             disabled={disabled}
+            selected={price === centsToInput(cents)}
             onClick={() => setPrice(centsToInput(cents))}
-            className={cn(
-              'h-8 rounded-full border px-3 text-xs font-semibold tabular-nums max-sm:h-9',
-              price === centsToInput(cents)
-                ? 'border-primary/60 bg-primary/15'
-                : 'border-border text-muted-foreground'
-            )}
           >
-            {cents / 100} €
-          </button>
+            {centsToInput(cents)} €
+          </Chip>
         ))}
         <Button type="submit" size="sm" className="ml-auto" disabled={pending || disabled}>
           <Flame /> Pauschale setzen

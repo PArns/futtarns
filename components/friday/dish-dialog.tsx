@@ -180,7 +180,7 @@ function DishForm({
                 {group.name}
                 <span className="text-muted-foreground text-xs font-normal">{rule}</span>
               </legend>
-              <div className="grid gap-1.5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {group.choices.map((choice) => {
                   const active = picked.includes(choice.id);
                   const full = !active && group.max > 1 && picked.length >= group.max;

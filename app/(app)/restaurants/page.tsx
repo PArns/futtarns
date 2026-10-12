@@ -10,6 +10,7 @@ import { dishes } from '@/lib/db/schema';
 import { formatEuro } from '@/lib/format';
 import { getGroupContext } from '@/lib/session';
 import { listDefaults } from '@/lib/services/orders';
+import { hostsUsing, listMembers } from '@/lib/services/members';
 import { listRestaurants } from '@/lib/services/restaurants';
 import { count, eq } from 'drizzle-orm';
 
@@ -18,9 +19,10 @@ export const metadata: Metadata = { title: 'Restaurants' };
 export default async function RestaurantsPage() {
   const { viewer, canManage } = await getGroupContext();
   const db = await getDb();
-  const [restaurants, defaults, dishCounts] = await Promise.all([
+  const [restaurants, defaults, people, dishCounts] = await Promise.all([
     listRestaurants(db),
     listDefaults(db, viewer.id),
+    listMembers(db),
     db
       .select({ restaurantId: dishes.restaurantId, total: count() })
       .from(dishes)
@@ -46,9 +48,10 @@ export default async function RestaurantsPage() {
               {canManage ? 'Leg unten das erste an.' : 'Der Gastgeber legt sie an.'}
             </GlassCard>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {restaurants.map((restaurant) => {
                 const mine = defaults.find((entry) => entry.restaurant.id === restaurant.id);
+                const hosts = hostsUsing(people, restaurant.id);
                 const total =
                   dishCounts.find((entry) => entry.restaurantId === restaurant.id)?.total ?? 0;
                 return (
@@ -65,6 +68,11 @@ export default async function RestaurantsPage() {
                         <span className="absolute bottom-2 left-4 text-[11px] font-bold tracking-[0.14em] text-white/80 uppercase">
                           {restaurant.cuisine ?? 'Restaurant'}
                         </span>
+                        {hosts && (
+                          <span className="absolute top-2 right-3 max-w-[70%] truncate rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-[#1665e6] uppercase">
+                            Standard bei {hosts}
+                          </span>
+                        )}
                       </div>
                       <div className="space-y-2 p-4">
                         <div className="group-hover:text-primary text-[17px] leading-tight font-extrabold tracking-tight transition-colors">
@@ -81,7 +89,8 @@ export default async function RestaurantsPage() {
                         </div>
                         {mine && (
                           <div className="text-primary flex items-center gap-1 text-xs font-semibold">
-                            <Sparkles className="size-3.5" /> {mine.dish.name}
+                            <Sparkles className="size-3.5" />{' '}
+                            {mine.dish ? mine.dish.name : 'Nix essen'}
                           </div>
                         )}
                       </div>

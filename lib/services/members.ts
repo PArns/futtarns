@@ -40,6 +40,14 @@ export async function findMemberByCalendarToken(db: Db, token: string): Promise<
   return member ?? null;
 }
 
+/** Who orders from `restaurantId` when they host, as `Patrick, Anna`; null when nobody does. */
+export function hostsUsing(people: Member[], restaurantId: number): string | null {
+  const names = people
+    .filter((person) => person.active && person.defaultRestaurantId === restaurantId)
+    .map((person) => person.name);
+  return names.length ? names.join(', ') : null;
+}
+
 export async function listMembers(db: Db): Promise<Member[]> {
   return db.select().from(members).where(eq(members.kind, 'member')).orderBy(asc(members.name));
 }
@@ -133,7 +141,9 @@ export async function bootstrapAdmin(
   log(`Created admin ${member.name}. Login link: ${loginLink(loginToken)}`);
 }
 
-export type ProfileUpdate = Partial<Pick<Member, 'name' | 'phone' | 'paypalMe' | 'address'>>;
+export type ProfileUpdate = Partial<
+  Pick<Member, 'name' | 'phone' | 'paypalMe' | 'address' | 'defaultRestaurantId'>
+>;
 
 export async function updateProfile(db: Db, memberId: number, update: ProfileUpdate) {
   await db.update(members).set(update).where(eq(members.id, memberId));

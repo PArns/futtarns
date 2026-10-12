@@ -29,6 +29,8 @@ const time = new Intl.DateTimeFormat('de-DE', {
   timeZone: TIME_ZONE,
 });
 
+const conjunction = new Intl.ListFormat('de-DE', { type: 'conjunction' });
+
 // An ISO day is a calendar date, not an instant, so it is read and formatted as UTC noon.
 function isoToUtc(iso: IsoDate): Date {
   return new Date(`${iso}T12:00:00Z`);
@@ -67,4 +69,9 @@ export function formatTime(date: Date): string {
 export function centsToInput(cents: number | null): string {
   if (cents === null) return '';
   return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+/** `16. Okt., 23. Okt. und 30. Okt.` */
+export function formatDayList(isos: IsoDate[]): string {
+  return conjunction.format(isos.map(formatDayShort));
 }

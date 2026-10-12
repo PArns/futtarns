@@ -14,6 +14,7 @@ export function FridayControls({
   defaultHostName,
   members,
   cancelled,
+  needsSubstitute,
 }: {
   date: string;
   hostId: number | null;
@@ -21,6 +22,8 @@ export function FridayControls({
   defaultHostName: string | null;
   members: { id: number; name: string }[];
   cancelled: boolean;
+  /** The host is away; the picker asks for someone to take over. */
+  needsSubstitute: boolean;
 }) {
   const { pending, execute } = useAction();
   return (
@@ -32,9 +35,16 @@ export function FridayControls({
         onChange={(event) =>
           execute(() => setHostAction(date, event.target.value ? Number(event.target.value) : null))
         }
-        className="border-border bg-background/60 dark:[&>option]:bg-popover h-8 min-w-0 flex-1 rounded-md border px-2 text-xs max-sm:h-10"
+        className={cn(
+          'border-border bg-background/60 dark:[&>option]:bg-popover h-8 min-w-0 flex-1 rounded-md border px-2 text-xs max-sm:h-10',
+          needsSubstitute && 'border-warning/60 ring-warning/30 ring-2'
+        )}
       >
-        <option value="">{defaultHostName ? `${defaultHostName} (wie immer)` : 'Standard'}</option>
+        <option value="">
+          {defaultHostName
+            ? `${defaultHostName} (${needsSubstitute && hostIsDefault ? 'ist weg' : 'wie immer'})`
+            : 'Standard'}
+        </option>
         {members.map((member) => (
           <option key={member.id} value={member.id}>
             {member.name}

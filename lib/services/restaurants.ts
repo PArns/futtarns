@@ -1,6 +1,6 @@
-import { asc, eq, and, max } from 'drizzle-orm';
+import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import type { Db } from '@/lib/db/client';
-import { dishes, restaurants, type Dish, type Restaurant } from '@/lib/db/schema';
+import { dishes, members, restaurants, type Dish, type Restaurant } from '@/lib/db/schema';
 import type { BulkDish } from '@/lib/menu/bulk';
 import type { OptionGroup } from '@/lib/menu/options';
 import { ServiceError } from '@/lib/services/members';
@@ -25,6 +25,43 @@ export async function listRestaurants(db: Db, includeArchived = false) {
 export async function getRestaurant(db: Db, id: number) {
   const [row] = await db.select().from(restaurants).where(eq(restaurants.id, id));
   return row ?? null;
+}
+
+/** The restaurant a Friday hosted by `hostId` uses when nobody picks another one. */
+export async function hostRestaurant(db: Db, hostId: number | null): Promise<Restaurant | null> {
+  if (!hostId) return null;
+  const [row] = await db
+    .select({ restaurant: restaurants })
+    .from(members)
+    .innerJoin(restaurants, eq(restaurants.id, members.defaultRestaurantId))
+    .where(and(eq(members.id, hostId), eq(restaurants.archived, false)));
+  return row?.restaurant ?? null;
+}
+
+export async function setHostRestaurant(db: Db, memberId: number, restaurantId: number | null) {
+  await db
+    .update(members)
+    .set({ defaultRestaurantId: restaurantId })
+    .where(eq(members.id, memberId));
+}
+
+/**
+ * On an empty database, adds the group's usual restaurant (`DEFAULT_RESTAURANT_*`) and
+ * makes it the default host's, so the first Friday already has one; its menu is pasted in
+ * afterwards.
+ */
+export async function bootstrapRestaurant(db: Db, env: { name?: string; url?: string }) {
+  if (!env.name) return;
+  const [any] = await db.select({ id: restaurants.id }).from(restaurants).limit(1);
+  if (any) return;
+  const [created] = await db
+    .insert(restaurants)
+    .values({ name: env.name, lieferandoUrl: env.url || null })
+    .returning();
+  await db
+    .update(members)
+    .set({ defaultRestaurantId: created!.id })
+    .where(and(eq(members.isDefaultHost, true), isNull(members.defaultRestaurantId)));
 }
 
 export async function createRestaurant(db: Db, input: RestaurantInput): Promise<Restaurant> {
@@ -61,11 +98,23 @@ async function nextSortOrder(db: Db, restaurantId: number) {
   return (row?.value ?? 0) + 1;
 }
 
-export async function createDish(db: Db, restaurantId: number, input: DishInput) {
+export async function createDish(
+  db: Db,
+  restaurantId: number,
+  input: DishInput,
+  createdById: number | null = null
+): Promise<Dish> {
   if (!(await getRestaurant(db, restaurantId))) throw new ServiceError('Restaurant nicht gefunden');
-  await db
+  const [dish] = await db
     .insert(dishes)
-    .values({ ...input, restaurantId, sortOrder: await nextSortOrder(db, restaurantId) });
+    .values({
+      ...input,
+      restaurantId,
+      createdById,
+      sortOrder: await nextSortOrder(db, restaurantId),
+    })
+    .returning();
+  return dish!;
 }
 
 /**

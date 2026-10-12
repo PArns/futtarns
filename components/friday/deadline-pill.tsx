@@ -1,20 +1,15 @@
 'use client';
 
+import { Pill, PillDot } from '@/components/ui/pill';
 import { useNow } from '@/lib/hooks/use-now';
-import { cn } from '@/lib/utils';
 
 function remaining(ms: number): string {
   const minutes = Math.floor(ms / 60_000);
-  if (minutes >= 48 * 60) return `noch ${Math.floor(minutes / (24 * 60))} Tage`;
-  if (minutes >= 60) return `noch ${Math.floor(minutes / 60)} Std ${minutes % 60} Min`;
   const seconds = Math.floor(ms / 1000) % 60;
-  return `noch ${minutes}:${String(seconds).padStart(2, '0')} Min`;
+  return `${minutes}:${String(seconds).padStart(2, '0')} Min`;
 }
 
-const pill =
-  'inline-flex h-[30px] w-fit items-center gap-2 rounded-full border px-3.5 text-[11px] font-bold tracking-[0.14em] uppercase shadow-sm';
-
-/** Live countdown to the deadline; the dot is static because it sits inside glass. */
+/** Where ordering stands; in the last hour it counts down to the second. */
 export function DeadlinePill({
   deadline,
   deadlineLabel,
@@ -22,6 +17,7 @@ export function DeadlinePill({
   locked,
   settled,
   cancelled,
+  flat,
 }: {
   deadline: number;
   deadlineLabel: string;
@@ -29,30 +25,38 @@ export function DeadlinePill({
   locked: boolean;
   settled: boolean;
   cancelled: boolean;
+  flat: boolean;
 }) {
   const now = useNow(serverNow);
   if (cancelled) {
     return (
-      <span className={cn(pill, 'border-border bg-muted/60 text-muted-foreground')}>Fällt aus</span>
+      <Pill size="label" tone="muted">
+        Fällt aus
+      </Pill>
     );
   }
   if (settled) {
     return (
-      <span className={cn(pill, 'border-primary/40 bg-primary/10 text-primary')}>Abgerechnet</span>
+      <Pill size="label" tone="primary">
+        Abgerechnet
+      </Pill>
     );
   }
   if (locked || now >= deadline) {
     return (
-      <span className={cn(pill, 'border-warning/40 bg-warning/10 text-warning')}>
-        <span className="bg-warning size-1.5 rounded-full" />
-        Bestellschluss vorbei
-      </span>
+      <Pill size="label" tone="warning">
+        <PillDot />
+        {flat ? 'Anmeldeschluss vorbei' : 'Bestellschluss vorbei'}
+      </Pill>
     );
   }
+  const left = deadline - now;
   return (
-    <span className={cn(pill, 'border-success/40 bg-success/10 text-success tabular-nums')}>
-      <span className="bg-success size-1.5 rounded-full" />
-      Offen bis {deadlineLabel} · {remaining(deadline - now)}
-    </span>
+    <Pill size="label" tone="success">
+      <PillDot />
+      {left < 3_600_000
+        ? `Nur noch ${remaining(left)}`
+        : `${flat ? 'Anmeldung' : 'Bestellung'} offen bis ${deadlineLabel}`}
+    </Pill>
   );
 }

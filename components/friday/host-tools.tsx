@@ -23,7 +23,7 @@ export function RestaurantPicker({
 }: {
   date: string;
   restaurantId: number | null;
-  restaurants: Option[];
+  restaurants: (Option & { isDefault?: boolean })[];
   hasOrders: boolean;
   disabled?: boolean;
 }) {
@@ -46,14 +46,17 @@ export function RestaurantPicker({
           execute(() => chooseRestaurantAction(date, next));
         }}
       >
-        <option value="">– noch offen –</option>
+        {!restaurants.some((restaurant) => restaurant.isDefault) && (
+          <option value="">– noch offen –</option>
+        )}
         {restaurants.map((restaurant) => (
           <option key={restaurant.id} value={restaurant.id}>
             {restaurant.name}
+            {restaurant.isDefault ? ' (Standard)' : ''}
           </option>
         ))}
       </Select>
-      {disabled && <Hint>Nach Bestellschluss lässt sich das Restaurant nicht mehr wechseln.</Hint>}
+      {disabled && <Hint>Schon abgerechnet. Zum Wechseln erst die Abrechnung öffnen.</Hint>}
     </Label>
   );
 }

@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { BrandLockup } from '@/components/layout/brand';
 import { NavLinks } from '@/components/layout/nav-links';
 import { ThemeSwitch } from '@/components/layout/theme-switch';
+import { HollandChip } from '@/components/pentecost/holland-countdown';
 
-export function Header({ canManage }: { canManage: boolean }) {
+export function Header({ canManage, serverNow }: { canManage: boolean; serverNow: number }) {
   return (
     <header className="border-border/50 sticky top-0 z-50 h-12 border-b">
       {/* The glass is a sibling layer: backdrop-filter on <header> itself would make it the
@@ -16,7 +17,8 @@ export function Header({ canManage }: { canManage: boolean }) {
         <Link href="/" className="flex shrink-0 items-center" aria-label="freitach – Startseite">
           <BrandLockup className="max-[400px]:[&>span]:hidden" />
         </Link>
-        <div className="flex items-center gap-1 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+          <HollandChip serverNow={serverNow} />
           <NavLinks canManage={canManage} />
           <ThemeSwitch />
         </div>

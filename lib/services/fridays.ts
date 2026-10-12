@@ -4,8 +4,10 @@ import { DRINKS_FEE_CENTS, moneyFor, type Money } from '@/lib/balance';
 import {
   addWeeks,
   currentFriday,
+  daysBetween,
   fridaysFrom,
   isPastDeadline,
+  isWithin,
   orderDeadline,
   orderTime,
   type IsoDate,
@@ -32,13 +34,14 @@ import {
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
 import {
-  autoTipCents,
+  DEFAULT_TIP_CENTS,
   estimateFees,
   splitTotal,
   type FeeEstimate,
   type MemberShare,
 } from '@/lib/pricing';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
+import { hostRestaurant } from '@/lib/services/restaurants';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
@@ -162,16 +165,28 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
   return db.transaction(async (tx) => {
     await ensureFridayRow(tx, date);
     // The host is written down at the lock, so payments keep going to whoever hosted even
-    // if the default host changes later.
-    const hostId = (await getDefaultHost(tx))?.id ?? null;
+    // if the default host changes later. The same goes for the host's usual restaurant
+    // when nobody picked one.
+    const [current] = await tx
+      .select({ hostId: fridays.hostId })
+      .from(fridays)
+      .where(eq(fridays.date, date));
+    const hostId = current?.hostId ?? (await getDefaultHost(tx))?.id ?? null;
+    const restaurantId = (await hostRestaurant(tx, hostId))?.id ?? null;
     const [row] = await tx
       .update(fridays)
-      .set({ lockedAt: now, updatedAt: now, hostId: sql`coalesce(${fridays.hostId}, ${hostId})` })
+      .set({
+        lockedAt: now,
+        updatedAt: now,
+        hostId: sql`coalesce(${fridays.hostId}, ${hostId})`,
+        restaurantId: sql`case when ${fridays.mode} = 'delivery' then coalesce(${fridays.restaurantId}, ${restaurantId}) else ${fridays.restaurantId} end`,
+      })
       .where(and(eq(fridays.date, date), isNull(fridays.lockedAt), eq(fridays.cancelled, false)))
       .returning();
     if (!row) return false;
-    if (row.mode === 'delivery' && row.restaurantId)
+    if (row.mode === 'delivery' && row.restaurantId) {
       await applyDefaults(tx, date, row.restaurantId);
+    }
     return true;
   });
 }
@@ -249,8 +264,7 @@ export async function settleFriday(db: Db, date: IsoDate, totalCents: number, no
     if (row.mode === 'flat')
       throw new ServiceError('Bei einer Pauschale gibt es nichts abzurechnen');
     const items = await tx.select().from(orderItems).where(eq(orderItems.fridayDate, date));
-    const subtotal = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-    const shares = splitTotal(items, totalCents, row.tipCents ?? autoTipCents(subtotal));
+    const shares = splitTotal(items, totalCents);
     if (shares.length === 0) throw new ServiceError('Es wurde nichts bestellt');
     await tx.delete(charges).where(eq(charges.fridayDate, date));
     await tx.insert(charges).values(
@@ -305,7 +319,7 @@ export async function setDrinksOptOut(db: Db, date: IsoDate, memberId: number, o
   }
 }
 
-/** A fixed tip for the Friday, or null for the automatic percentage. */
+/** The tip for this Friday, or null for the usual amount. */
 export async function setTip(db: Db, date: IsoDate, tipCents: number | null) {
   await touch(db, date, { tipCents });
 }
@@ -333,6 +347,8 @@ export type FridayView = {
   date: IsoDate;
   host: Member | null;
   hostIsDefault: boolean;
+  /** The host is away that day, so someone has to take over or the Friday is called off. */
+  hostAbsent: boolean;
   cancelled: boolean;
   cancelReason: string | null;
   note: string | null;
@@ -340,6 +356,8 @@ export type FridayView = {
   flatTitle: string | null;
   flatPriceCents: number | null;
   restaurant: Restaurant | null;
+  /** True when no restaurant was picked and the default one applies. */
+  restaurantIsDefault: boolean;
   dishes: Dish[];
   deadline: Date;
   orderTime: Date;
@@ -392,7 +410,10 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     people.find((person) => person.id === hostId) ??
     (hostId ? ((await db.select().from(members).where(eq(members.id, hostId)))[0] ?? null) : null);
 
-  const restaurantId = mode === 'delivery' ? (row?.restaurantId ?? null) : null;
+  const defaultRestaurant =
+    mode === 'delivery' && !row?.restaurantId ? await hostRestaurant(db, hostId) : null;
+  const restaurantId =
+    mode === 'delivery' ? (row?.restaurantId ?? defaultRestaurant?.id ?? null) : null;
   const [restaurant] = restaurantId
     ? await db.select().from(restaurants).where(eq(restaurants.id, restaurantId))
     : [];
@@ -404,11 +425,13 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
         .orderBy(asc(dishes.sortOrder), asc(dishes.id))
     : [];
   const defaults = restaurantId
-    ? await db
-        .select({ entry: memberDefaults, dish: dishes })
-        .from(memberDefaults)
-        .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
-        .where(and(eq(memberDefaults.restaurantId, restaurantId), eq(dishes.archived, false)))
+    ? (
+        await db
+          .select({ entry: memberDefaults, dish: dishes })
+          .from(memberDefaults)
+          .leftJoin(dishes, eq(dishes.id, memberDefaults.dishId))
+          .where(eq(memberDefaults.restaurantId, restaurantId))
+      ).filter((entry) => !entry.dish?.archived)
     : [];
 
   const items = await db
@@ -425,14 +448,10 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const base = people.map((member) => {
     const answer = answers.find((entry) => entry.memberId === member.id);
     const own = items.filter((item) => item.memberId === member.id);
-    const attendance = effectiveAttendance(
-      member,
-      date,
-      answer?.status,
-      absent,
-      mode === 'flat' ? 'out' : 'in'
-    );
     const fallback = defaults.find((entry) => entry.entry.memberId === member.id);
+    // A default of „nix“ means: when they say nothing, they come without eating.
+    const silentMeans = mode === 'flat' ? 'out' : fallback && !fallback.dish ? 'nofood' : 'in';
+    const attendance = effectiveAttendance(member, date, answer?.status, absent, silentMeans);
     // Until the lock, a silent member's default is what they will get, so the estimate
     // counts it; otherwise early payers would pay fees split among too few people.
     const projectedDefault =
@@ -440,7 +459,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       member.kind === 'member' &&
       attendance.status === 'in' &&
       own.length === 0 &&
-      fallback
+      fallback?.dish
         ? {
             name: fallback.dish.name,
             unitPriceCents: unitPriceCents(fallback.dish.priceCents, fallback.entry.options),
@@ -472,7 +491,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     ),
   ];
   const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const estimate = restaurant ? estimateFees(subtotal, restaurant, row?.tipCents ?? null) : null;
+  const estimate = restaurant
+    ? estimateFees(subtotal, restaurant, row?.tipCents ?? DEFAULT_TIP_CENTS)
+    : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
   const flatPrice = row?.flatPriceCents ?? 0;
   const shares: MemberShare[] = cancelled
@@ -486,11 +507,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
             sharedCents: 0,
             totalCents: flatPrice,
           }))
-      : splitTotal(
-          priced,
-          finalTotalCents ?? estimate?.totalCents ?? subtotal,
-          estimate?.tipCents ?? 0
-        );
+      : splitTotal(priced, finalTotalCents ?? estimate?.totalCents ?? subtotal);
 
   const participants = base.map((entry): Participant => {
     const share = shares.find((candidate) => candidate.memberId === entry.member.id) ?? null;
@@ -516,6 +533,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     date,
     host,
     hostIsDefault: !row?.hostId,
+    hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
     cancelled,
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
@@ -523,6 +541,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     flatTitle: row?.flatTitle ?? null,
     flatPriceCents: row?.flatPriceCents ?? null,
     restaurant: restaurant ?? null,
+    restaurantIsDefault: Boolean(defaultRestaurant),
     dishes: menu,
     deadline: orderDeadline(date),
     orderTime: orderTime(date),
@@ -550,6 +569,7 @@ export type CalendarEntry = {
   flatTitle: string | null;
   flatPriceCents: number | null;
   restaurant: Pick<Restaurant, 'id' | 'name' | 'cuisine'> | null;
+  restaurantIsDefault: boolean;
   hostAbsent: boolean;
   absentMemberIds: number[];
 };
@@ -565,7 +585,12 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
   const everyone = await db.select().from(members);
   const defaultHost = everyone.find((member) => member.isDefaultHost && member.active) ?? null;
   const allRestaurants = await db
-    .select({ id: restaurants.id, name: restaurants.name, cuisine: restaurants.cuisine })
+    .select({
+      id: restaurants.id,
+      name: restaurants.name,
+      cuisine: restaurants.cuisine,
+      archived: restaurants.archived,
+    })
     .from(restaurants);
   const absent = await absencesOverlapping(db, from, to);
 
@@ -582,6 +607,9 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
       ),
     ];
     const mode = row?.mode ?? 'delivery';
+    const defaultRestaurant =
+      allRestaurants.find((entry) => entry.id === host?.defaultRestaurantId && !entry.archived) ??
+      null;
     return {
       date,
       host,
@@ -594,12 +622,37 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
       flatPriceCents: row?.flatPriceCents ?? null,
       restaurant:
         mode === 'delivery'
-          ? (allRestaurants.find((entry) => entry.id === row?.restaurantId) ?? null)
+          ? row?.restaurantId
+            ? (allRestaurants.find((entry) => entry.id === row.restaurantId) ?? null)
+            : defaultRestaurant
           : null,
+      restaurantIsDefault: mode === 'delivery' && !row?.restaurantId && Boolean(defaultRestaurant),
       hostAbsent: host ? absentMemberIds.includes(host.id) : false,
       absentMemberIds,
     };
   });
+}
+
+/**
+ * The Fridays from `from` to `to` that `memberId` hosts and that still take place, from
+ * this week on: what someone who enters an absence has to find a substitute for.
+ */
+export async function hostedFridaysBetween(
+  db: Db,
+  memberId: number,
+  from: IsoDate,
+  to: IsoDate,
+  now: Date
+): Promise<IsoDate[]> {
+  const start = currentFriday(now);
+  if (to < start) return [];
+  const weeks = Math.min(Math.floor(daysBetween(start, to) / 7) + 1, 53);
+  const entries = await loadCalendar(db, start, weeks);
+  return entries
+    .filter(
+      (entry) => isWithin(entry.date, from, to) && entry.host?.id === memberId && !entry.cancelled
+    )
+    .map((entry) => entry.date);
 }
 
 export type OpenBalance = {

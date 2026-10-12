@@ -13,8 +13,13 @@ import { ChapterHeading } from '@/components/common/chapter-heading';
 import type { MenuDish } from '@/components/friday/dish-dialog';
 import { Menu } from '@/components/friday/menu';
 import { PageHero } from '@/components/layout/page-hero';
-import { RemoveDefaultButton } from '@/components/profile/remove-default-button';
+import {
+  NoFoodDefaultButton,
+  RemoveDefaultButton,
+} from '@/components/profile/remove-default-button';
 import { ArchiveDishButton, DishForm } from '@/components/restaurants/dish-form';
+import { DefaultRestaurantButton } from '@/components/restaurants/default-restaurant-button';
+import { LieferandoBookmarklet } from '@/components/restaurants/lieferando-bookmarklet';
 import { MenuImport } from '@/components/restaurants/menu-import';
 import { RestaurantForm } from '@/components/restaurants/restaurant-form';
 import { buttonVariants } from '@/components/ui/button';
@@ -22,6 +27,7 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { getDb } from '@/lib/db';
 import { formatEuro } from '@/lib/format';
 import { getGroupContext } from '@/lib/session';
+import { hostsUsing, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
 import { getRestaurant, listDishes } from '@/lib/services/restaurants';
 import { cn } from '@/lib/utils';
@@ -44,15 +50,25 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
   const restaurant = await load(id);
   const { viewer, canManage } = await getGroupContext();
   const db = await getDb();
-  const [allDishes, myDefault] = await Promise.all([
+  const [allDishes, myDefault, people] = await Promise.all([
     listDishes(db, restaurant.id, canManage),
     getDefault(db, viewer.id, restaurant.id),
+    listMembers(db),
   ]);
+  const hosts = hostsUsing(people, restaurant.id);
+  const mineAsHost = viewer.defaultRestaurantId === restaurant.id;
   const menu: MenuDish[] = allDishes.filter((dish) => !dish.archived);
 
   return (
     <>
-      <PageHero kicker={restaurant.cuisine ?? 'Restaurant'} title={restaurant.name}>
+      <PageHero
+        kicker={
+          hosts
+            ? `Standard bei ${hosts} · ${restaurant.cuisine ?? 'Restaurant'}`
+            : (restaurant.cuisine ?? 'Restaurant')
+        }
+        title={restaurant.name}
+      >
         <div className="hero-item text-muted-foreground mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           <span className="inline-flex items-center gap-1.5">
             <Truck className="text-primary size-4" /> Lieferung{' '}
@@ -68,16 +84,19 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           )}
         </div>
         {restaurant.notes && <p className="hero-item mt-3 text-sm">{restaurant.notes}</p>}
-        {restaurant.lieferandoUrl && (
-          <div className="hero-item mt-5">
-            <a
-              href={restaurant.lieferandoUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={buttonVariants({ variant: 'outline' })}
-            >
-              <ExternalLink /> Bei Lieferando ansehen
-            </a>
+        {(restaurant.lieferandoUrl || !mineAsHost) && (
+          <div className="hero-item mt-5 flex flex-wrap gap-2">
+            {restaurant.lieferandoUrl && (
+              <a
+                href={restaurant.lieferandoUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonVariants({ variant: 'outline' })}
+              >
+                <ExternalLink /> Bei Lieferando ansehen
+              </a>
+            )}
+            {!mineAsHost && <DefaultRestaurantButton id={restaurant.id} />}
           </div>
         )}
       </PageHero>
@@ -87,9 +106,18 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           <ChapterHeading
             icon={Sparkles}
             kicker="Dein Standard"
-            title={myDefault ? myDefault.dish.name : 'Noch kein Standard'}
-            hint="Das bekommst du, wenn du freitags dabei bist, aber bis zum Bestellschluss nichts wählst. Tippe ein Gericht an, um es als Standard zu merken."
-            action={myDefault ? <RemoveDefaultButton restaurantId={restaurant.id} /> : undefined}
+            title={myDefault ? (myDefault.dish?.name ?? 'Nix essen') : 'Noch kein Standard'}
+            hint={
+              myDefault && !myDefault.dish
+                ? 'Sagst du nichts, kommst du ohne Essen. Tippe ein Gericht an, wenn du doch einen Standard willst.'
+                : 'Das bekommst du, wenn du freitags dabei bist, aber bis zum Bestellschluss nichts wählst. Tippe ein Gericht an, um es als Standard zu merken.'
+            }
+            action={
+              <div className="flex gap-1">
+                {myDefault?.dish !== null && <NoFoodDefaultButton restaurantId={restaurant.id} />}
+                {myDefault && <RemoveDefaultButton restaurantId={restaurant.id} />}
+              </div>
+            }
           />
           <Menu
             dishes={menu}
@@ -97,7 +125,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
             restaurantId={restaurant.id}
             targets={[{ id: viewer.id, name: viewer.name, isSelf: true }]}
             initialTargetId={viewer.id}
-            defaultDishId={myDefault?.dish.id ?? null}
+            defaultDishId={myDefault?.dish?.id ?? null}
           />
         </section>
 
@@ -107,11 +135,32 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
               <ChapterHeading
                 icon={ClipboardPaste}
                 kicker="Karte"
-                title="Karte einfügen"
-                hint="Am schnellsten: von Lieferando kopieren und hier einfügen."
+                title="Karte übernehmen"
+                hint="Lieferando lässt keine automatischen Abrufe zu, deshalb kommt die Karte über deinen Browser."
+                id="karte-einfuegen"
               />
-              <GlassCard variant="tile" className="p-5">
-                <MenuImport restaurantId={restaurant.id} lieferandoUrl={restaurant.lieferandoUrl} />
+              <GlassCard variant="tile" className="space-y-5 p-5">
+                <LieferandoBookmarklet restaurantId={restaurant.id} />
+                <div className="space-y-1 text-sm">
+                  <div className="font-semibold">Oder von Hand (auch am Handy)</div>
+                  <p className="text-muted-foreground">
+                    {restaurant.lieferandoUrl ? (
+                      <a
+                        href={restaurant.lieferandoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        Die Karte bei Lieferando öffnen
+                      </a>
+                    ) : (
+                      'Die Karte bei Lieferando öffnen'
+                    )}
+                    , die Gerichte markieren und kopieren, hier einfügen. Mit „# Name“ setzt du
+                    selbst eine Kategorie.
+                  </p>
+                </div>
+                <MenuImport restaurantId={restaurant.id} />
               </GlassCard>
             </section>
 

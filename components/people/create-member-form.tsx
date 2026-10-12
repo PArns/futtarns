@@ -15,7 +15,10 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
   );
   return (
     <div className="space-y-4">
-      <form action={formAction} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+      <form
+        action={formAction}
+        className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+      >
         <Label>
           Name
           <Input name="name" required maxLength={60} placeholder="Vorname" />

@@ -10,7 +10,7 @@ import { loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { attendance, members, type Member } from '@/lib/db/schema';
-import { parseBulkDishes } from '@/lib/menu/bulk';
+import { formatDayList } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
@@ -26,6 +26,7 @@ import {
 import {
   clearPayments,
   getFridayRow,
+  hostedFridaysBetween,
   hostIdFor,
   loadFriday,
   recordPayment,
@@ -57,11 +58,13 @@ import {
   removeDefaultDish,
   setDefaultDish,
   setItemQuantity,
+  setNoFoodDefault,
 } from '@/lib/services/orders';
 import {
   createDish,
   createDishes,
   createRestaurant,
+  setHostRestaurant,
   setDishArchived,
   setRestaurantArchived,
   updateDish,
@@ -218,6 +221,18 @@ export async function saveDefaultAction(input: {
       .parse(input);
     await setDefaultDish(await getDb(), viewer.id, data.restaurantId, data);
     return { ok: true, message: 'Als Standard gemerkt' };
+  });
+}
+
+export async function setNoFoodDefaultAction(restaurantId: number): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    await setNoFoodDefault(
+      await getDb(),
+      viewer.id,
+      z.number().int().positive().parse(restaurantId)
+    );
+    return { ok: true, message: 'Standard: nix essen' };
   });
 }
 
@@ -578,6 +593,11 @@ export async function updateProfileAction(
         name: z.string().trim().min(1, 'Bitte einen Namen angeben').max(60),
         paypalMe: optionalText,
         address: optionalText,
+        defaultRestaurantId: z
+          .string()
+          .optional()
+          .transform((value) => (value ? Number(value) : null))
+          .pipe(z.number().int().positive().nullable()),
       })
       .parse(formObject(form));
     const paypalMe = data.paypalMe ? normalizePaypalHandle(data.paypalMe) : null;
@@ -620,8 +640,21 @@ export async function addAbsenceAction(
     const data = z
       .object({ fromDate: isoDate, toDate: isoDate, note: optionalText })
       .parse(formObject(form));
-    await addAbsence(await getDb(), viewer.id, data.fromDate, data.toDate, data.note);
-    return { ok: true, message: 'Eingetragen' };
+    const db = await getDb();
+    await addAbsence(db, viewer.id, data.fromDate, data.toDate, data.note);
+    const hosting = await hostedFridaysBetween(
+      db,
+      viewer.id,
+      data.fromDate,
+      data.toDate,
+      new Date()
+    );
+    return hosting.length
+      ? {
+          ok: true,
+          message: `Eingetragen. Am ${formatDayList(hosting)} bist du Gastgeber – wähl oben im Kalender, wer übernimmt, oder sag ab.`,
+        }
+      : { ok: true };
   });
 }
 
@@ -711,6 +744,66 @@ export async function updateRestaurantAction(
   });
 }
 
+/** The viewer's usual restaurant for the Fridays they host. */
+export async function setHostRestaurantAction(id: number): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    await setHostRestaurant(await getDb(), viewer.id, z.number().int().positive().parse(id));
+    return { ok: true, message: 'Gemerkt: Wenn du Gastgeber bist, bestellen wir hier' };
+  });
+}
+
+/**
+ * Any member may add a dish the menu is missing; it is saved for everyone. With a Friday
+ * it is ordered straight away for the viewer.
+ */
+export async function addMissingDishAction(input: {
+  restaurantId: number;
+  name: string;
+  price: string;
+  description: string;
+  date?: string;
+}): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    const data = z
+      .object({
+        restaurantId: z.number().int().positive(),
+        name: z.string().trim().min(1, 'Wie heißt das Gericht?').max(120),
+        price: z.string(),
+        description: optionalText,
+        date: fridayDate.optional(),
+      })
+      .parse(input);
+    const priceCents = parseEuroToCents(data.price);
+    if (priceCents === null || priceCents <= 0) {
+      throw new ServiceError('Preis: bitte einen Betrag wie „8,50“ eingeben');
+    }
+    const db = await getDb();
+    const dish = await createDish(
+      db,
+      data.restaurantId,
+      {
+        category: 'Selbst eingetragen',
+        name: data.name,
+        description: data.description,
+        priceCents,
+        optionGroups: [],
+      },
+      viewer.id
+    );
+    if (!data.date) return { ok: true, message: `${dish.name} steht jetzt auf der Karte` };
+    await orderAccess(viewer, data.date, viewer.id);
+    await addItem(db, data.date, viewer.id, {
+      dishId: dish.id,
+      selection: {},
+      note: null,
+      quantity: 1,
+    });
+    return { ok: true, message: `${dish.name} eingetragen und bestellt` };
+  });
+}
+
 export async function archiveRestaurantAction(
   id: number,
   archived: boolean
@@ -764,17 +857,35 @@ export async function saveDishAction(
   });
 }
 
+/** Saves the dishes the import preview kept; they are checked here again, not trusted. */
 export async function bulkAddDishesAction(
-  _: ActionResult | null,
-  form: FormData
+  restaurantId: number,
+  dishes: {
+    category: string | null;
+    name: string;
+    priceCents: number;
+    description: string | null;
+  }[]
 ): Promise<ActionResult> {
   return run(async () => {
     const { db } = await requireGroupManager();
-    const restaurantId = z.coerce.number().int().positive().parse(form.get('restaurantId'));
-    // Lines without a price were already shown as skipped in the preview.
-    const { dishes } = parseBulkDishes(String(form.get('menu') ?? ''));
-    if (dishes.length === 0) throw new ServiceError('Keine Gerichte gefunden');
-    const { added, updated } = await createDishes(db, restaurantId, dishes);
+    const data = z
+      .array(
+        z.object({
+          category: z.string().trim().max(80).nullable(),
+          name: z.string().trim().min(1).max(120),
+          priceCents: z.number().int().min(0).max(100_000),
+          description: z.string().trim().max(300).nullable(),
+        })
+      )
+      .min(1, 'Keine Gerichte ausgewählt')
+      .max(500)
+      .parse(dishes);
+    const { added, updated } = await createDishes(
+      db,
+      z.number().int().positive().parse(restaurantId),
+      data
+    );
     return {
       ok: true,
       message: [added && `${added} neu`, updated && `${updated} aktualisiert`]

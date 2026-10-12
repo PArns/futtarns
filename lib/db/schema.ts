@@ -9,6 +9,7 @@ import {
   serial,
   text,
   timestamp,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import type { OptionGroup, SelectedOption } from '@/lib/menu/options';
 
@@ -30,6 +31,11 @@ export const members = pgTable('members', {
   isDefaultHost: boolean('is_default_host').notNull().default(false),
   paypalMe: text('paypal_me'),
   address: text('address'),
+  // Where a Friday this member hosts orders from when nobody picks another restaurant.
+  defaultRestaurantId: integer('default_restaurant_id').references(
+    (): AnyPgColumn => restaurants.id,
+    { onDelete: 'set null' }
+  ),
   loginTokenHash: text('login_token_hash').unique(),
   loginTokenExpiresAt: timestamp('login_token_expires_at', { withTimezone: true }),
   calendarToken: text('calendar_token').unique(),
@@ -81,6 +87,8 @@ export const dishes = pgTable(
     optionGroups: jsonb('option_groups').$type<OptionGroup[]>().notNull().default([]),
     sortOrder: integer('sort_order').notNull().default(0),
     archived: boolean('archived').notNull().default(false),
+    // Set when a member added the dish because it was missing from the menu.
+    createdById: integer('created_by_id').references(() => members.id, { onDelete: 'set null' }),
   },
   (t) => [index('dishes_restaurant_idx').on(t.restaurantId)]
 );
@@ -94,7 +102,7 @@ export const fridays = pgTable('fridays', {
   mode: text('mode').$type<FridayMode>().notNull().default('delivery'),
   flatTitle: text('flat_title'),
   flatPriceCents: integer('flat_price_cents'),
-  // null: 10 % of the dishes; otherwise the fixed tip the host chose.
+  // null: the usual tip; otherwise what the host chose for this Friday.
   tipCents: integer('tip_cents'),
   // null: the default drinks flat fee; 0 switches it off for this Friday.
   drinksFeeCents: integer('drinks_fee_cents'),
@@ -152,9 +160,8 @@ export const memberDefaults = pgTable(
     restaurantId: integer('restaurant_id')
       .notNull()
       .references(() => restaurants.id, { onDelete: 'cascade' }),
-    dishId: integer('dish_id')
-      .notNull()
-      .references(() => dishes.id, { onDelete: 'cascade' }),
+    // null: this member eats nothing from here unless they order, they just come along.
+    dishId: integer('dish_id').references(() => dishes.id, { onDelete: 'cascade' }),
     options: jsonb('options').$type<SelectedOption[]>().notNull().default([]),
     note: text('note'),
   },

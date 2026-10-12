@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { issueLoginLinkAction, setRolesAction } from '@/app/actions';
 import { LoginLink } from '@/components/people/login-link';
 import { Button } from '@/components/ui/button';
+import { Chip } from '@/components/ui/chip';
 import { useAction } from '@/lib/hooks/use-action';
 import { cn } from '@/lib/utils';
 
@@ -29,19 +30,13 @@ export function MemberActions({
   const { pending, execute } = useAction();
 
   const toggle = (label: string, active: boolean, roles: Parameters<typeof setRolesAction>[1]) => (
-    <button
-      type="button"
+    <Chip
+      selected={active}
       disabled={pending}
       onClick={() => execute(() => setRolesAction(member.id, roles))}
-      className={cn(
-        'h-7 rounded-full border px-2.5 text-xs font-semibold transition-colors max-sm:h-9',
-        active
-          ? 'border-primary/50 bg-primary/15 text-foreground'
-          : 'border-border text-muted-foreground hover:text-foreground'
-      )}
     >
       {label}
-    </button>
+    </Chip>
   );
 
   return (
