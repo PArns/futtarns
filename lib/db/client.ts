@@ -15,7 +15,8 @@ export async function openDb(url: string): Promise<{ db: Db; close: () => Promis
   if (/^postgres(ql)?:\/\//.test(url)) {
     const { default: postgres } = await import('postgres');
     const { drizzle } = await import('drizzle-orm/postgres-js');
-    const client = postgres(url, { max: 10 });
+    // The migrator's „already exists, skipping“ notices would fill the log on every start.
+    const client = postgres(url, { max: 10, onnotice: () => {} });
     return { db: drizzle(client, { schema }) as unknown as Db, close: () => client.end() };
   }
   const { PGlite } = await import('@electric-sql/pglite');
