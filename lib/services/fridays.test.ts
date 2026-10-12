@@ -13,6 +13,7 @@ import {
   recordPayment,
   setAttendance,
   setCancelled,
+  setDrinksOptOut,
   setFlat,
   setHost,
   setRestaurant,
@@ -260,6 +261,16 @@ describe('a Friday', () => {
     await deleteRestaurant(db, unused.id);
     expect(await getRestaurant(db, unused.id)).toBeNull();
     expect(await getRestaurant(db, pizzeria.id)).not.toBeNull();
+  });
+
+  it('turns the drinks fee back on every week', async () => {
+    const { anna } = await setup();
+    await setDrinksOptOut(db, FRIDAY, anna.id, true);
+    const drinks = async (date: string) =>
+      (await loadFriday(db, date, BEFORE)).participants.find((p) => p.member.id === anna.id)!
+        .drinksOptOut;
+    expect(await drinks(FRIDAY)).toBe(true);
+    expect(await drinks('2026-10-23')).toBe(false);
   });
 
   it('locks due Fridays from the timer, but not a cancelled one', async () => {

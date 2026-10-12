@@ -169,6 +169,11 @@ describe('reminders', () => {
       text: expect.stringMatching(/Dein Code für freitach: \d{6}/),
     });
     expect(await handleIncoming(db, '+499999999', 'hallo', now, send)).toBeNull();
+    // The bot may run on someone's own number, so ordinary chat from members stays unanswered.
+    expect(await handleIncoming(db, '+491702222222', 'Kommst du heute?', now, send)).toBeNull();
+    expect(await handleIncoming(db, '+491702222222', 'hilfe', now, send)).toContain(
+      '1 – bin dabei'
+    );
 
     const anna = (await handleIncoming(db, '+491702222222', 'status', now, send))!;
     expect(anna).toContain('Du bist dabei');

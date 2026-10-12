@@ -43,7 +43,9 @@ export function DrinksToggle({
         <span className="block text-sm font-semibold">Getränke {formatEuro(feeCents)}</span>
         {!compact && (
           <span className="text-muted-foreground block text-xs">
-            {on ? 'Freiwillig, für Cola und Co. vom Gastgeber' : 'Abgewählt – trinkst nichts mit'}
+            {on
+              ? 'Freiwillig, für Cola und Co. vom Gastgeber'
+              : 'Diesmal abgewählt, nächste Woche wieder an'}
           </span>
         )}
       </span>

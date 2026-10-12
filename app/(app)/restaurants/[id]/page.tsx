@@ -5,6 +5,7 @@ import {
   Plus,
   Settings2,
   Sparkles,
+  Store,
   Truck,
 } from 'lucide-react';
 import type { Metadata } from 'next';
@@ -67,6 +68,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
   return (
     <>
       <PageHero
+        icon={Store}
         kicker={
           restaurant.archived
             ? 'Nicht mehr im Angebot'
@@ -112,7 +114,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
         <section>
           <ChapterHeading
             icon={Sparkles}
-            kicker="Dein Standard"
+            kicker="Das Übliche"
             title={myDefault ? (myDefault.dish?.name ?? 'Nix essen') : 'Noch kein Standard'}
             hint={
               myDefault && !myDefault.dish
@@ -141,7 +143,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
             <section>
               <ChapterHeading
                 icon={ClipboardPaste}
-                kicker="Karte"
+                kicker="Copy & Paste"
                 title="Karte übernehmen"
                 hint="Lieferando lässt keine automatischen Abrufe zu, deshalb kommt die Karte über deinen Browser."
                 id="karte-einfuegen"
@@ -172,7 +174,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
             </section>
 
             <section>
-              <ChapterHeading icon={Plus} kicker="Karte" title="Gericht hinzufügen" />
+              <ChapterHeading icon={Plus} kicker="Fehlt was?" title="Gericht hinzufügen" />
               <GlassCard variant="tile" className="p-5">
                 <DishForm restaurantId={restaurant.id} />
               </GlassCard>
@@ -182,7 +184,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
               <section>
                 <ChapterHeading
                   icon={Pencil}
-                  kicker="Karte"
+                  kicker="Feinschliff"
                   title="Gerichte bearbeiten"
                   hint="Archivierte Gerichte bleiben in alten Bestellungen erhalten."
                   action={
@@ -233,7 +235,11 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
             )}
 
             <section>
-              <ChapterHeading icon={Settings2} kicker="Laden" title="Daten und Gebühren" />
+              <ChapterHeading
+                icon={Settings2}
+                kicker="Kleingedrucktes"
+                title="Daten und Gebühren"
+              />
               <GlassCard variant="tile" className="space-y-5 p-5">
                 <RestaurantForm restaurant={restaurant} />
                 <div className="border-border/50 border-t pt-4">

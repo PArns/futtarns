@@ -23,6 +23,8 @@ export function welcomeText({
   return [
     `🍕 Hi ${name}, willkommen bei freitach!`,
     '',
+    '🤖 Kurz vorweg: Das hier ist eine automatische Nachricht. freitach ist unser Bot fürs Freitagsessen und schreibt über diese Nummer. Auf normale Nachrichten antwortet er nicht, nur auf die Befehle unten.',
+    '',
     `${invitedBy} hat dich eingetragen. Hier läuft unser Freitagsessen: Wir bestellen jede Woche zusammen, du sagst nur, ob du dabei bist, und suchst dir was aus.`,
     '',
     `1️⃣ Einmal anmelden: ${link}`,

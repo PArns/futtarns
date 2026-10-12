@@ -1,4 +1,4 @@
-import { CalendarPlus, LogOut, Sparkles, UserRound } from 'lucide-react';
+import { CalendarPlus, CircleUser, LogOut, Sparkles, UserRound } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { logoutAction } from '@/app/actions';
@@ -30,7 +30,7 @@ export default async function ProfilePage() {
 
   return (
     <>
-      <PageHero kicker="Profil" title={viewer.name}>
+      <PageHero icon={CircleUser} kicker="Das bist du" title={viewer.name}>
         <div className="hero-item mt-4 flex flex-wrap items-center gap-3">
           <Avatar name={viewer.name} id={viewer.id} className="size-10 text-sm" />
           {viewer.isAdmin && <Badge variant="primary">Admin</Badge>}
@@ -45,7 +45,7 @@ export default async function ProfilePage() {
 
       <div className="mx-auto max-w-5xl space-y-12 px-4">
         <section>
-          <ChapterHeading icon={UserRound} kicker="Du" title="Deine Angaben" />
+          <ChapterHeading icon={UserRound} kicker="Steckbrief" title="Deine Angaben" />
           <GlassCard variant="tile" className="p-5">
             <ProfileForm
               name={viewer.name}
@@ -61,7 +61,7 @@ export default async function ProfilePage() {
         <section>
           <ChapterHeading
             icon={Sparkles}
-            kicker="Standard"
+            kicker="Das Übliche"
             title="Deine Standardgerichte"
             hint="Das bekommst du, wenn du dabei bist und bis zum Bestellschluss nichts wählst. Festlegen kannst du es auf der Seite des Restaurants."
           />
@@ -107,7 +107,7 @@ export default async function ProfilePage() {
           <section>
             <ChapterHeading
               icon={CalendarPlus}
-              kicker="Kalender"
+              kicker="Nie wieder vergessen"
               title="Freitage im Handykalender"
               hint="Abonnier den Link, dann stehen Gastgeber, Restaurant und Absagen automatisch in deinem Kalender."
             />

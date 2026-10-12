@@ -59,6 +59,10 @@ Link with phone number. Once connected, the bot writes the groups it is in, with
 to the container log (not to the page, so other admins don't see them); put one id into
 `WHATSAPP_GROUP` for announcements there.
 
+The bot can run on someone's own number. It only answers registered members, and only their
+commands (`1`, `2`, `3`, `bezahlt`, `status`, `code`, `hilfe`); every other chat on the number
+is left alone, and messages from unknown numbers are ignored.
+
 `WHATSAPP=off` runs the app without the bot; every message is then only written to the log.
 
 ## Lieferando menus

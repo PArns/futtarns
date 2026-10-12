@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Users } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import {
   DishDialog,
@@ -14,6 +14,13 @@ import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
 
 const ALL = '__all__';
+const TAKEN = '__taken__';
+const NAMES_SHOWN = 3;
+
+function whoTook(names: string[]): string {
+  const shown = names.slice(0, NAMES_SHOWN).join(', ');
+  return names.length > NAMES_SHOWN ? `${shown} +${names.length - NAMES_SHOWN}` : shown;
+}
 
 /** The restaurant's menu: search, category chips and a card per dish that opens the dialog. */
 export function Menu({
@@ -24,6 +31,7 @@ export function Menu({
   targets,
   initialTargetId,
   defaultDishId,
+  takenBy = {},
 }: {
   dishes: MenuDish[];
   mode: 'order' | 'default';
@@ -32,6 +40,8 @@ export function Menu({
   targets: OrderTarget[];
   initialTargetId: number;
   defaultDishId?: number | null;
+  /** Who already picked a dish this Friday, by dish id. */
+  takenBy?: Record<number, string[]>;
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(ALL);
@@ -53,12 +63,16 @@ export function Menu({
     const needle = deferredQuery.trim().toLowerCase();
     return dishes.filter(
       (dish) =>
-        (deferredCategory === ALL || dish.category === deferredCategory) &&
+        (deferredCategory === ALL ||
+          (deferredCategory === TAKEN
+            ? Boolean(takenBy[dish.id])
+            : dish.category === deferredCategory)) &&
         (!needle ||
           dish.name.toLowerCase().includes(needle) ||
           dish.description?.toLowerCase().includes(needle))
     );
-  }, [dishes, deferredQuery, deferredCategory]);
+  }, [dishes, deferredQuery, deferredCategory, takenBy]);
+  const takenCount = dishes.filter((dish) => takenBy[dish.id]).length;
 
   if (dishes.length === 0) {
     return (
@@ -84,11 +98,19 @@ export function Menu({
             className="pl-9"
           />
         </div>
-        {categories.length > 1 && (
+        {(categories.length > 1 || takenCount > 0) && (
           <div className="-mx-4 flex [scrollbar-width:none] gap-1.5 overflow-x-auto px-4 pb-1">
-            {[ALL, ...categories].map((name) => (
+            <Chip selected={category === ALL} onClick={() => setCategory(ALL)}>
+              Alles
+            </Chip>
+            {takenCount > 0 && (
+              <Chip selected={category === TAKEN} onClick={() => setCategory(TAKEN)}>
+                <Users className="size-3.5" /> Was die anderen nehmen
+              </Chip>
+            )}
+            {categories.map((name) => (
               <Chip key={name} selected={category === name} onClick={() => setCategory(name)}>
-                {name === ALL ? 'Alles' : name}
+                {name}
               </Chip>
             ))}
           </div>
@@ -128,6 +150,12 @@ export function Menu({
                 )}
                 {formatEuro(dish.priceCents)}
               </p>
+              {takenBy[dish.id] && (
+                <p className="text-primary mt-1 flex items-center gap-1 text-xs font-medium">
+                  <Users className="size-3 shrink-0" />
+                  <span className="truncate">{whoTook(takenBy[dish.id]!)}</span>
+                </p>
+              )}
             </div>
             <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white">
               <Plus className="size-4" />
