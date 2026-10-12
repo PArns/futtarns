@@ -30,6 +30,7 @@ import { MyMoney } from '@/components/friday/my-money';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
 import { TimeLine } from '@/components/friday/time-line';
+import { AttendancePills } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { PageHero } from '@/components/layout/page-hero';
 import { Avatar } from '@/components/ui/avatar';
@@ -169,6 +170,12 @@ export async function FridayScreen({
   const visibleParticipants = view.participants.filter(
     (participant) => participant.member.kind === 'member' || participant.attendance.status !== 'out'
   );
+  const attendancePeople = visibleParticipants.map((participant) => ({
+    id: participant.member.id,
+    name: participant.member.name,
+    status: participant.attendance.status,
+    answered: participant.attendance.reason === 'answered',
+  }));
   const sheet = buildOrderSheet(
     view.participants.flatMap((participant) => participant.items),
     nameOf
@@ -319,6 +326,12 @@ export async function FridayScreen({
             flat={flat}
           />
         </div>
+
+        {!view.cancelled && attendancePeople.length > 0 && (
+          <div className="hero-item mt-4">
+            <AttendancePills people={attendancePeople} />
+          </div>
+        )}
 
         {view.cancelled && view.cancelReason && (
           <p className="hero-item text-muted-foreground mt-3">{view.cancelReason}</p>
@@ -569,6 +582,9 @@ export async function FridayScreen({
               title="Wer ist dabei"
               hint={countHint}
             />
+            <div className="mb-4">
+              <AttendancePills people={attendancePeople} />
+            </div>
             <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {visibleParticipants.map((participant) => (
                 <ParticipantCard

@@ -5,6 +5,15 @@ export type AttendanceReason = 'answered' | 'absent' | 'silent' | 'guest' | 'ina
 
 export type EffectiveAttendance = { status: AttendanceStatus; reason: AttendanceReason };
 
+/** Someone's answer for a Friday as the pages show it. */
+export type AttendancePerson = {
+  id: number;
+  name: string;
+  status: AttendanceStatus;
+  /** False when the status is only what silence means (or an absence). */
+  answered: boolean;
+};
+
 /**
  * Whether someone counts for a Friday. On an ordering Friday members who say nothing are
  * in (they get their default dish at the deadline); a flat-price evening like a barbecue
@@ -26,4 +35,13 @@ export function effectiveAttendance(
       absence.memberId === member.id && isWithin(friday, absence.fromDate, absence.toDate)
   );
   return absent ? { status: 'out', reason: 'absent' } : { status: silentMeans, reason: 'silent' };
+}
+
+/** How a pill shows someone's answer: a yes, silence that counts as in, without food, or out. */
+export type AnswerKind = 'yes' | 'silent' | 'nofood' | 'out';
+
+export function answerKind(person: Pick<AttendancePerson, 'status' | 'answered'>): AnswerKind {
+  if (person.status === 'out') return 'out';
+  if (person.status === 'nofood') return 'nofood';
+  return person.answered ? 'yes' : 'silent';
 }

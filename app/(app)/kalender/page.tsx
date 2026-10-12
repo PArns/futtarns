@@ -1,7 +1,7 @@
 import { CalendarDays, CalendarPlus, Flame, House, Plane, TriangleAlert } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { WhoComes } from '@/components/calendar/who-comes';
+import { AttendancePills } from '@/components/common/attendance-pills';
 import { FridayControls } from '@/components/calendar/friday-controls';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { CopyButton } from '@/components/common/copy-button';
@@ -182,7 +182,7 @@ export default async function CalendarPage() {
                       <p className="text-muted-foreground text-xs">{entry.cancelReason}</p>
                     )}
                     {!entry.cancelled && entry.people.length > 0 && (
-                      <WhoComes people={entry.people} />
+                      <AttendancePills people={entry.people} />
                     )}
                     {pickHost && (
                       <div className="border-border/50 mt-auto border-t pt-3">
