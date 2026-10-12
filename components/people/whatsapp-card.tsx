@@ -1,5 +1,6 @@
 import { CircleCheck, MessageCircle, PlugZap, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
+import { AutoRefresh } from '@/components/common/auto-refresh';
 import { buttonVariants } from '@/components/ui/button';
 import { RelinkWhatsApp } from '@/components/people/relink-whatsapp';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -53,27 +54,38 @@ export async function WhatsAppCard() {
               dangerouslySetInnerHTML={{ __html: state.qrSvg }}
             />
           ) : state.pairingCode ? (
-            <div className="text-3xl font-extrabold tracking-[0.3em] tabular-nums">
-              {state.pairingCode}
+            <div>
+              <div className="text-3xl font-extrabold tracking-[0.3em] tabular-nums">
+                {state.pairingCode}
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {state.pairingPhone && `Für ${formatPhone(state.pairingPhone)}. `}
+                Gilt gut zwei Minuten, danach steht hier von selbst ein neuer.
+              </p>
             </div>
           ) : (
             <p className="text-muted-foreground text-sm">Der Bot bereitet die Verbindung vor …</p>
           )}
           <ol className="text-muted-foreground list-inside list-decimal space-y-1 text-sm">
-            <li>WhatsApp auf dem Handy des Bots öffnen (am besten eine eigene Nummer).</li>
+            <li>
+              {state.pairingPhone
+                ? `WhatsApp auf dem Handy mit ${formatPhone(state.pairingPhone)} öffnen.`
+                : 'WhatsApp auf dem Handy des Bots öffnen (am besten eine eigene Nummer).'}
+            </li>
             <li>Einstellungen → Verknüpfte Geräte → Gerät hinzufügen.</li>
             <li>
               {state.pairingCode
-                ? 'Mit Telefonnummer verknüpfen und den Code eingeben.'
+                ? '„Stattdessen mit Telefonnummer verknüpfen“ und den Code eingeben.'
                 : 'Den Code scannen.'}
             </li>
-            <li>Danach neu laden, hier steht dann „verbunden“.</li>
+            <li>Diese Seite merkt das von selbst, dann steht hier „verbunden“.</li>
           </ol>
         </div>
       )}
       {(state.kind === 'connected' || state.kind === 'linking') && (
         <RelinkWhatsApp linked={state.kind === 'connected'} />
       )}
+      {(state.kind === 'linking' || state.kind === 'unreachable') && <AutoRefresh />}
     </GlassCard>
   );
 }

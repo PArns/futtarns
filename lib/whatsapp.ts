@@ -43,7 +43,13 @@ export type BotState =
   | { kind: 'off' }
   | { kind: 'unreachable' }
   | { kind: 'connected'; number: string | null }
-  | { kind: 'linking'; qrSvg: string | null; pairingCode: string | null };
+  | {
+      kind: 'linking';
+      qrSvg: string | null;
+      pairingCode: string | null;
+      /** The number (E.164) the pairing code links. */
+      pairingPhone: string | null;
+    };
 
 async function botFetch(path: string) {
   const url = process.env.BOT_URL!.replace(/\/$/, '');
@@ -67,14 +73,25 @@ export async function botState(): Promise<BotState> {
     }
     const response = await botFetch('/qr');
     if (response.headers.get('content-type')?.includes('svg')) {
-      return { kind: 'linking', qrSvg: await response.text(), pairingCode: null };
+      return {
+        kind: 'linking',
+        qrSvg: await response.text(),
+        pairingCode: null,
+        pairingPhone: null,
+      };
     }
     const body = (await response.json().catch(() => ({}))) as {
       pairingCode?: string;
+      phone?: string | null;
       linked?: boolean;
     };
     if (body.linked) return { kind: 'connected', number: null };
-    return { kind: 'linking', qrSvg: null, pairingCode: body.pairingCode ?? null };
+    return {
+      kind: 'linking',
+      qrSvg: null,
+      pairingCode: body.pairingCode ?? null,
+      pairingPhone: body.pairingCode && body.phone ? `+${body.phone}` : null,
+    };
   } catch {
     return { kind: 'unreachable' };
   }

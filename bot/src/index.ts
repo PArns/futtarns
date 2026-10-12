@@ -37,6 +37,12 @@ let socket: WASocket | null = null;
 let connected = false;
 let pendingQr: string | null = null;
 let pairingCode: string | null = null;
+// The number the current pairing code is for, so the app can say which phone to use.
+let pairingCodeFor: string | null = null;
+// WhatsApp closes an unlinked connection after about two and a half minutes. Instead of
+// opening the next one at once, which sends the phone a notification each time, the bot
+// waits until the people page asks for a new code.
+let linkingPaused = false;
 
 function phoneToJid(to: string): string {
   if (to.includes('@')) return to;
@@ -101,8 +107,9 @@ async function connect(): Promise<void> {
           console.error('Could not request a pairing code', error);
           return null;
         });
+        pairingCodeFor = pairingCode ? phone : null;
         if (pairingCode) console.log(`Pairing code for +${phone}: ${pairingCode}`);
-      } else {
+      } else if (!pairingPhone) {
         console.log('Not linked yet: open /qr?token=… or set PAIRING_PHONE for a pairing code.');
       }
     }
@@ -123,6 +130,9 @@ async function connect(): Promise<void> {
     }
     if (update.connection === 'close') {
       connected = false;
+      // A code or QR code belongs to the connection that asked for it.
+      pendingQr = null;
+      pairingCode = null;
       const status = (
         update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined
       )?.output?.statusCode;
@@ -130,8 +140,13 @@ async function connect(): Promise<void> {
         // The old login is useless now; start over so a new QR code shows up in the app.
         console.error('Logged out from WhatsApp, waiting to be linked again.');
         await clearAuth();
-        pairingCode = null;
         setTimeout(() => void connect(), 2_000);
+        return;
+      }
+      // `creds.me` is set by a successful pairing; `registered` only by the pairing-code flow.
+      if (status === DisconnectReason.timedOut && !sock.authState.creds.me) {
+        linkingPaused = true;
+        console.log('Linking timed out; the people page asks for a new code when it is opened.');
         return;
       }
       console.warn(`Connection closed (${status ?? 'unknown'}), reconnecting`);
@@ -180,6 +195,7 @@ async function relink(phone: string | null): Promise<void> {
   connected = false;
   pendingQr = null;
   pairingCode = null;
+  linkingPaused = false;
   pairingPhone = phone ?? PAIRING_PHONE;
   if (old) {
     await old.logout().catch((error: unknown) => console.warn('Logout failed', error));
@@ -253,7 +269,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/qr') {
       if (connected) return json(response, 200, { linked: true });
-      if (pairingCode) return json(response, 200, { pairingCode });
+      if (linkingPaused) {
+        linkingPaused = false;
+        void connect();
+      }
+      if (pairingCode) return json(response, 200, { pairingCode, phone: pairingCodeFor });
       if (!pendingQr)
         return json(response, 404, { error: 'no QR yet, try again in a few seconds' });
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
