@@ -22,6 +22,8 @@ const AUTH_DIR = process.env.AUTH_DIR ?? './data/auth';
 const BOT_TOKEN = process.env.BOT_TOKEN ?? '';
 const APP_URL = (process.env.APP_INTERNAL_URL ?? 'http://localhost:3000').replace(/\/$/, '');
 const PAIRING_PHONE = process.env.PAIRING_PHONE?.replace(/\D/g, '') || null;
+// A relink from the app may ask for a pairing code for another number than PAIRING_PHONE.
+let pairingPhone = PAIRING_PHONE;
 
 if (!BOT_TOKEN) {
   console.error('BOT_TOKEN is required');
@@ -88,14 +90,17 @@ async function connect(): Promise<void> {
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
+    // A socket replaced by a relink must not reconnect or wipe the new one's login.
+    if (sock !== socket) return;
     if (update.qr) {
       pendingQr = update.qr;
-      if (PAIRING_PHONE && !sock.authState.creds.registered && !pairingCode) {
-        pairingCode = await sock.requestPairingCode(PAIRING_PHONE).catch((error: unknown) => {
+      if (pairingPhone && !sock.authState.creds.registered && !pairingCode) {
+        const phone = pairingPhone;
+        pairingCode = await sock.requestPairingCode(phone).catch((error: unknown) => {
           console.error('Could not request a pairing code', error);
           return null;
         });
-        if (pairingCode) console.log(`Pairing code for +${PAIRING_PHONE}: ${pairingCode}`);
+        if (pairingCode) console.log(`Pairing code for +${phone}: ${pairingCode}`);
       } else {
         console.log('Not linked yet: open /qr?token=… or set PAIRING_PHONE for a pairing code.');
       }
@@ -134,7 +139,7 @@ async function connect(): Promise<void> {
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
+    if (type !== 'notify' || sock !== socket) return;
     for (const message of messages) {
       const jid = message.key.remoteJid ?? '';
       if (message.key.fromMe || jid.endsWith('@g.us') || jid === 'status@broadcast') continue;
@@ -151,6 +156,32 @@ async function connect(): Promise<void> {
       }
     }
   });
+}
+
+/**
+ * Logs the linked phone out and starts over, so another number can be linked: with a
+ * pairing code for `phone` if given, otherwise with a QR code.
+ */
+async function relink(phone: string | null): Promise<void> {
+  const old = socket;
+  socket = null;
+  connected = false;
+  pendingQr = null;
+  pairingCode = null;
+  pairingPhone = phone ?? PAIRING_PHONE;
+  if (old) {
+    await old.logout().catch((error: unknown) => console.warn('Logout failed', error));
+    try {
+      old.end(undefined);
+    } catch {
+      // Already closed by the logout.
+    }
+  }
+  await rm(AUTH_DIR, { recursive: true, force: true });
+  console.log(
+    pairingPhone ? `Relinking with a pairing code for +${pairingPhone}` : 'Relinking with a QR code'
+  );
+  setTimeout(() => void connect(), 1_000);
 }
 
 function authorized(request: IncomingMessage, url: URL): boolean {
@@ -179,6 +210,11 @@ const server = createServer(async (request, response) => {
       return json(response, 200, {
         connected,
         linked: Boolean(socket?.authState.creds.registered),
+        // `491701234567:12@s.whatsapp.net` → the number the bot sends from, for the app only.
+        number:
+          connected && authorized(request, url)
+            ? (socket?.user?.id.split(/[:@]/)[0] ?? null)
+            : null,
       });
     if (!authorized(request, url)) return json(response, 401, { error: 'unauthorized' });
 
@@ -187,6 +223,12 @@ const server = createServer(async (request, response) => {
       if (!body.to || !body.text) return json(response, 400, { error: 'to and text are required' });
       if (!socket || !connected) return json(response, 503, { error: 'not connected' });
       await socket.sendMessage(phoneToJid(body.to), { text: body.text });
+      return json(response, 200, { ok: true });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/relink') {
+      const body = (await readJson(request)) as { phone?: string | null };
+      await relink(body.phone?.replace(/\D/g, '') || null);
       return json(response, 200, { ok: true });
     }
 
