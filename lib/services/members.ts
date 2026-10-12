@@ -134,7 +134,12 @@ export async function addGuest(
       .where(and(eq(members.kind, 'guest'), sql`lower(${members.name}) = lower(${trimmed})`));
     const guest =
       existing ??
-      (await tx.insert(members).values({ name: trimmed, kind: 'guest', createdById: addedById }).returning())[0]!;
+      (
+        await tx
+          .insert(members)
+          .values({ name: trimmed, kind: 'guest', createdById: addedById })
+          .returning()
+      )[0]!;
     await tx
       .insert(attendance)
       .values({ fridayDate: friday, memberId: guest.id, status: 'in', addedById })

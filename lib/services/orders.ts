@@ -1,7 +1,14 @@
 import { and, asc, eq } from 'drizzle-orm';
 import type { IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
-import { attendance, dishes, fridays, memberDefaults, orderItems, restaurants } from '@/lib/db/schema';
+import {
+  attendance,
+  dishes,
+  fridays,
+  memberDefaults,
+  orderItems,
+  restaurants,
+} from '@/lib/db/schema';
 import { resolveSelection, unitPriceCents } from '@/lib/menu/options';
 import { ServiceError } from '@/lib/services/members';
 
@@ -36,7 +43,8 @@ export async function addItem(
   choice: DishChoice & { quantity: number }
 ) {
   const [friday] = await db.select().from(fridays).where(eq(fridays.date, date));
-  if (!friday?.restaurantId) throw new ServiceError('Für diesen Freitag steht noch kein Restaurant fest');
+  if (!friday?.restaurantId)
+    throw new ServiceError('Für diesen Freitag steht noch kein Restaurant fest');
   if (friday.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
   const { dish, options } = await dishWithOptions(db, choice, friday.restaurantId);
   const quantity = Math.min(Math.max(Math.round(choice.quantity), 1), 20);
@@ -99,7 +107,9 @@ export async function setDefaultDish(
 export async function removeDefaultDish(db: Db, memberId: number, restaurantId: number) {
   await db
     .delete(memberDefaults)
-    .where(and(eq(memberDefaults.memberId, memberId), eq(memberDefaults.restaurantId, restaurantId)));
+    .where(
+      and(eq(memberDefaults.memberId, memberId), eq(memberDefaults.restaurantId, restaurantId))
+    );
 }
 
 export async function listDefaults(db: Db, memberId: number) {
@@ -117,6 +127,8 @@ export async function getDefault(db: Db, memberId: number, restaurantId: number)
     .select({ entry: memberDefaults, dish: dishes })
     .from(memberDefaults)
     .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
-    .where(and(eq(memberDefaults.memberId, memberId), eq(memberDefaults.restaurantId, restaurantId)));
+    .where(
+      and(eq(memberDefaults.memberId, memberId), eq(memberDefaults.restaurantId, restaurantId))
+    );
   return row ?? null;
 }

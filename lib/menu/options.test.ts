@@ -70,14 +70,17 @@ describe('parseOptionGroups', () => {
   });
 
   it('round-trips through formatOptionGroups', () => {
-    const text = 'Größe (1): Klein | Groß +2,50\nExtras (0-2): Käse +1,00 | Salami +1,50 | Zwiebeln\nSoßen: A | B';
+    const text =
+      'Größe (1): Klein | Groß +2,50\nExtras (0-2): Käse +1,00 | Salami +1,50 | Zwiebeln\nSoßen: A | B';
     const { groups } = parseOptionGroups(text);
     expect(parseOptionGroups(formatOptionGroups(groups)).groups).toEqual(groups);
   });
 });
 
 describe('resolveSelection', () => {
-  const { groups } = parseOptionGroups('Größe (1): Klein | Groß +2,50\nExtras (0-2): Käse +1 | Salami +1,50');
+  const { groups } = parseOptionGroups(
+    'Größe (1): Klein | Groß +2,50\nExtras (0-2): Käse +1 | Salami +1,50'
+  );
 
   it('returns the snapshot of the picked choices', () => {
     const result = resolveSelection(groups, { grosse: ['gross'], extras: ['kase', 'salami'] });

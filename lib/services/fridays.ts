@@ -1,12 +1,13 @@
 import { and, asc, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
 import { effectiveAttendance, type EffectiveAttendance } from '@/lib/attendance';
+import { moneyFor, type Money } from '@/lib/balance';
 import {
+  addWeeks,
   currentFriday,
+  fridaysFrom,
   isPastDeadline,
   orderDeadline,
   orderTime,
-  addWeeks,
-  fridaysFrom,
   type IsoDate,
 } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
@@ -18,13 +19,15 @@ import {
   memberDefaults,
   members,
   orderItems,
+  payments,
   restaurants,
   type AttendanceStatus,
-  type Charge,
   type Dish,
   type Friday,
+  type FridayMode,
   type Member,
   type OrderItem,
+  type PaymentPurpose,
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
@@ -33,7 +36,7 @@ import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/service
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
-async function ensureFridayRow(db: Db | Tx, date: IsoDate) {
+async function ensureFridayRow(db: Db, date: IsoDate) {
   await db.insert(fridays).values({ date }).onConflictDoNothing();
 }
 
@@ -49,9 +52,16 @@ export async function hostIdFor(db: Db, date: IsoDate): Promise<number | null> {
   return (await getDefaultHost(db))?.id ?? null;
 }
 
-export async function setHost(db: Db, date: IsoDate, hostId: number | null) {
+async function touch(db: Db, date: IsoDate, values: Partial<Friday>) {
   await ensureFridayRow(db, date);
-  await db.update(fridays).set({ hostId, updatedAt: new Date() }).where(eq(fridays.date, date));
+  await db
+    .update(fridays)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(fridays.date, date));
+}
+
+export async function setHost(db: Db, date: IsoDate, hostId: number | null) {
+  await touch(db, date, { hostId });
 }
 
 export async function setCancelled(
@@ -60,29 +70,48 @@ export async function setCancelled(
   cancelled: boolean,
   reason: string | null
 ) {
-  await ensureFridayRow(db, date);
-  await db
-    .update(fridays)
-    .set({ cancelled, cancelReason: cancelled ? reason : null, updatedAt: new Date() })
-    .where(eq(fridays.date, date));
+  await touch(db, date, { cancelled, cancelReason: cancelled ? reason : null });
 }
 
 export async function setFridayNote(db: Db, date: IsoDate, note: string | null) {
-  await ensureFridayRow(db, date);
-  await db.update(fridays).set({ note, updatedAt: new Date() }).where(eq(fridays.date, date));
+  await touch(db, date, { note });
+}
+
+async function requireOpen(tx: Tx, date: IsoDate) {
+  await ensureFridayRow(tx, date);
+  const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
+  if (row!.lockedAt) throw new ServiceError('Die Bestellung ist schon geschlossen');
+  return row!;
 }
 
 /** Picks the restaurant. Switching to another one drops the orders placed so far. */
 export async function setRestaurant(db: Db, date: IsoDate, restaurantId: number | null) {
   await db.transaction(async (tx) => {
-    await ensureFridayRow(tx, date);
-    const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
-    if (row!.lockedAt) throw new ServiceError('Die Bestellung ist schon geschlossen');
-    if (row!.restaurantId === restaurantId) return;
+    const row = await requireOpen(tx, date);
+    if (row.mode === 'delivery' && row.restaurantId === restaurantId) return;
     await tx.delete(orderItems).where(eq(orderItems.fridayDate, date));
     await tx
       .update(fridays)
-      .set({ restaurantId, updatedAt: new Date() })
+      .set({ mode: 'delivery', restaurantId, updatedAt: new Date() })
+      .where(eq(fridays.date, date));
+  });
+}
+
+/** Turns a Friday into one with a single price for everyone, e.g. a barbecue. */
+export async function setFlat(db: Db, date: IsoDate, title: string, priceCents: number) {
+  if (priceCents <= 0) throw new ServiceError('Bitte einen Betrag angeben');
+  await db.transaction(async (tx) => {
+    const row = await requireOpen(tx, date);
+    if (row.mode !== 'flat') await tx.delete(orderItems).where(eq(orderItems.fridayDate, date));
+    await tx
+      .update(fridays)
+      .set({
+        mode: 'flat' satisfies FridayMode,
+        flatTitle: title,
+        flatPriceCents: priceCents,
+        restaurantId: null,
+        updatedAt: new Date(),
+      })
       .where(eq(fridays.date, date));
   });
 }
@@ -125,7 +154,8 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
       .where(and(eq(fridays.date, date), isNull(fridays.lockedAt), eq(fridays.cancelled, false)))
       .returning();
     if (!row) return false;
-    if (row.restaurantId) await applyDefaults(tx, date, row.restaurantId);
+    if (row.mode === 'delivery' && row.restaurantId)
+      await applyDefaults(tx, date, row.restaurantId);
     return true;
   });
 }
@@ -195,30 +225,22 @@ export async function lockDueFridays(db: Db, now: Date): Promise<IsoDate[]> {
   return locked;
 }
 
-/**
- * Splits the amount Lieferando actually charged and stores what everyone owes. The host
- * paid Lieferando, so their own share is marked paid; payments already made are kept.
- */
+/** Splits the amount Lieferando actually charged and stores what everyone owes. */
 export async function settleFriday(db: Db, date: IsoDate, totalCents: number, now: Date) {
   await db.transaction(async (tx) => {
     const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
     if (!row?.lockedAt) throw new ServiceError('Erst nach Bestellschluss abrechnen');
+    if (row.mode === 'flat')
+      throw new ServiceError('Bei einer Pauschale gibt es nichts abzurechnen');
     const items = await tx.select().from(orderItems).where(eq(orderItems.fridayDate, date));
     const shares = splitTotal(items, totalCents);
     if (shares.length === 0) throw new ServiceError('Es wurde nichts bestellt');
-    const hostId = row.hostId ?? (await getDefaultHost(tx))?.id ?? null;
-    const existing = await tx.select().from(charges).where(eq(charges.fridayDate, date));
-
     await tx.delete(charges).where(eq(charges.fridayDate, date));
     await tx.insert(charges).values(
       shares.map((share) => ({
         fridayDate: date,
         memberId: share.memberId,
         amountCents: share.totalCents,
-        paidAt:
-          share.memberId === hostId
-            ? now
-            : (existing.find((charge) => charge.memberId === share.memberId)?.paidAt ?? null),
       }))
     );
     await tx
@@ -228,7 +250,7 @@ export async function settleFriday(db: Db, date: IsoDate, totalCents: number, no
   });
 }
 
-/** Undoes the split so orders can be corrected; payments made so far are remembered. */
+/** Undoes the split so orders can be corrected; payments stay in the ledger. */
 export async function reopenSettlement(db: Db, date: IsoDate) {
   await db
     .update(fridays)
@@ -236,11 +258,37 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
     .where(eq(fridays.date, date));
 }
 
-export async function setPaid(db: Db, date: IsoDate, memberId: number, paidAt: Date | null) {
+export async function recordPayment(
+  db: Db,
+  input: {
+    date: IsoDate;
+    memberId: number;
+    amountCents: number;
+    purpose: PaymentPurpose;
+    recordedById: number;
+  }
+) {
+  if (input.amountCents === 0) return;
+  await db.insert(payments).values({
+    fridayDate: input.date,
+    memberId: input.memberId,
+    amountCents: input.amountCents,
+    purpose: input.purpose,
+    recordedById: input.recordedById,
+  });
+}
+
+/** Forgets every food payment of one person for a Friday, for when one was a mistake. */
+export async function clearFoodPayments(db: Db, date: IsoDate, memberId: number) {
   await db
-    .update(charges)
-    .set({ paidAt })
-    .where(and(eq(charges.fridayDate, date), eq(charges.memberId, memberId)));
+    .delete(payments)
+    .where(
+      and(
+        eq(payments.fridayDate, date),
+        eq(payments.memberId, memberId),
+        eq(payments.purpose, 'food')
+      )
+    );
 }
 
 export type Participant = {
@@ -250,7 +298,8 @@ export type Participant = {
   items: OrderItem[];
   itemsCents: number;
   hasDefault: boolean;
-  charge: Charge | null;
+  share: MemberShare | null;
+  money: Money;
 };
 
 export type FridayView = {
@@ -260,6 +309,9 @@ export type FridayView = {
   cancelled: boolean;
   cancelReason: string | null;
   note: string | null;
+  mode: FridayMode;
+  flatTitle: string | null;
+  flatPriceCents: number | null;
   restaurant: Restaurant | null;
   dishes: Dish[];
   deadline: Date;
@@ -270,6 +322,7 @@ export type FridayView = {
   participants: Participant[];
   estimate: FeeEstimate | null;
   shares: MemberShare[];
+  drinksCents: number;
 };
 
 /** Everything a Friday page shows, after closing ordering if the deadline has passed. */
@@ -277,27 +330,27 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   await lockFriday(db, date, now);
   const row = await getFridayRow(db, date);
   const defaultHost = await getDefaultHost(db);
+  const mode = row?.mode ?? 'delivery';
 
   const answers = await db.select().from(attendance).where(eq(attendance.fridayDate, date));
-  const answeredIds = answers.map((answer) => answer.memberId);
+  const ledger = await db.select().from(payments).where(eq(payments.fridayDate, date));
+  const involvedIds = [...new Set([...answers, ...ledger].map((entry) => entry.memberId))];
   const people = await db
     .select()
     .from(members)
     .where(
       or(
         and(eq(members.kind, 'member'), eq(members.active, true)),
-        answeredIds.length ? inArray(members.id, answeredIds) : undefined
+        involvedIds.length ? inArray(members.id, involvedIds) : undefined
       )
     )
     .orderBy(asc(members.name));
   const hostId = row?.hostId ?? defaultHost?.id ?? null;
   const host =
     people.find((person) => person.id === hostId) ??
-    (hostId
-      ? ((await db.select().from(members).where(eq(members.id, hostId)))[0] ?? null)
-      : null);
+    (hostId ? ((await db.select().from(members).where(eq(members.id, hostId)))[0] ?? null) : null);
 
-  const restaurantId = row?.restaurantId ?? null;
+  const restaurantId = mode === 'delivery' ? (row?.restaurantId ?? null) : null;
   const [restaurant] = restaurantId
     ? await db.select().from(restaurants).where(eq(restaurants.id, restaurantId))
     : [];
@@ -326,8 +379,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     .orderBy(asc(orderItems.id));
   const absent = await absencesOverlapping(db, date, date);
   const storedCharges = await db.select().from(charges).where(eq(charges.fridayDate, date));
+  const settled = Boolean(row?.settledAt);
 
-  const participants = people.map((member): Participant => {
+  const base = people.map((member) => {
     const answer = answers.find((entry) => entry.memberId === member.id);
     const own = items.filter((item) => item.memberId === member.id);
     return {
@@ -337,14 +391,40 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       items: own,
       itemsCents: own.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
       hasDefault: defaultsFor.has(member.id),
-      charge: storedCharges.find((charge) => charge.memberId === member.id) ?? null,
     };
   });
 
   const subtotal = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const estimate = restaurant ? estimateFees(subtotal, restaurant) : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
-  const shares = splitTotal(items, finalTotalCents ?? estimate?.totalCents ?? subtotal);
+  const flatPrice = row?.flatPriceCents ?? 0;
+  const shares: MemberShare[] =
+    mode === 'flat'
+      ? base
+          .filter((entry) => entry.attendance.status === 'in')
+          .map((entry) => ({
+            memberId: entry.member.id,
+            itemsCents: flatPrice,
+            sharedCents: 0,
+            totalCents: flatPrice,
+          }))
+      : splitTotal(items, finalTotalCents ?? estimate?.totalCents ?? subtotal);
+
+  const participants = base.map((entry): Participant => {
+    const share = shares.find((candidate) => candidate.memberId === entry.member.id) ?? null;
+    const charge = storedCharges.find((candidate) => candidate.memberId === entry.member.id);
+    const dueCents =
+      settled && mode === 'delivery' ? (charge?.amountCents ?? 0) : (share?.totalCents ?? 0);
+    return {
+      ...entry,
+      share,
+      money: moneyFor({
+        isHost: entry.member.id === hostId,
+        dueCents,
+        payments: ledger.filter((payment) => payment.memberId === entry.member.id),
+      }),
+    };
+  });
 
   return {
     date,
@@ -353,16 +433,22 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     cancelled: row?.cancelled ?? false,
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
+    mode,
+    flatTitle: row?.flatTitle ?? null,
+    flatPriceCents: row?.flatPriceCents ?? null,
     restaurant: restaurant ?? null,
     dishes: menu,
     deadline: orderDeadline(date),
     orderTime: orderTime(date),
     locked: Boolean(row?.lockedAt),
-    settled: Boolean(row?.settledAt),
+    settled,
     finalTotalCents,
     participants,
     estimate,
     shares,
+    drinksCents: ledger
+      .filter((payment) => payment.purpose === 'drinks')
+      .reduce((sum, payment) => sum + payment.amountCents, 0),
   };
 }
 
@@ -373,6 +459,9 @@ export type CalendarEntry = {
   cancelled: boolean;
   cancelReason: string | null;
   note: string | null;
+  mode: FridayMode;
+  flatTitle: string | null;
+  flatPriceCents: number | null;
   restaurant: Pick<Restaurant, 'id' | 'name' | 'cuisine'> | null;
   hostAbsent: boolean;
   absentMemberIds: number[];
@@ -398,9 +487,14 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     const host = row?.hostId
       ? (everyone.find((member) => member.id === row.hostId) ?? null)
       : defaultHost;
-    const absentMemberIds = absent
-      .filter((absence) => absence.fromDate <= date && date <= absence.toDate)
-      .map((absence) => absence.memberId);
+    const absentMemberIds = [
+      ...new Set(
+        absent
+          .filter((absence) => absence.fromDate <= date && date <= absence.toDate)
+          .map((absence) => absence.memberId)
+      ),
+    ];
+    const mode = row?.mode ?? 'delivery';
     return {
       date,
       host,
@@ -408,37 +502,67 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
       cancelled: row?.cancelled ?? false,
       cancelReason: row?.cancelReason ?? null,
       note: row?.note ?? null,
-      restaurant: allRestaurants.find((entry) => entry.id === row?.restaurantId) ?? null,
+      mode,
+      flatTitle: row?.flatTitle ?? null,
+      flatPriceCents: row?.flatPriceCents ?? null,
+      restaurant:
+        mode === 'delivery'
+          ? (allRestaurants.find((entry) => entry.id === row?.restaurantId) ?? null)
+          : null,
       hostAbsent: host ? absentMemberIds.includes(host.id) : false,
-      absentMemberIds: [...new Set(absentMemberIds)],
+      absentMemberIds,
     };
   });
 }
 
-export type OpenCharge = {
+export type OpenBalance = {
   fridayDate: IsoDate;
-  amountCents: number;
+  money: Money;
   payee: Pick<Member, 'id' | 'name' | 'paypalMe'> | null;
+  title: string;
 };
 
-/** What a member still owes, oldest first, with whom to pay. */
-export async function openChargesFor(db: Db, memberId: number): Promise<OpenCharge[]> {
-  const open = await db
-    .select({ charge: charges, friday: fridays })
-    .from(charges)
-    .innerJoin(fridays, eq(fridays.date, charges.fridayDate))
-    .where(and(eq(charges.memberId, memberId), isNull(charges.paidAt)))
-    .orderBy(asc(charges.fridayDate));
-  if (open.length === 0) return [];
-  const defaultHost = await getDefaultHost(db);
-  const everyone = await db.select().from(members);
-  return open.map(({ charge, friday }) => {
-    const payeeId = friday.hostId ?? defaultHost?.id ?? null;
-    const payee = everyone.find((member) => member.id === payeeId) ?? null;
-    return {
-      fridayDate: charge.fridayDate,
-      amountCents: charge.amountCents,
-      payee: payee ? { id: payee.id, name: payee.name, paypalMe: payee.paypalMe } : null,
-    };
-  });
+const BALANCE_LOOKBACK_WEEKS = 8;
+
+/**
+ * Fridays before `before` where a member still owes money or gets some back. Counting
+ * starts once a Friday's deadline has passed; the coming Friday is shown on its own page.
+ */
+export async function openBalancesFor(
+  db: Db,
+  memberId: number,
+  before: IsoDate,
+  now: Date
+): Promise<OpenBalance[]> {
+  const from = addWeeks(before, -BALANCE_LOOKBACK_WEEKS);
+  const candidates = await db
+    .select({ date: fridays.date })
+    .from(fridays)
+    .where(
+      and(
+        gte(fridays.date, from),
+        lte(fridays.date, addWeeks(before, -1)),
+        eq(fridays.cancelled, false)
+      )
+    )
+    .orderBy(asc(fridays.date));
+  const result: OpenBalance[] = [];
+  for (const { date } of candidates) {
+    const view = await loadFriday(db, date, now);
+    const participant = view.participants.find((entry) => entry.member.id === memberId);
+    if (!participant || participant.money.openCents === 0) continue;
+    if (view.mode === 'delivery' && !view.settled) continue;
+    result.push({
+      fridayDate: date,
+      money: participant.money,
+      payee: view.host
+        ? { id: view.host.id, name: view.host.name, paypalMe: view.host.paypalMe }
+        : null,
+      title:
+        view.mode === 'flat'
+          ? (view.flatTitle ?? 'Pauschale')
+          : (view.restaurant?.name ?? 'Freitag'),
+    });
+  }
+  return result;
 }

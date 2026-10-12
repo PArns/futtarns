@@ -20,7 +20,8 @@ export function effectiveAttendance(
   if (member.kind === 'guest') return { status: 'out', reason: 'guest' };
   if (!member.active) return { status: 'out', reason: 'inactive' };
   const absent = absences.some(
-    (absence) => absence.memberId === member.id && isWithin(friday, absence.fromDate, absence.toDate)
+    (absence) =>
+      absence.memberId === member.id && isWithin(friday, absence.fromDate, absence.toDate)
   );
   return absent ? { status: 'out', reason: 'absent' } : { status: 'in', reason: 'silent' };
 }

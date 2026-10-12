@@ -1,4 +1,3 @@
-import 'server-only';
 import { migrateDb, openDb, type Db } from '@/lib/db/client';
 
 export type { Db } from '@/lib/db/client';

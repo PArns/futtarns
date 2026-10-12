@@ -86,7 +86,12 @@ export async function updateDish(db: Db, restaurantId: number, dishId: number, i
 }
 
 /** Archives instead of deleting, because past orders and defaults point at the dish. */
-export async function setDishArchived(db: Db, restaurantId: number, dishId: number, archived: boolean) {
+export async function setDishArchived(
+  db: Db,
+  restaurantId: number,
+  dishId: number,
+  archived: boolean
+) {
   await db
     .update(dishes)
     .set({ archived })

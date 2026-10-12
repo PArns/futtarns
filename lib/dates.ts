@@ -85,6 +85,25 @@ export function isPastDeadline(friday: IsoDate, now: Date = new Date()): boolean
   return now.getTime() >= orderDeadline(friday).getTime();
 }
 
+/** A Berlin wall-clock time relative to a Friday, e.g. Wednesday noon is (-2, 12, 0). */
+export function berlinAt(friday: IsoDate, dayOffset: number, hour: number, minute = 0): Date {
+  const day = addDays(berlinDay(friday), dayOffset);
+  const local = new TZDate(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    hour,
+    minute,
+    TIME_ZONE
+  );
+  return new Date(local.getTime());
+}
+
+/** Whole calendar days from `from` to `to`. */
+export function daysBetween(from: IsoDate, to: IsoDate): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 export function isWithin(iso: IsoDate, from: IsoDate, to: IsoDate): boolean {
   return from <= iso && iso <= to;
 }

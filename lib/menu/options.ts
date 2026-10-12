@@ -85,7 +85,13 @@ export function parseOptionGroups(text: string): { groups: OptionGroup[]; errors
       errors.push(`Zeile ${lineIndex + 1}: Anzahl ${min}-${max} ergibt keinen Sinn`);
       return;
     }
-    groups.push({ id: uniqueId(name, groups), name, min, max: Math.min(max, choices.length), choices });
+    groups.push({
+      id: uniqueId(name, groups),
+      name,
+      min,
+      max: Math.min(max, choices.length),
+      choices,
+    });
   });
 
   return { groups, errors };

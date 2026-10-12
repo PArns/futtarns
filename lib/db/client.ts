@@ -20,6 +20,7 @@ export async function openDb(url: string): Promise<{ db: Db; close: () => Promis
   }
   const { PGlite } = await import('@electric-sql/pglite');
   const { drizzle } = await import('drizzle-orm/pglite');
+  if (url !== 'memory://') (await import('node:fs')).mkdirSync(url, { recursive: true });
   const client = new PGlite(url === 'memory://' ? undefined : url);
   return { db: drizzle(client, { schema }) as unknown as Db, close: () => client.close() };
 }

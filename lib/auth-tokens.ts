@@ -18,5 +18,5 @@ export function loginLink(token: string): string {
 }
 
 export function calendarLink(calendarToken: string): string {
-  return `${appUrl()}/kalender/${calendarToken}/feed.ics`;
+  return `${appUrl()}/ics/${calendarToken}.ics`;
 }

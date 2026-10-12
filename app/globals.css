@@ -1,0 +1,200 @@
+@import 'tailwindcss';
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-badge-success: var(--badge-success);
+  --color-badge-warning: var(--badge-warning);
+  --color-badge-error: var(--badge-error);
+  --color-badge-muted: var(--badge-muted);
+  --color-badge-primary: var(--badge-primary);
+  --color-brand-green: #51cc64;
+  --color-brand-sky: #12bef0;
+  --color-brand-deep: #1665e6;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.628 0.137 241.275);
+  --primary-foreground: oklch(0.991 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.628 0.137 241.275);
+  --success: oklch(0.53 0.21 142.136);
+  --warning: oklch(0.705 0.213 47.604);
+  --error: oklch(0.577 0.245 27.325);
+  --badge-success: oklch(0.46 0.17 142);
+  --badge-warning: oklch(0.5 0.18 47);
+  --badge-error: oklch(0.46 0.22 27);
+  --badge-muted: oklch(0.46 0.02 238);
+  --badge-primary: var(--primary);
+  --badge-fill: 100%;
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 20px 60px rgba(0, 0, 0, 0.14);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.628 0.137 241.275);
+  --primary-foreground: oklch(0.991 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.628 0.137 241.275);
+  --success: oklch(0.792 0.209 151.711);
+  --warning: oklch(0.78 0.188 56.113);
+  --error: oklch(0.704 0.191 22.216);
+  --badge-primary: oklch(0.46 0.13 241);
+  --badge-fill: 60%;
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.55), 0 20px 60px rgba(0, 0, 0, 0.5);
+  scrollbar-color: color-mix(in oklab, var(--foreground) 28%, transparent) transparent;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-background/60 border-border/40 border backdrop-blur-md;
+  }
+  .glass-card {
+    @apply bg-card/60 border-border/40 border shadow-lg backdrop-blur-md;
+  }
+  .glass-heavy {
+    @apply bg-background/62 border shadow-xl backdrop-blur-xl dark:bg-[oklch(0.13_0.02_241_/_0.6)];
+  }
+  .glass-tile {
+    @apply bg-background/75 border backdrop-blur-2xl dark:bg-[oklch(0.13_0.02_241_/_0.75)];
+  }
+  .brand-gradient {
+    background:
+      radial-gradient(circle at 50% 50%, rgb(255 255 255 / 0.1) 0%, transparent 30%),
+      radial-gradient(
+        circle at 16% 24%,
+        color-mix(in srgb, #2191d3 85%, transparent) 0%,
+        transparent 46%
+      ),
+      radial-gradient(
+        circle at 76% 6%,
+        color-mix(in srgb, #12bef0 60%, transparent) 0%,
+        transparent 40%
+      ),
+      radial-gradient(
+        circle at 94% 98%,
+        color-mix(in srgb, #51cc64 70%, transparent) 0%,
+        transparent 44%
+      ),
+      radial-gradient(
+        circle at 2% 106%,
+        color-mix(in srgb, #1665e6 80%, transparent) 0%,
+        transparent 48%
+      ),
+      linear-gradient(135deg, #0f1e28 0%, #13293a 100%);
+  }
+  .sky-gradient {
+    background: linear-gradient(to bottom, #3b8fe3 0%, #7fc2f3 55%, #cdeeff 100%);
+  }
+  .dark .sky-gradient {
+    background: linear-gradient(to bottom, #070b1e 0%, #142150 55%, #33508c 100%);
+  }
+}
+
+/* Entrance for the children of a hero plate; the glass plate itself never animates, or
+   its backdrop-filter goes flat. */
+@keyframes hero-item-in {
+  from {
+    opacity: 0;
+    transform: translate(-22px, 30px) scale(0.965);
+    filter: blur(12px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-item {
+    animation: hero-item-in 0.85s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .hero-item:nth-child(2) {
+    animation-delay: 0.085s;
+  }
+  .hero-item:nth-child(3) {
+    animation-delay: 0.17s;
+  }
+  .hero-item:nth-child(4) {
+    animation-delay: 0.255s;
+  }
+  .hero-item:nth-child(5) {
+    animation-delay: 0.34s;
+  }
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(4px);
+}

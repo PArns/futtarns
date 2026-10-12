@@ -7,37 +7,79 @@ export type BulkDish = {
   description: string | null;
 };
 
-const DISH_LINE = /^(.*?)\s+(\d+(?:[.,]\d{1,2})?)\s*€?\s*(?:\|\s*(.*))?$/;
+const INLINE_PRICE = /^(.*?)\s+[–-]?\s*(?:ab\s+)?(\d{1,3}(?:[.,]\d{1,2})?)\s*€?\s*(?:\|\s*(.*))?$/;
+const PRICE_ONLY = /^(?:ab\s+)?(\d{1,3}(?:[.,]\d{2}))\s*€$/i;
+// Lines a copied delivery page is full of that never name a dish.
+const NOISE =
+  /^(beliebt|neu|vegan|vegetarisch|scharf|produktinfo|allergene.*|zusatzstoffe.*|\+|hinzufügen|mehr anzeigen)$/i;
 
 /**
- * Reads a menu typed or pasted as text: `# Pizza` starts a category, every other line is
- * `Name Preis` with an optional `| Beschreibung`, e.g. `Margherita 8,50 | Tomate, Mozzarella`.
+ * Reads a menu typed or pasted as text. Two shapes work and can be mixed:
+ * - typed: `# Pizza` starts a category, then `Margherita 8,50 | Tomate, Mozzarella`;
+ * - copied from a delivery site: a dish name, optional description lines, and the price
+ *   on a line of its own (`8,50 €`).
+ * Anything it cannot place is reported per line, so the preview can show it.
  */
 export function parseBulkDishes(text: string): { dishes: BulkDish[]; errors: string[] } {
   const dishes: BulkDish[] = [];
   const errors: string[] = [];
   let category: string | null = null;
+  let pending: { line: string; number: number }[] = [];
+
+  const flushAsErrors = () => {
+    for (const entry of pending) {
+      errors.push(`Zeile ${entry.number}: „${entry.line}“ hat keinen Preis`);
+    }
+    pending = [];
+  };
 
   text.split('\n').forEach((raw, index) => {
-    const line = raw.trim();
-    if (!line) return;
+    const line = raw.replace(/\s+/g, ' ').trim();
+    const number = index + 1;
+    if (!line || NOISE.test(line)) return;
+
     if (line.startsWith('#')) {
+      flushAsErrors();
       category = line.replace(/^#+/, '').trim() || null;
       return;
     }
-    const match = DISH_LINE.exec(line);
-    const priceCents = match ? parseEuroToCents(match[2]!) : null;
-    if (!match || !match[1]!.trim() || priceCents === null) {
-      errors.push(`Zeile ${index + 1}: erwartet „Name Preis“, z. B. „Margherita 8,50“`);
+
+    const priceOnly = PRICE_ONLY.exec(line);
+    if (priceOnly) {
+      const [first, ...rest] = pending;
+      if (!first) {
+        errors.push(`Zeile ${number}: Preis ohne Gericht davor`);
+        return;
+      }
+      dishes.push({
+        category,
+        name: first.line,
+        priceCents: parseEuroToCents(priceOnly[1]!)!,
+        description:
+          rest
+            .map((entry) => entry.line)
+            .join(' ')
+            .slice(0, 300) || null,
+      });
+      pending = [];
       return;
     }
-    dishes.push({
-      category,
-      name: match[1]!.trim(),
-      priceCents,
-      description: match[3]?.trim() || null,
-    });
+
+    const inline = INLINE_PRICE.exec(line);
+    const inlineCents = inline ? parseEuroToCents(inline[2]!) : null;
+    if (inline && inline[1]!.trim() && inlineCents !== null && pending.length === 0) {
+      dishes.push({
+        category,
+        name: inline[1]!.replace(/[–-]\s*$/, '').trim(),
+        priceCents: inlineCents,
+        description: inline[3]?.trim() || null,
+      });
+      return;
+    }
+
+    pending.push({ line, number });
   });
 
+  flushAsErrors();
   return { dishes, errors };
 }

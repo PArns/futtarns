@@ -13,6 +13,10 @@ import {
 import type { OptionGroup, SelectedOption } from '@/lib/menu/options';
 
 export type MemberKind = 'member' | 'guest';
+/** `delivery`: everyone orders from a restaurant; `flat`: one price for everyone, e.g. a barbecue. */
+export type FridayMode = 'delivery' | 'flat';
+/** `food` settles what someone ate; `drinks` is a donation to the drinks the host buys for all. */
+export type PaymentPurpose = 'food' | 'drinks';
 /** `nofood`: comes over but eats nothing, so gets no default dish and pays nothing. */
 export type AttendanceStatus = 'in' | 'nofood' | 'out';
 
@@ -21,7 +25,8 @@ export const members = pgTable('members', {
   name: text('name').notNull(),
   // A guest has no login and only takes part in the Fridays they were added to.
   kind: text('kind').$type<MemberKind>().notNull().default('member'),
-  phone: text('phone'),
+  // E.164 (`+491701234567`); logging in and WhatsApp both go through it.
+  phone: text('phone').unique(),
   isAdmin: boolean('is_admin').notNull().default(false),
   isDefaultHost: boolean('is_default_host').notNull().default(false),
   paypalMe: text('paypal_me'),
@@ -85,6 +90,9 @@ export const fridays = pgTable('fridays', {
   hostId: integer('host_id').references(() => members.id, { onDelete: 'set null' }),
   cancelled: boolean('cancelled').notNull().default(false),
   cancelReason: text('cancel_reason'),
+  mode: text('mode').$type<FridayMode>().notNull().default('delivery'),
+  flatTitle: text('flat_title'),
+  flatPriceCents: integer('flat_price_cents'),
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
@@ -156,10 +164,68 @@ export const charges = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
   },
   (t) => [primaryKey({ columns: [t.fridayDate, t.memberId] })]
 );
+
+/**
+ * Money moving between a member and the host for one Friday: positive when the member
+ * paid, negative when the host paid something back. Paying up front is the normal case,
+ * so this is a ledger rather than a paid flag.
+ */
+export const payments = pgTable(
+  'payments',
+  {
+    id: serial('id').primaryKey(),
+    fridayDate: date('friday_date', { mode: 'string' }).notNull(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    amountCents: integer('amount_cents').notNull(),
+    purpose: text('purpose').$type<PaymentPurpose>().notNull().default('food'),
+    recordedById: integer('recorded_by_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('payments_friday_idx').on(t.fridayDate),
+    index('payments_member_idx').on(t.memberId),
+  ]
+);
+
+export const sessions = pgTable(
+  'sessions',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('sessions_member_idx').on(t.memberId)]
+);
+
+export const loginCodes = pgTable(
+  'login_codes',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    codeHash: text('code_hash').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('login_codes_member_idx').on(t.memberId)]
+);
+
+/** One row per message the scheduler sent, so a reminder goes out once however often it runs. */
+export const notifications = pgTable('notifications', {
+  key: text('key').primaryKey(),
+  sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export type Member = typeof members.$inferSelect;
 export type Absence = typeof absences.$inferSelect;
@@ -170,3 +236,4 @@ export type Attendance = typeof attendance.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type MemberDefault = typeof memberDefaults.$inferSelect;
 export type Charge = typeof charges.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
