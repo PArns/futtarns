@@ -65,6 +65,7 @@ import {
   setItemQuantity,
   setNoFoodDefault,
 } from '@/lib/services/orders';
+import { payByLink } from '@/lib/services/pay-links';
 import {
   addMissingDish,
   createDish,
@@ -505,6 +506,12 @@ export async function requestCodeAction(phoneInput: string): Promise<ActionResul
     if (error instanceof ServiceError) return fail(error.message);
     throw error;
   }
+}
+
+/** „Hab bezahlt“ from the link in a payment reminder; works without a login. */
+export async function payByLinkAction(token: string): Promise<void> {
+  const paid = await payByLink(await getDb(), z.string().max(100).parse(token), new Date());
+  redirect(`/bezahlt/${encodeURIComponent(token)}${paid ? '?ok=1' : ''}`);
 }
 
 /** Uses up a personal login link and signs its member in on this device. */

@@ -252,6 +252,12 @@ export const notifications = pgTable('notifications', {
   sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Keys the app makes for itself on first use, such as the one that signs payment links. */
+export const appSecrets = pgTable('app_secrets', {
+  name: text('name').primaryKey(),
+  value: text('value').notNull(),
+});
+
 export type Member = typeof members.$inferSelect;
 export type Absence = typeof absences.$inferSelect;
 export type Restaurant = typeof restaurants.$inferSelect;
