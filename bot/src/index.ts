@@ -88,7 +88,9 @@ async function connect(): Promise<void> {
     version,
     auth: state,
     logger,
-    browser: Browsers.ubuntu('freitach'),
+    // Baileys only allows a custom browser name for QR codes; a pairing code is refused
+    // unless the bot shows up as a real browser.
+    browser: pairingPhone ? Browsers.macOS('Chrome') : Browsers.ubuntu('freitach'),
     markOnlineOnConnect: false,
     syncFullHistory: false,
   });
