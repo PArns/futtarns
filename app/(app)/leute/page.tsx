@@ -35,7 +35,7 @@ export default async function PeoplePage() {
 
   return (
     <>
-      <PageHero kicker="Runde" title="Leute">
+      <PageHero icon={Users} kicker="Die Bande" title="Leute">
         <p className="hero-item text-muted-foreground mt-3 max-w-2xl">
           Wer hier steht, meldet sich mit seiner Handynummer an und zählt freitags als dabei,
           solange er nicht absagt. Gäste brauchen kein Konto, sie werden am Freitag direkt
@@ -46,13 +46,13 @@ export default async function PeoplePage() {
       <div className="mx-auto max-w-5xl space-y-12 px-4">
         {viewer.isAdmin && (
           <section id="whatsapp">
-            <ChapterHeading icon={MessageCircle} kicker="Bot" title="WhatsApp" />
+            <ChapterHeading icon={MessageCircle} kicker="Der Bote" title="WhatsApp" />
             <WhatsAppCard />
           </section>
         )}
 
         <section>
-          <ChapterHeading icon={UserPlus} kicker="Neu" title="Jemanden dazuholen" />
+          <ChapterHeading icon={UserPlus} kicker="Neuzugang" title="Jemanden dazuholen" />
           <GlassCard variant="tile" className="p-5">
             <CreateMemberForm canGrantAdmin={viewer.isAdmin} />
           </GlassCard>
@@ -62,7 +62,7 @@ export default async function PeoplePage() {
           <section>
             <ChapterHeading
               icon={Wallet}
-              kicker="Kasse"
+              kicker="Offene Deckel"
               title="Offene Beträge"
               hint="Von abgerechneten Freitagen der letzten acht Wochen. Positiv: muss noch zahlen, negativ: bekommt Geld zurück."
             />
@@ -106,7 +106,7 @@ export default async function PeoplePage() {
         <section>
           <ChapterHeading
             icon={Users}
-            kicker="Mitglieder"
+            kicker="Stammtisch"
             title={`${people.filter((p) => p.active).length} in der Runde`}
           />
           <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2">
@@ -158,7 +158,7 @@ export default async function PeoplePage() {
         {guests.length > 0 && (
           <section>
             <ChapterHeading
-              kicker="Gäste"
+              kicker="Zaungäste"
               title="Waren schon mal da"
               hint="Wer öfter kommt, kann ein eigenes Konto bekommen."
             />

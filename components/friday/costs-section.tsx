@@ -1,4 +1,4 @@
-import { TriangleAlert } from 'lucide-react';
+import { CupSoda, HandCoins, Receipt, TriangleAlert, Truck, UtensilsCrossed } from 'lucide-react';
 import { AmountRow } from '@/components/ui/amount-row';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
@@ -16,63 +16,92 @@ export function CostsSection({ view }: { view: FridayView }) {
   const eaters = view.shares.length;
   const feesEach = !flat && estimate && eaters > 0 ? Math.round(estimate.sharedCents / eaters) : 0;
 
+  const drinkers =
+    view.drinksFeeCents > 0 ? Math.round(view.drinksTotalCents / view.drinksFeeCents) : 0;
+
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.4fr]">
-      <GlassCard variant="tile" className="p-5">
-        <dl className="space-y-2 text-sm">
-          {flat ? (
-            <AmountRow
-              label={`${eaters} × ${formatEuro(view.flatPriceCents ?? 0)}`}
-              cents={eaters * (view.flatPriceCents ?? 0)}
-              emphasis="strong"
-            />
-          ) : (
-            estimate && (
-              <>
-                <AmountRow label="Gerichte" cents={estimate.subtotalCents} />
-                <AmountRow label="Liefergebühr" cents={estimate.deliveryFeeCents} />
-                <AmountRow label="Servicegebühr" cents={estimate.serviceFeeCents} />
-                <AmountRow label="Trinkgeld" cents={estimate.tipCents} />
-                <div className="border-border/60 border-t pt-2">
-                  <AmountRow
-                    label={view.finalTotalCents !== null ? 'Geschätzt' : 'Summe'}
-                    cents={estimate.totalCents}
-                    emphasis={view.finalTotalCents === null ? 'strong' : 'muted'}
-                  />
-                </div>
-                {view.finalTotalCents !== null && (
-                  <AmountRow
-                    label="Wirklich bezahlt"
-                    cents={view.finalTotalCents}
-                    emphasis="strong"
-                  />
-                )}
-                {eaters > 0 && (
-                  <p className="text-muted-foreground pt-1 text-xs">
-                    Gebühren und Trinkgeld teilen sich alle, die essen: etwa {formatEuro(feesEach)}{' '}
-                    pro Person.
-                  </p>
-                )}
-              </>
-            )
-          )}
-          {view.drinksTotalCents > 0 && (
-            <div className="border-border/60 border-t pt-2">
+    <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_1.4fr]">
+      <div className="space-y-4">
+        <GlassCard variant="tile" className="p-5">
+          <dl className="space-y-2 text-sm">
+            {flat ? (
               <AmountRow
-                label={`Getränke (${Math.round(view.drinksTotalCents / view.drinksFeeCents)} × ${formatEuro(view.drinksFeeCents)})`}
-                cents={view.drinksTotalCents}
-                emphasis="muted"
+                label={`${eaters} × ${formatEuro(view.flatPriceCents ?? 0)}`}
+                cents={eaters * (view.flatPriceCents ?? 0)}
+                emphasis="strong"
               />
+            ) : (
+              estimate && (
+                <>
+                  <AmountRow
+                    icon={UtensilsCrossed}
+                    label="Gerichte"
+                    cents={estimate.subtotalCents}
+                  />
+                  <AmountRow icon={Truck} label="Liefergebühr" cents={estimate.deliveryFeeCents} />
+                  <AmountRow
+                    icon={Receipt}
+                    label="Servicegebühr"
+                    cents={estimate.serviceFeeCents}
+                  />
+                  <AmountRow icon={HandCoins} label="Trinkgeld" cents={estimate.tipCents} />
+                  <div className="border-border/60 border-t pt-2">
+                    <AmountRow
+                      label={view.finalTotalCents !== null ? 'Geschätzt' : 'Summe'}
+                      cents={estimate.totalCents}
+                      emphasis={view.finalTotalCents === null ? 'strong' : 'muted'}
+                    />
+                  </div>
+                  {view.finalTotalCents !== null && (
+                    <AmountRow
+                      label="Wirklich bezahlt"
+                      cents={view.finalTotalCents}
+                      emphasis="strong"
+                    />
+                  )}
+                  {eaters > 0 && (
+                    <p className="text-muted-foreground pt-1 text-xs">
+                      Gebühren und Trinkgeld teilen sich alle, die essen: etwa{' '}
+                      {formatEuro(feesEach)} pro Person.
+                    </p>
+                  )}
+                </>
+              )
+            )}
+          </dl>
+          {!flat &&
+            estimate &&
+            estimate.missingForMinimumCents > 0 &&
+            estimate.subtotalCents > 0 && (
+              <Notice className="text-warning mt-4 flex items-start gap-2 font-semibold">
+                <TriangleAlert />
+                Es fehlen noch {formatEuro(estimate.missingForMinimumCents)} bis zum
+                Mindestbestellwert.
+              </Notice>
+            )}
+        </GlassCard>
+
+        {view.drinksFeeCents > 0 && (
+          <GlassCard variant="tile" className="flex items-start gap-3 p-5 text-sm">
+            <CupSoda className="text-primary mt-0.5 size-5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex justify-between gap-3 font-semibold">
+                <span>Getränkekasse</span>
+                <span className="tabular-nums">{formatEuro(view.drinksTotalCents)}</span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {formatEuro(view.drinksFeeCents)} pro Person, die kommt, freiwillig. Für Cola und
+                Co., geht an {view.host?.name ?? 'den Gastgeber'} und nicht an Lieferando.
+              </p>
+              <p className="mt-1 text-xs font-medium">
+                {drinkers > 0
+                  ? `${drinkers} × ${formatEuro(view.drinksFeeCents)} bisher`
+                  : 'Bisher zahlt noch keiner ein.'}
+              </p>
             </div>
-          )}
-        </dl>
-        {!flat && estimate && estimate.missingForMinimumCents > 0 && estimate.subtotalCents > 0 && (
-          <Notice className="text-warning mt-4 flex items-start gap-2 font-semibold">
-            <TriangleAlert />
-            Es fehlen noch {formatEuro(estimate.missingForMinimumCents)} bis zum Mindestbestellwert.
-          </Notice>
+          </GlassCard>
         )}
-      </GlassCard>
+      </div>
 
       <GlassCard variant="tile" className="p-4 sm:p-5">
         {rows.length === 0 ? (

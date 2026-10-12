@@ -35,7 +35,7 @@ export default async function RestaurantsPage() {
 
   return (
     <>
-      <PageHero kicker="Auswahl" title="Restaurants">
+      <PageHero icon={Store} kicker="Futterquellen" title="Restaurants">
         <p className="hero-item text-muted-foreground mt-3 max-w-2xl">
           Unsere Läden mit Karte und Gebühren. Such dir pro Restaurant ein Standardgericht aus – das
           bekommst du, wenn du freitags nichts wählst.
@@ -44,7 +44,11 @@ export default async function RestaurantsPage() {
 
       <div className="mx-auto max-w-5xl space-y-12 px-4">
         <section>
-          <ChapterHeading icon={Store} kicker="Läden" title={`${restaurants.length} Restaurants`} />
+          <ChapterHeading
+            icon={Store}
+            kicker="Unsere Läden"
+            title={`${restaurants.length} Restaurants`}
+          />
           {restaurants.length === 0 ? (
             <GlassCard variant="flat" className="text-muted-foreground p-6 text-center text-sm">
               Noch keine Restaurants.{' '}
@@ -109,7 +113,7 @@ export default async function RestaurantsPage() {
           <section>
             <ChapterHeading
               icon={Archive}
-              kicker="Archiv"
+              kicker="Ausrangiert"
               title="Nicht mehr im Angebot"
               hint="Nur für Admins und den Gastgeber sichtbar. Auf der Seite des Restaurants lässt es sich wieder anbieten oder löschen."
             />
@@ -130,7 +134,7 @@ export default async function RestaurantsPage() {
 
         {canManage && (
           <section>
-            <ChapterHeading icon={Plus} kicker="Neu" title="Restaurant anlegen" />
+            <ChapterHeading icon={Plus} kicker="Neuer Laden" title="Restaurant anlegen" />
             <GlassCard variant="tile" className="p-5">
               <RestaurantForm />
             </GlassCard>

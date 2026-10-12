@@ -1,4 +1,4 @@
-import { CalendarPlus, Flame, House, Plane, TriangleAlert } from 'lucide-react';
+import { CalendarDays, CalendarPlus, Flame, House, Plane, TriangleAlert } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { FridayControls } from '@/components/calendar/friday-controls';
@@ -49,7 +49,7 @@ export default async function CalendarPage() {
 
   return (
     <>
-      <PageHero kicker="Planung" title="Die nächsten Freitage">
+      <PageHero icon={CalendarDays} kicker="Was steht an" title="Die nächsten Freitage">
         <p className="hero-item text-muted-foreground mt-3 max-w-2xl text-balance">
           {defaultHost ? `Normalerweise ist ${defaultHost.name} Gastgeber. ` : ''}
           Vertretungen und Absagen stehen hier, und wer abwesend ist, wird an diesen Tagen
@@ -73,7 +73,8 @@ export default async function CalendarPage() {
         {[...months.entries()].map(([key, monthEntries]) => (
           <section key={key}>
             <ChapterHeading
-              kicker="Monat"
+              icon={CalendarDays}
+              kicker="Freitage im"
               title={formatMonth(monthEntries[0]!.date)}
               className="mb-4"
             />
@@ -218,7 +219,7 @@ export default async function CalendarPage() {
         <section id="abwesend">
           <ChapterHeading
             icon={Plane}
-            kicker="Du"
+            kicker="Urlaubsmodus"
             title="Wann bist du weg?"
             hint="An diesen Tagen giltst du als abgemeldet und bekommst kein Standardgericht."
           />

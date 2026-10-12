@@ -142,13 +142,8 @@ async function connect(): Promise<void> {
       if (!text) continue;
       try {
         const phone = await senderPhone(message);
-        if (!phone) {
-          console.warn(`Could not map ${jid} to a phone number`);
-          await sock.sendMessage(jid, {
-            text: 'Ich kann deine Nummer gerade nicht zuordnen. Melde dich bitte direkt auf der Webseite an.',
-          });
-          continue;
-        }
+        // Whoever the bot cannot place gets no answer, like any number the app doesn't know.
+        if (!phone) continue;
         const reply = await forward(phone, text);
         if (reply) await sock.sendMessage(jid, { text: reply }, { quoted: message });
       } catch (error) {

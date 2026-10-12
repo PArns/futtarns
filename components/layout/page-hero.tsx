@@ -1,3 +1,4 @@
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Pill } from '@/components/ui/pill';
 import { cn } from '@/lib/utils';
@@ -8,12 +9,15 @@ import { cn } from '@/lib/utils';
  */
 export function PageHero({
   kicker,
+  icon: Icon,
   aside,
   title,
   children,
   className,
 }: {
   kicker?: ReactNode;
+  /** Shown in the kicker pill, before its text. */
+  icon?: LucideIcon;
   /** Small controls at the top right, next to the kicker. */
   aside?: ReactNode;
   title: ReactNode;
@@ -31,6 +35,7 @@ export function PageHero({
           <div className="hero-item mb-3 flex items-center justify-between gap-2">
             {kicker && (
               <Pill size="label" className="min-w-0 shadow-none">
+                {Icon && <Icon />}
                 {kicker}
               </Pill>
             )}

@@ -1,15 +1,18 @@
 import {
   CalendarDays,
   Check,
+  ChefHat,
   ChevronLeft,
   ChevronRight,
+  Coins,
   ExternalLink,
   Flame,
   Sparkles,
   Store,
   TriangleAlert,
+  Users,
+  UtensilsCrossed,
   Wallet,
-  Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AddGuestForm } from '@/components/friday/add-guest-form';
@@ -98,6 +101,16 @@ export async function FridayScreen({
   const [restaurants, members, defaultHost] = manage
     ? await Promise.all([listRestaurants(db), listMembers(db), getDefaultHost(db)])
     : [[], [], null];
+
+  const takenBy: Record<number, string[]> = {};
+  for (const participant of view.participants) {
+    const label = participant.member.id === viewer.id ? 'Du' : participant.member.name;
+    for (const item of participant.items) {
+      if (item.dishId === null) continue;
+      const names = (takenBy[item.dishId] ??= []);
+      if (!names.includes(label)) names.push(label);
+    }
+  }
 
   const editable = (participant: Participant) =>
     canEditOrderOf(
@@ -197,6 +210,7 @@ export async function FridayScreen({
   return (
     <>
       <PageHero
+        icon={flat ? Flame : CalendarDays}
         kicker={
           <span className="whitespace-nowrap">
             {isCurrent ? 'Diese Woche' : 'Freitag'} · {formatDayShort(date)}
@@ -370,7 +384,8 @@ export async function FridayScreen({
           <section>
             <ChapterHeading
               number={++chapter}
-              kicker={flat ? 'Beitrag' : 'Essen'}
+              icon={flat ? Flame : UtensilsCrossed}
+              kicker={flat ? 'Grillzeit' : 'Hunger?'}
               title={flat ? 'Dein Beitrag' : 'Deine Bestellung'}
               hint={
                 flat
@@ -443,10 +458,21 @@ export async function FridayScreen({
                 )}
               {!flat &&
                 me.items.length === 0 &&
-                !myDefault &&
+                !myDefault?.dish &&
                 me.attendance.status === 'in' &&
                 view.restaurant && (
                   <p className="text-muted-foreground text-sm">Noch nichts ausgesucht.</p>
+                )}
+              {!flat &&
+                me.items.length === 0 &&
+                view.restaurant &&
+                (me.attendance.status === 'out' ||
+                  (me.attendance.status === 'nofood' && me.attendance.reason !== 'silent')) && (
+                  <p className="text-muted-foreground text-sm">
+                    {me.attendance.status === 'out'
+                      ? 'Du bist diesmal raus. Kommst du doch, such dir unten einfach was aus.'
+                      : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir unten was aus.'}
+                  </p>
                 )}
               {!flat && !view.restaurant && (
                 <p className="flex items-center gap-2 text-sm">
@@ -465,6 +491,7 @@ export async function FridayScreen({
                 targets={targets}
                 initialTargetId={targets[0]!.id}
                 defaultDishId={myDefault?.dish?.id ?? null}
+                takenBy={takenBy}
               />
             )}
           </section>
@@ -474,7 +501,8 @@ export async function FridayScreen({
           <section>
             <ChapterHeading
               number={++chapter}
-              kicker="Runde"
+              icon={Users}
+              kicker="Die Bande"
               title="Wer ist dabei"
               hint={countHint}
             />
@@ -503,8 +531,9 @@ export async function FridayScreen({
           <section>
             <ChapterHeading
               number={++chapter}
-              kicker="Geld"
-              title="Kosten"
+              icon={Coins}
+              kicker="Kassensturz"
+              title="Wer zahlt was"
               hint={
                 flat
                   ? 'Alle, die dabei sind, zahlen denselben Betrag.'
@@ -521,8 +550,8 @@ export async function FridayScreen({
           <section>
             <ChapterHeading
               number={++chapter}
-              icon={Wrench}
-              kicker="Gastgeber"
+              icon={ChefHat}
+              kicker="Chefsache"
               title="Für den Gastgeber"
               hint="Nur du und die Admins sehen diesen Teil."
             />

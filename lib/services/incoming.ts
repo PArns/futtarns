@@ -22,7 +22,7 @@ const STATUS_LINE = {
   out: 'Du bist raus.',
 } as const;
 
-/** Answers a WhatsApp message from a member; strangers get no reply. */
+/** Answers a WhatsApp command from a member; strangers and plain chat get no reply. */
 export async function handleIncoming(
   db: Db,
   phone: string,
@@ -128,6 +128,7 @@ export async function handleIncoming(
       return HELP_TEXT;
 
     default:
-      return `Das hab ich nicht verstanden.\n\n${HELP_TEXT}`;
+      // The bot may share someone's own number, so ordinary chat gets no reply.
+      return null;
   }
 }

@@ -2,7 +2,10 @@ import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
-/** A section head: a faint number or icon, a kicker, the title and an optional hint. */
+/**
+ * A section head: a faint number or icon, a kicker, the title and an optional hint. With a
+ * number, the icon moves next to the kicker.
+ */
 export function ChapterHeading({
   number,
   icon: Icon,
@@ -37,6 +40,7 @@ export function ChapterHeading({
       <div className="min-w-0 flex-1">
         {kicker && (
           <div className="text-primary mb-1 flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase">
+            {number !== undefined && Icon && <Icon className="size-3.5 shrink-0" />}
             {kicker}
           </div>
         )}
