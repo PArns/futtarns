@@ -29,7 +29,9 @@ only to hand `/data/whatsapp` to the `node` user (`docker-entrypoint.sh`), then 
    tells Coolify's proxy which container port to use; the site is served on 443. The app is
    also published on the server's port 3500.
 4. Deploy. The app migrates the database on start; `GET /api/health` answers once it is up.
-5. Open the login link from the log, or log in with your phone number once the bot is linked.
+5. Open the login link from the log, then link WhatsApp on the people page (Leute). Until an
+   admin has logged in, every start prints a fresh link, so a restart brings back a lost one.
+   Logging in with a phone number works once the bot is linked.
 
 ## Without Compose
 

@@ -14,7 +14,7 @@ import { formatDayList } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
-import { whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
+import { botState, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
@@ -469,8 +469,13 @@ export async function requestCodeAction(phoneInput: string): Promise<ActionResul
       phone,
       `Dein Code für freitach: ${code}\nEr gilt 10 Minuten.`
     );
-    if (result === 'failed')
-      return fail('WhatsApp ist gerade nicht erreichbar. Versuch es gleich nochmal.');
+    if (result === 'failed') {
+      return fail(
+        (await botState()).kind === 'linking'
+          ? 'WhatsApp ist noch nicht verbunden. Bis der Admin es unter „Leute“ verbindet, klappt die Anmeldung nur per Login-Link.'
+          : 'WhatsApp ist gerade nicht erreichbar. Versuch es gleich nochmal.'
+      );
+    }
     // Without a bot (local development) the code would go nowhere, so the page shows it.
     if (result === 'logged' && process.env.NODE_ENV !== 'production') {
       return { ok: true, message: `Entwicklungsmodus: dein Code ist ${code}` };
