@@ -1,0 +1,6 @@
+packages:
+  - .
+allowBuilds:
+  # esbuild ships prebuilt platform binaries; its postinstall only picks one.
+  esbuild: true
+  unrs-resolver: false
