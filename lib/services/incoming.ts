@@ -90,7 +90,7 @@ export async function handleIncoming(
         const answer = command.status === 'out' ? '3' : '2';
         return `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt.\nWenn das weg soll, antworte mit ${bold(`${answer} sicher`)}.`;
       }
-      await setAttendance(db, date, member.id, command.status);
+      await setAttendance(db, date, member.id, command.status, now);
       const order =
         command.status === 'in' && view.mode === 'delivery'
           ? view.restaurant
@@ -109,7 +109,7 @@ export async function handleIncoming(
         return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
       if (view.mode === 'flat') {
-        await setAttendance(db, date, member.id, 'in');
+        await setAttendance(db, date, member.id, 'in', now);
         return `Alles klar, du bist dabei: ${bold(view.flatTitle ?? 'Pauschale')}.`;
       }
       if (!view.restaurant) return 'Das Restaurant steht noch nicht fest, ich sag Bescheid.';

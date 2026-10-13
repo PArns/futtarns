@@ -5,7 +5,7 @@ import { bold } from '@/lib/messages';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
-import { deliveryTerms, voteLetter, votingAt, type VoteOption } from '@/lib/vote';
+import { deliveryTerms, voteClosesAt, voteLetter, votingAt, type VoteOption } from '@/lib/vote';
 
 export type Outgoing = { key: string; to: string; text: string };
 
@@ -157,6 +157,7 @@ export function planReminders({
     }
   }
 
+  const voting = votingAt(view, now) && restaurants.length > 1;
   const noRestaurant = !flat && !view.restaurant;
   if (noRestaurant && hostPhone) {
     for (const [key, at] of [
@@ -164,6 +165,8 @@ export function planReminders({
       // An hour before the invitations, so they can already name the restaurant.
       ['fri', berlinAt(date, 0, 9)],
     ] as const) {
+      // While the group still votes, a pick from the host would end the vote.
+      if (key === 'thu' && voting) continue;
       if (between(now, at, view.deadline)) {
         out.push({
           key: `pick:${date}:${key}`,
@@ -194,10 +197,9 @@ export function planReminders({
   );
 
   // On Wednesday, once it is clear the Friday happens, a first question who comes, and,
-  // unless the host picked the restaurant, the vote on where to order. Whoever still has
-  // not answered gets the invitation on Friday.
-  if (between(now, berlinAt(date, -2, 12), berlinAt(date, 0, 10))) {
-    const voting = votingAt(view, now) && restaurants.length > 1;
+  // unless the host picked the restaurant, the vote on where to order. It ends with the
+  // vote; whoever still has not answered gets the invitation on Friday.
+  if (between(now, berlinAt(date, -2, 12), voteClosesAt(date))) {
     const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
     const hello = `${untilFriday(date, now)} ist wieder Freitag${place}`;
     const vote = `${hello}, und damit Zeit für die große Restaurantwahl! 🗳️\n\n${ballot(restaurants, view.restaurant)}`;
@@ -208,7 +210,11 @@ export function planReminders({
         to: entry.member.phone!,
         text: [
           `🍕 ${bold('Freunde des Freitagszocks!')}`,
-          asksVote ? vote : `${hello}: ${bold(`Diesmal ${what}`)}.`,
+          asksVote
+            ? vote
+            : voting
+              ? `${hello}, und die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}. Deine Stimme ist schon drin.`
+              : `${hello}: ${bold(`Diesmal ${what}`)}.`,
           '',
           asksVote
             ? ['Und bist du überhaupt dabei? Antworte mit', ...ANSWER_OPTIONS].join('\n')
@@ -224,6 +230,8 @@ export function planReminders({
         const id = entry.member.id;
         if (entry.attendance.status === 'out' || hasVoted(id)) continue;
         if (unanswered.some((other) => other.member.id === id)) continue;
+        // Whoever got „Kommst du?“ got the ballot with it; answering it must not send it again.
+        if (sent.has(`ask:${date}:${id}`)) continue;
         out.push({
           key: `vote:${date}:${id}`,
           to: entry.member.phone!,
@@ -300,26 +308,36 @@ export function planReminders({
         });
       }
     }
+    // Who says yes after a reminder's time was just told to pick something (by the bot's
+    // reply, or on the page), so the reminder is only for those who answered before it.
+    const answeredBefore = (entry: Participant, at: Date) =>
+      entry.attendance.reason !== 'answered' ||
+      (entry.answeredAt !== null && entry.answeredAt < at);
     // Friday morning, for whoever said yes without the invitation, which already asked them
     // to pick something, or whom the vote already asked to pick again.
-    if (between(now, berlinAt(date, 0, 10), view.deadline)) {
+    const orderAt = berlinAt(date, 0, 10);
+    if (between(now, orderAt, view.deadline)) {
       remind(
         'order',
         '🍽️ Dein Magen hat angerufen: Du hast für heute Abend noch nichts ausgesucht.',
         withoutOrder.filter(
           (entry) =>
             entry.attendance.reason === 'answered' &&
+            answeredBefore(entry, orderAt) &&
             !invited(entry.member.id) &&
             !sent.has(`revote:${date}:${entry.member.id}`)
         )
       );
     }
     // Whoever has no default would go hungry, so they hear once more.
-    if (between(now, berlinAt(date, 0, 18, 30), view.deadline)) {
+    const lastCall = berlinAt(date, 0, 18, 30);
+    if (between(now, lastCall, view.deadline)) {
       remind(
         'lastcall',
         `⏰ ${bold('Letzte Chance!')} Sonst schaust du heute Abend nur beim Essen zu.`,
-        withoutOrder.filter((entry) => !defaultDish.has(entry.member.id))
+        withoutOrder.filter(
+          (entry) => !defaultDish.has(entry.member.id) && answeredBefore(entry, lastCall)
+        )
       );
     }
   }

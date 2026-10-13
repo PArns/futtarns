@@ -268,15 +268,16 @@ export async function setAttendance(
   db: Db,
   date: IsoDate,
   memberId: number,
-  status: AttendanceStatus
+  status: AttendanceStatus,
+  now: Date = new Date()
 ) {
   await db.transaction(async (tx) => {
     await tx
       .insert(attendance)
-      .values({ fridayDate: date, memberId, status })
+      .values({ fridayDate: date, memberId, status, updatedAt: now })
       .onConflictDoUpdate({
         target: [attendance.fridayDate, attendance.memberId],
-        set: { status, updatedAt: new Date() },
+        set: { status, updatedAt: now },
       });
     if (status !== 'in') {
       await tx
@@ -534,6 +535,8 @@ export async function setDrinksFee(db: Db, date: IsoDate, drinksFeeCents: number
 export type Participant = {
   member: Member;
   attendance: EffectiveAttendance;
+  /** When they last answered for this Friday, if they did. */
+  answeredAt: Date | null;
   addedById: number | null;
   items: OrderItem[];
   itemsCents: number;
@@ -686,6 +689,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     return {
       member,
       attendance,
+      answeredAt: answer?.updatedAt ?? null,
       addedById: answer?.addedById ?? null,
       items: own,
       itemsCents: own.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),

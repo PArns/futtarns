@@ -108,22 +108,28 @@ the flag on the people page, and new members get it by default.
 sends each key once. Every message has a window, so a container that was down does not send
 stale reminders afterwards.
 
-| When (Berlin)        | Who                                      | What                                                 |
-| -------------------- | ---------------------------------------- | ---------------------------------------------------- |
-| Mon 18:00, Wed 10:00 | a host who is away that day              | find a substitute or cancel                          |
-| Wed 12:00            | members who haven't answered             | whether they come, with reply options, and the vote  |
-| Wed 12:00            | everyone else coming who hasn't voted    | the restaurant vote, if one is running               |
-| Thu 18:00, Fri 09:00 | host, no restaurant yet                  | pick one                                             |
-| Fri 09:00            | whose order the vote threw away          | the winner, and to pick again                        |
-| Fri 10:00 – 17:00    | members who haven't answered             | invitation with reply options and what to order      |
-| Fri 10:00            | said yes without an invitation, no order | order reminder naming their default                  |
-| Fri 18:30            | in, nothing ordered, no default          | last call                                            |
-| Fri 19:00            | host                                     | the order list                                       |
-| Fri 19:00            | open balance ≥ 50 cents                  | what to pay, with the PayPal link: paying opens here |
-| Sat–Mon 10:00        | host, not settled                        | enter what Lieferando charged                        |
-| after settlement     | open balance ≥ 50 cents either way       | amount to pay or to get back                         |
-| daily 18:00, 10 days | open balance ≥ 50 cents                  | payment reminder                                     |
-| cancelled Friday     | everyone                                 | that it's off                                        |
+| When (Berlin)        | Who                                        | What                                                 |
+| -------------------- | ------------------------------------------ | ---------------------------------------------------- |
+| Mon 18:00, Wed 10:00 | a host who is away that day                | find a substitute or cancel                          |
+| Wed 12:00 – Thu      | members who haven't answered               | whether they come, with reply options, and the vote  |
+| Wed 12:00 – Thu      | everyone else coming who hasn't voted      | the restaurant vote, if one is running               |
+| Thu 18:00, Fri 09:00 | host, no restaurant yet                    | pick one (not Thursday while the group votes)        |
+| Fri 09:00            | whose order the vote threw away            | the winner, and to pick again                        |
+| Fri 10:00 – 17:00    | members who haven't answered               | invitation with reply options and what to order      |
+| Fri 10:00            | said yes before, uninvited, no order       | order reminder naming their default                  |
+| Fri 18:30            | in before then, nothing ordered or default | last call                                            |
+| Fri 19:00            | host                                       | the order list                                       |
+| Fri 19:00            | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here |
+| Sat–Mon 10:00        | host, not settled                          | enter what Lieferando charged                        |
+| after settlement     | open balance ≥ 50 cents either way         | amount to pay or to get back                         |
+| daily 18:00, 10 days | open balance ≥ 50 cents                    | payment reminder                                     |
+| cancelled Friday     | everyone                                   | that it's off                                        |
+
+Each message goes out once per person and reason, and never right after something that
+already said the same: the Wednesday question carries the ballot, so answering it does not
+bring the ballot again; whoever says yes after the 10:00 order reminder or the 18:30 last
+call (`answeredAt`) was just told by the bot's reply or the page, so those reminders only go
+to whoever answered before them.
 
 Paying opens at the deadline (`paymentOpen`): before it, orders and with them the shares still
 change. Until then the page shows the running amount without a pay button, and neither the
