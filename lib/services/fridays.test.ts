@@ -18,6 +18,7 @@ import {
   setHost,
   setRestaurant,
   settleFriday,
+  setVoucher,
 } from '@/lib/services/fridays';
 import { addAbsence, addGuest, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
@@ -499,6 +500,26 @@ describe('a Friday', () => {
     const hostLines = shareLines(view, entry(patrick.id));
     expect(hostLines.some((line) => line.label === 'Getränke')).toBe(false);
     expect(sum(hostLines)).toBe(entry(patrick.id).share!.totalCents);
+  });
+
+  it('takes a voucher off everyone who eats, as a line of its own', async () => {
+    const { patrick, anna, margherita } = await setup();
+    for (const id of [anna.id, patrick.id]) {
+      await addItem(db, FRIDAY, id, {
+        dishId: margherita.id,
+        selection: { grosse: ['normal'] },
+        note: null,
+        quantity: 1,
+      });
+    }
+    await setVoucher(db, FRIDAY, 400);
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    // 16,00 € dishes, 3,00 € delivery, 2,50 € tip, minus the 4,00 € voucher.
+    expect(view.estimate).toMatchObject({ voucherCents: 400, totalCents: 1600 + 550 - 400 });
+    const anna_ = view.participants.find((p) => p.member.id === anna.id)!;
+    const lines = shareLines(view, anna_);
+    expect(lines).toContainEqual({ label: 'Anteil Gutschein (-4,00\u00a0€ ÷ 2)', cents: -200 });
+    expect(lines.reduce((sum, line) => sum + line.cents, 0)).toBe(anna_.money.openCents);
   });
 
   it('lets the host switch restaurant after the lock and hands out the new defaults', async () => {

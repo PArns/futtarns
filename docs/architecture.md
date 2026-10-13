@@ -12,21 +12,21 @@ Two processes in one container (`scripts/start.mjs`), one database:
 
 ## Data model (`lib/db/schema.ts`)
 
-| Table                     | Holds                                                                                                                                                                 |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, PayPal.me, address, the restaurant they order from as host                         |
-| `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                       |
-| `absences`                | date ranges someone is away                                                                                                                                           |
-| `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, lock and settlement |
-| `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                        |
-| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee) and menus; option groups are JSON on the dish; members can add dishes                                                |
-| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                |
-| `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                   |
-| `charges`                 | the final share per person after settlement                                                                                                                           |
-| `payments`                | the money ledger: what someone paid for a Friday (negative = paid back)                                                                                               |
-| `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                          |
-| `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                         |
-| `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                  |
+| Table                     | Holds                                                                                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, PayPal.me, address, the restaurant they order from as host                                  |
+| `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                                |
+| `absences`                | date ranges someone is away                                                                                                                                                    |
+| `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, lock and settlement |
+| `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                 |
+| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee) and menus; option groups are JSON on the dish; members can add dishes                                                         |
+| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                         |
+| `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                            |
+| `charges`                 | the final share per person after settlement                                                                                                                                    |
+| `payments`                | the money ledger: what someone paid for a Friday (negative = paid back)                                                                                                        |
+| `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                                   |
+| `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                                  |
+| `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                           |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
 
@@ -53,6 +53,9 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 - **Fees**: delivery, Lieferando's service fee and the tip (2,50 € unless the host sets
   another amount) are split equally among everyone who eats, before and after settlement.
   Until the lock the estimate already counts the defaults of silent members.
+- **Voucher**: the host can enter a Lieferando voucher for a Friday's order. It comes off the
+  shared part of the bill, so everyone who eats gets an equal share of it, shown as its own
+  line („Anteil Gutschein“); the order list reminds the host to redeem it.
 - **Drinks**: a flat 1,50 € per person who comes, eating or not, on by default and switched
   off per Friday by each member; the host can change or drop it for a Friday.
 - **Paying**: a PayPal.me link with the amount filled in, to the host, as friends and family.

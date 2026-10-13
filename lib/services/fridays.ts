@@ -337,6 +337,11 @@ export async function setTip(db: Db, date: IsoDate, tipCents: number | null) {
   await touch(db, date, { tipCents });
 }
 
+/** A voucher for this Friday's order, or null for none. */
+export async function setVoucher(db: Db, date: IsoDate, voucherCents: number | null) {
+  await touch(db, date, { voucherCents });
+}
+
 /** The drinks fee per person for the Friday, or null for the usual one; 0 means none. */
 export async function setDrinksFee(db: Db, date: IsoDate, drinksFeeCents: number | null) {
   await touch(db, date, { drinksFeeCents });
@@ -385,6 +390,8 @@ export type FridayView = {
   /** What the host set for this Friday; null means the usual rule. */
   fixedTipCents: number | null;
   customDrinksFeeCents: number | null;
+  /** A voucher the host entered for this Friday's order, or null. */
+  voucherCents: number | null;
   /** What the drinks fees add up to: the host's drinks kitty. */
   drinksTotalCents: number;
 };
@@ -505,7 +512,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   ];
   const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const estimate = restaurant
-    ? estimateFees(subtotal, restaurant, row?.tipCents ?? DEFAULT_TIP_CENTS)
+    ? estimateFees(subtotal, restaurant, row?.tipCents ?? DEFAULT_TIP_CENTS, row?.voucherCents ?? 0)
     : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
   const flatPrice = row?.flatPriceCents ?? 0;
@@ -567,6 +574,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     drinksFeeCents,
     fixedTipCents: row?.tipCents ?? null,
     customDrinksFeeCents: row?.drinksFeeCents ?? null,
+    voucherCents: row?.voucherCents ?? null,
     drinksTotalCents: participants.reduce((sum, entry) => sum + entry.money.drinksCents, 0),
   };
 }

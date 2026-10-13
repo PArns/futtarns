@@ -1,0 +1,1 @@
+ALTER TABLE "fridays" ADD COLUMN "voucher_cents" integer;

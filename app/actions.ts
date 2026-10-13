@@ -45,6 +45,7 @@ import {
   setHost,
   setRestaurant,
   setTip,
+  setVoucher,
   settleFriday,
 } from '@/lib/services/fridays';
 import {
@@ -427,7 +428,8 @@ export async function setDrinksAction(
 export async function setExtrasAction(
   date: string,
   tip: string,
-  drinksFee: string
+  drinksFee: string,
+  voucher: string
 ): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
@@ -442,8 +444,14 @@ export async function setExtrasAction(
     if (drinksText && (drinksCents === null || drinksCents < 0)) {
       throw new ServiceError('Getränkepauschale: bitte einen Betrag wie „1,50“ eingeben');
     }
+    const voucherText = typedAmount.parse(voucher).trim();
+    const voucherCents = voucherText ? parseEuroToCents(voucherText) : null;
+    if (voucherText && (voucherCents === null || voucherCents < 0)) {
+      throw new ServiceError('Gutschein: bitte einen Betrag wie „10“ eingeben oder leer lassen');
+    }
     await setTip(db, day, tipCents);
     await setDrinksFee(db, day, drinksCents);
+    await setVoucher(db, day, voucherCents || null);
     return { ok: true, message: 'Gespeichert' };
   });
 }

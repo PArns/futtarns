@@ -29,6 +29,13 @@
       "when": 1791879285372,
       "tag": "0003_item-category",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791880141101,
+      "tag": "0004_friday-voucher",
+      "breakpoints": true
     }
   ]
 }

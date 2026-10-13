@@ -7,6 +7,9 @@ export type FeeEstimate = {
   deliveryFeeCents: number;
   serviceFeeCents: number;
   tipCents: number;
+  /** A voucher redeemed with the order, at most what the order costs. */
+  voucherCents: number;
+  /** What everyone who eats splits equally: the fees and tip, minus the voucher. */
   sharedCents: number;
   totalCents: number;
   /** How much is missing to reach the restaurant's minimum order value, 0 if reached. */
@@ -37,11 +40,12 @@ type FeeRules = Pick<
 /** The tip for the driver unless the host sets another amount for a Friday. */
 export const DEFAULT_TIP_CENTS = 250;
 
-/** What Lieferando will roughly charge before the order is placed, tip included. */
+/** What Lieferando will roughly charge before the order is placed, tip and voucher included. */
 export function estimateFees(
   subtotalCents: number,
   restaurant: FeeRules,
-  tipCents: number = DEFAULT_TIP_CENTS
+  tipCents: number = DEFAULT_TIP_CENTS,
+  voucherCents = 0
 ): FeeEstimate {
   const freeDelivery =
     restaurant.freeDeliveryFromCents !== null && subtotalCents >= restaurant.freeDeliveryFromCents;
@@ -49,12 +53,15 @@ export function estimateFees(
   const deliveryFeeCents = empty || freeDelivery ? 0 : restaurant.deliveryFeeCents;
   const serviceFeeCents = empty ? 0 : restaurant.serviceFeeCents;
   const tip = empty ? 0 : tipCents;
-  const sharedCents = deliveryFeeCents + serviceFeeCents + tip;
+  const fees = deliveryFeeCents + serviceFeeCents + tip;
+  const voucher = Math.min(Math.max(voucherCents, 0), subtotalCents + fees);
+  const sharedCents = fees - voucher;
   return {
     subtotalCents,
     deliveryFeeCents,
     serviceFeeCents,
     tipCents: tip,
+    voucherCents: voucher,
     sharedCents,
     totalCents: subtotalCents + sharedCents,
     missingForMinimumCents: Math.max(0, restaurant.minOrderCents - subtotalCents),
@@ -81,20 +88,24 @@ export function splitTotal(items: PricedItem[], totalCents: number): MemberShare
 }
 
 /**
- * One person's share of the fees split into what it is made of, in proportion to the
+ * One person's share of the fees split into what it is made of: their part of the
+ * voucher (the voucher over the number of eaters), and the rest in proportion to the
  * Friday's fees. The parts add up to the share exactly; leftover cents go to the parts
  * that lost most to rounding.
  */
 export function feeParts(
   sharedCents: number,
-  fees: Pick<FeeEstimate, 'deliveryFeeCents' | 'serviceFeeCents' | 'tipCents'>
-): { deliveryCents: number; serviceCents: number; tipCents: number } {
+  fees: Pick<FeeEstimate, 'deliveryFeeCents' | 'serviceFeeCents' | 'tipCents' | 'voucherCents'>,
+  eaters: number
+): { deliveryCents: number; serviceCents: number; tipCents: number; voucherCents: number } {
+  const voucherCents = eaters > 0 ? Math.round(fees.voucherCents / eaters) : 0;
+  const gross = sharedCents + voucherCents;
   const weights = [fees.deliveryFeeCents, fees.serviceFeeCents, fees.tipCents];
   const total = weights.reduce((sum, weight) => sum + weight, 0);
-  if (total <= 0) return { deliveryCents: 0, serviceCents: 0, tipCents: sharedCents };
-  const exact = weights.map((weight) => (sharedCents * weight) / total);
+  if (total <= 0) return { deliveryCents: 0, serviceCents: 0, tipCents: gross, voucherCents };
+  const exact = weights.map((weight) => (gross * weight) / total);
   const parts = exact.map(Math.floor);
-  let left = sharedCents - parts.reduce((sum, part) => sum + part, 0);
+  let left = gross - parts.reduce((sum, part) => sum + part, 0);
   const byRemainder = exact
     .map((value, index) => ({ index, rest: value - Math.floor(value) }))
     .sort((a, b) => b.rest - a.rest);
@@ -103,5 +114,10 @@ export function feeParts(
     parts[index]!++;
     left--;
   }
-  return { deliveryCents: parts[0]!, serviceCents: parts[1]!, tipCents: parts[2]! };
+  return {
+    deliveryCents: parts[0]!,
+    serviceCents: parts[1]!,
+    tipCents: parts[2]!,
+    voucherCents,
+  };
 }

@@ -108,6 +108,8 @@ export const fridays = pgTable('fridays', {
   tipCents: integer('tip_cents'),
   // null: the default drinks flat fee; 0 switches it off for this Friday.
   drinksFeeCents: integer('drinks_fee_cents'),
+  // A Lieferando voucher redeemed with this Friday's order, split like the fees.
+  voucherCents: integer('voucher_cents'),
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
