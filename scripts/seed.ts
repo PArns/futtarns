@@ -46,6 +46,8 @@ for (const [name, phone, extra] of [
   ['David', '+491705555555', {}],
   ['Eva', '+491706666666', {}],
   ['Felix', '+491707777777', {}],
+  // A guest with a login: not asked every week, joins a Friday when he says yes.
+  ['Jonas', '+491708888888', { core: false }],
 ] as const) {
   const { member, loginToken } = await createMember(db, { name, phone, ...extra }, null);
   people[name] = { id: member.id, token: loginToken };
@@ -244,6 +246,6 @@ await setHost(db, addWeeks(thisWeek, 3), id('Anna'));
 await addAbsence(db, id('Patrick'), addWeeks(thisWeek, 4), addWeeks(thisWeek, 4), 'Hochzeit');
 
 console.log('Seeded. Login links:');
-for (const name of ['Patrick', 'Anna', 'Ben'])
+for (const name of ['Patrick', 'Anna', 'Ben', 'Jonas'])
   console.log(`  ${name}: ${loginLink(people[name]!.token)}`);
 await close();

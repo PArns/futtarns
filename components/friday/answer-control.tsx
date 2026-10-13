@@ -38,7 +38,8 @@ export function AnswerControl({
 }: {
   date: string;
   memberId: number;
-  status: AttendanceStatus;
+  /** Null for a guest who is not on this Friday yet: nothing is picked. */
+  status: AttendanceStatus | null;
   /** False while the status only comes from not having answered; tapping it confirms. */
   answered: boolean;
   disabled?: boolean;

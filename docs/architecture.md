@@ -78,14 +78,19 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 ## Stammtruppe and guests
 
 Members carry a `core` flag, the Stammtruppe. Only they are asked every week, count as in
-when they say nothing, host and vote every Friday. A guest added with a phone number
-(`addGuestWithPhone`) becomes a member outside the Stammtruppe: they get an invitation by
-WhatsApp with a login link, log in with their number, order, pay and vote themselves, but
-only for the Fridays someone adds them to (an attendance row). On every other Friday they
-count as out and appear nowhere (`effectiveAttendance`, the people queries in
-`loadFriday` and `loadCalendar`), so they drop out by themselves the next week. The same
-number brings back the same member. A guest without a number stays a name on one Friday,
-whose bringer pays and orders for them. Admins switch the flag on the people page.
+when they say nothing, host and vote every Friday. Everyone else with a login is a guest:
+they stay in the members table, log in with their number, and take part in a Friday once
+they say yes themselves (the Friday page shows them the answer buttons, the bot takes a
+`1`) or someone adds them (an attendance row). On every other Friday they count as out and
+appear nowhere (`effectiveAttendance`, the people queries in `loadFriday` and
+`loadCalendar`), and nobody messages them about it.
+
+A guest added with a phone number (`addGuestWithPhone`) gets such an account and an
+invitation by WhatsApp with a login link; the same number brings back the same member,
+and known guests can be invited again with one tap (`inviteMember`), with a short
+WhatsApp note. A guest without a number stays a name on one Friday, whose bringer orders
+and pays for them; giving them a login keeps them outside the Stammtruppe. Admins switch
+the flag on the people page, and new members get it by default.
 
 ## Permissions (`lib/permissions.ts`)
 

@@ -129,7 +129,8 @@ export async function createMember(
 
 /**
  * Issues a new login link; the old link stops working and every device the member was
- * signed in on is signed out. Called for a guest, it turns them into a member.
+ * signed in on is signed out. Called for a guest, it turns them into a member outside
+ * the Stammtruppe.
  */
 export async function issueLoginToken(db: Db, memberId: number): Promise<string> {
   const loginToken = generateToken();
@@ -141,6 +142,8 @@ export async function issueLoginToken(db: Db, memberId: number): Promise<string>
         loginTokenHash: hashToken(loginToken),
         loginTokenExpiresAt: linkExpiry(),
         kind: 'member',
+        // A guest who gets a login stays a guest, now one who can say yes on their own.
+        core: sql`case when ${members.kind} = 'guest' then false else ${members.core} end`,
         calendarToken: sql`coalesce(${members.calendarToken}, ${generateToken()})`,
       })
       .where(eq(members.id, memberId))
@@ -265,9 +268,33 @@ export async function addGuest(
   });
 }
 
+/** Members outside the Stammtruppe who can be invited again, by name. */
+export async function listGuests(db: Db): Promise<Pick<Member, 'id' | 'name'>[]> {
+  return db
+    .select({ id: members.id, name: members.name })
+    .from(members)
+    .where(and(eq(members.kind, 'member'), eq(members.active, true), eq(members.core, false)))
+    .orderBy(asc(members.name));
+}
+
+/** Invites a known guest (or anyone with a login) to a Friday, as brought by `addedById`. */
+export async function inviteMember(
+  db: Db,
+  friday: IsoDate,
+  memberId: number,
+  addedById: number
+): Promise<Member> {
+  const [member] = await db.select().from(members).where(eq(members.id, memberId));
+  if (!member || member.kind !== 'member' || !member.active) {
+    throw new ServiceError('Die Person gibt es nicht mehr');
+  }
+  await markAdded(db, friday, member.id, addedById);
+  return member;
+}
+
 /**
  * Adds a guest with a phone number to a Friday: a member outside the Stammtruppe, who can
- * log in, order, pay and vote, but only for the Fridays someone adds them to. A known
+ * log in, order, pay and vote, for the Fridays someone adds them to or they say yes to. A known
  * number brings back the member it belongs to. `loginToken` is set when the member is new.
  */
 export async function addGuestWithPhone(

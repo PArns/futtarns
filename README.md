@@ -23,8 +23,9 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Restaurant vote**: unless the host decides, everyone votes until Thursday 23:59, on the
   page or by WhatsApp, among the restaurants that deliver to the host (or can be fetched).
   No votes or a tie keep the host's usual restaurant.
-- **Stammtruppe and guests**: the core group is asked every week; a guest added with a phone
-  number gets an invitation, logs in, orders, pays and votes, for that Friday only.
+- **Stammtruppe and guests**: the core group is asked every week. Guests keep their login,
+  are not asked, and join a Friday when they say yes or someone invites them; then they
+  order, pay and vote like everyone else.
 - **Flat-price Fridays** such as a barbecue: one price per person, no menu.
 - **Pickup**: for restaurants that offer it, someone fetches the food at the menu prices,
   without fees or tip, and gets the food money; the drinks money still goes to the host.
