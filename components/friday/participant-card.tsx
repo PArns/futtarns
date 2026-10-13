@@ -1,4 +1,4 @@
-import { House } from 'lucide-react';
+import { Check, Clock, CupSoda, House } from 'lucide-react';
 import { AnswerSelect } from '@/components/friday/answer-select';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { ItemRow } from '@/components/friday/item-row';
@@ -6,6 +6,8 @@ import { MoneyStatus } from '@/components/friday/money-status';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
+import { Pill } from '@/components/ui/pill';
+import { formatEuro } from '@/lib/format';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +37,45 @@ function subline(participant: Participant, view: FridayView, nameOf: (id: number
   return '';
 }
 
+/**
+ * The host's money is the others': what is still to collect, and the drinks kitty, which
+ * they buy the drinks from.
+ */
+function HostMoney({ view }: { view: FridayView }) {
+  const others = view.participants.filter((entry) => entry.member.id !== view.host?.id);
+  const toCollect = others.reduce((sum, entry) => sum + Math.max(entry.money.openCents, 0), 0);
+  const anyDue = others.some((entry) => entry.money.dueCents > 0);
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Pill tone="primary">
+          <House /> Gastgeber
+        </Pill>
+        {toCollect > 0 ? (
+          <Pill tone="warning">
+            <Clock /> bekommt noch {formatEuro(toCollect)}
+          </Pill>
+        ) : (
+          anyDue && (
+            <Pill tone="success">
+              <Check /> alles eingesammelt
+            </Pill>
+          )
+        )}
+      </div>
+      {view.drinksFeeCents > 0 && (
+        <div className="border-primary/40 bg-primary/10 flex min-h-10 items-center gap-3 rounded-2xl border px-4 py-1.5">
+          <CupSoda className="text-primary size-5 shrink-0" />
+          <span className="flex-1 text-sm font-semibold">Getränkekasse</span>
+          <span className="text-sm font-semibold tabular-nums">
+            {formatEuro(view.drinksTotalCents)}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** One person on the Friday: answer, what they ordered, where their money stands. */
 export function ParticipantCard({
   participant,
@@ -42,6 +83,7 @@ export function ParticipantCard({
   isViewer,
   canEdit,
   canManage,
+  payable,
   nameOf,
 }: {
   participant: Participant;
@@ -49,6 +91,8 @@ export function ParticipantCard({
   isViewer: boolean;
   canEdit: boolean;
   canManage: boolean;
+  /** Paying is open (from the deadline on), so the host may book payments. */
+  payable: boolean;
   nameOf: (id: number) => string;
 }) {
   const isHost = participant.member.id === view.host?.id;
@@ -61,52 +105,59 @@ export function ParticipantCard({
   const showMoney = !isHost && (money.dueCents !== 0 || money.paidCents !== 0);
   const showDrinks =
     editOthers && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
+  const showHostMoney = isHost && !view.cancelled;
 
   return (
     <GlassCard
       variant="tile"
       className={cn(
-        'min-w-0 p-4',
+        // Cards in a row share its height; the money part sits at the bottom of each.
+        'flex h-full min-w-0 flex-col p-4',
         participant.attendance.status === 'out' && !silentOnFlat && 'opacity-60'
       )}
     >
-      <div className="flex items-center gap-3">
-        <Avatar name={participant.member.name} id={participant.member.id} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-bold">{participant.member.name}</span>
-            {isHost && <House className="text-primary size-3.5 shrink-0" aria-label="Gastgeber" />}
+      <div className="flex-1">
+        <div className="flex items-center gap-3">
+          <Avatar name={participant.member.name} id={participant.member.id} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate font-bold">{participant.member.name}</span>
+              {isHost && (
+                <House className="text-primary size-3.5 shrink-0" aria-label="Gastgeber" />
+              )}
+            </div>
+            <div className="text-muted-foreground truncate text-xs">
+              {subline(participant, view, nameOf)}
+            </div>
           </div>
-          <div className="text-muted-foreground truncate text-xs">
-            {subline(participant, view, nameOf)}
-          </div>
+          {editOthers ? (
+            <AnswerSelect
+              date={view.date}
+              memberId={participant.member.id}
+              status={participant.attendance.status}
+            />
+          ) : (
+            <Badge variant={badge.variant}>{badge.label}</Badge>
+          )}
         </div>
-        {editOthers ? (
-          <AnswerSelect
-            date={view.date}
-            memberId={participant.member.id}
-            status={participant.attendance.status}
-          />
-        ) : (
-          <Badge variant={badge.variant}>{badge.label}</Badge>
+        {participant.items.length > 0 && (
+          <ul className="divide-border/50 mt-2 divide-y">
+            {participant.items.map((item) => (
+              <ItemRow key={item.id} item={item} editable={editOthers} />
+            ))}
+          </ul>
         )}
       </div>
-      {participant.items.length > 0 && (
-        <ul className="divide-border/50 mt-2 divide-y">
-          {participant.items.map((item) => (
-            <ItemRow key={item.id} item={item} editable={editOthers} />
-          ))}
-        </ul>
-      )}
-      {(showMoney || showDrinks) && (
+      {(showMoney || showDrinks || showHostMoney) && (
         <div className="border-border/60 mt-3 space-y-2 border-t pt-3">
+          {showHostMoney && <HostMoney view={view} />}
           {showMoney && (
             <MoneyStatus
               date={view.date}
               memberId={participant.member.id}
               money={money}
               isHost={isHost}
-              canManage={canManage}
+              canManage={canManage && payable}
             />
           )}
           {showDrinks && (
