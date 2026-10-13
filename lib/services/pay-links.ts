@@ -5,9 +5,9 @@ import type { Db } from '@/lib/db/client';
 import { appSecrets } from '@/lib/db/schema';
 import { payLinkToken, readPayLinkToken } from '@/lib/pay-links';
 import {
+  bookOpen,
   loadFriday,
   paymentOpen,
-  recordPayment,
   type FridayView,
   type Participant,
 } from '@/lib/services/fridays';
@@ -55,15 +55,13 @@ export async function payByLink(db: Db, token: string, now: Date): Promise<numbe
   const opened = await openPayLink(db, token, now);
   if (!opened) return null;
   const { view, entry, payable } = opened;
-  const open = entry.money.openCents;
-  if (open <= 0 || !payable) return 0;
-  await recordPayment(db, {
+  if (!payable) return 0;
+  return bookOpen(db, {
     date: view.date,
     memberId: entry.member.id,
-    amountCents: open,
+    money: entry.money,
     // A guest's reminder goes to whoever brought them, so that is who ticked it off.
     recordedById:
       entry.member.kind === 'guest' ? (entry.addedById ?? entry.member.id) : entry.member.id,
   });
-  return open;
 }

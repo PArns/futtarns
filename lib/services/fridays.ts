@@ -4,7 +4,14 @@ import {
   type AttendancePerson,
   type EffectiveAttendance,
 } from '@/lib/attendance';
-import { DRINKS_FEE_CENTS, moneyFor, type Money } from '@/lib/balance';
+import {
+  DRINKS_FEE_CENTS,
+  isBilled,
+  moneyFor,
+  payeeOf,
+  type Debt,
+  type Money,
+} from '@/lib/balance';
 import {
   addWeeks,
   currentFriday,
@@ -304,15 +311,48 @@ export function paymentOpen(view: Pick<FridayView, 'date' | 'locked'>, now: Date
 
 export async function recordPayment(
   db: Db,
-  input: { date: IsoDate; memberId: number; amountCents: number; recordedById: number }
+  input: {
+    date: IsoDate;
+    memberId: number;
+    amountCents: number;
+    recordedById: number;
+    /** Who got the money; null or left out for the host. */
+    payeeId?: number | null;
+  }
 ) {
   if (input.amountCents === 0) return;
   await db.insert(payments).values({
     fridayDate: input.date,
     memberId: input.memberId,
     amountCents: input.amountCents,
+    payeeId: input.payeeId ?? null,
     recordedById: input.recordedById,
   });
+}
+
+/**
+ * Books what someone still owes, one payment per payee, so the food money can go to
+ * whoever fetched the food and the drinks money to the host. With `refunds`, money due
+ * back is booked as paid back too. Returns the amount booked.
+ */
+export async function bookOpen(
+  db: Db,
+  input: { date: IsoDate; memberId: number; money: Money; recordedById: number },
+  { refunds = false } = {}
+): Promise<number> {
+  let booked = 0;
+  for (const debt of input.money.debts) {
+    if (debt.openCents === 0 || (debt.openCents < 0 && !refunds)) continue;
+    await recordPayment(db, {
+      date: input.date,
+      memberId: input.memberId,
+      amountCents: debt.openCents,
+      recordedById: input.recordedById,
+      payeeId: debt.payeeId,
+    });
+    booked += debt.openCents;
+  }
+  return booked;
 }
 
 /** Forgets every payment of one person for a Friday, for when one was a mistake. */
@@ -340,6 +380,30 @@ export async function setTip(db: Db, date: IsoDate, tipCents: number | null) {
 /** A voucher for this Friday's order, or null for none. */
 export async function setVoucher(db: Db, date: IsoDate, voucherCents: number | null) {
   await touch(db, date, { voucherCents });
+}
+
+/**
+ * Whether someone fetches the food, and who (null: the host). Once anyone has paid, the
+ * money already went to someone, so it stays as it is.
+ */
+export async function setPickup(db: Db, date: IsoDate, pickup: boolean, pickerId: number | null) {
+  const row = await getFridayRow(db, date);
+  if (row?.settledAt) throw new ServiceError('Schon abgerechnet – erst die Abrechnung öffnen');
+  const [paid] = await db
+    .select({ id: payments.id })
+    .from(payments)
+    .where(eq(payments.fridayDate, date))
+    .limit(1);
+  if (paid) {
+    throw new ServiceError('Es wurde schon bezahlt, Abholen und Abholer bleiben deshalb so');
+  }
+  if (pickerId !== null) {
+    const [picker] = await db.select().from(members).where(eq(members.id, pickerId));
+    if (!picker || picker.kind !== 'member' || !picker.active) {
+      throw new ServiceError('Abholen kann nur jemand aus der Runde');
+    }
+  }
+  await touch(db, date, { pickup, pickerId: pickup ? pickerId : null });
 }
 
 /** The drinks fee per person for the Friday, or null for the usual one; 0 means none. */
@@ -374,6 +438,10 @@ export type FridayView = {
   flatTitle: string | null;
   flatPriceCents: number | null;
   restaurant: Restaurant | null;
+  /** Someone fetches the food: the restaurant offers it and the host chose it. */
+  pickup: boolean;
+  /** Who fetches it, pays the restaurant and gets the food money; the host unless set. */
+  picker: Member | null;
   /** True when no restaurant was picked and the default one applies. */
   restaurantIsDefault: boolean;
   dishes: Dish[];
@@ -511,8 +579,21 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     ),
   ];
   const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const pickup = Boolean(row?.pickup && restaurant?.pickup);
+  const picker = !pickup
+    ? null
+    : ((row?.pickerId
+        ? (people.find((person) => person.id === row.pickerId) ??
+          (await db.select().from(members).where(eq(members.id, row.pickerId)))[0])
+        : null) ?? host);
   const estimate = restaurant
-    ? estimateFees(subtotal, restaurant, row?.tipCents ?? DEFAULT_TIP_CENTS, row?.voucherCents ?? 0)
+    ? estimateFees(
+        subtotal,
+        restaurant,
+        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.voucherCents ?? 0,
+        pickup
+      )
     : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
   const flatPrice = row?.flatPriceCents ?? 0;
@@ -541,7 +622,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       share,
       drinksOptOut,
       money: moneyFor({
-        isHost: entry.member.id === hostId,
+        memberId: entry.member.id,
+        hostId,
+        pickerId: picker?.id ?? null,
         foodCents,
         drinksCents: comes && !drinksOptOut ? drinksFeeCents : 0,
         payments: ledger.filter((payment) => payment.memberId === entry.member.id),
@@ -561,6 +644,8 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     flatTitle: row?.flatTitle ?? null,
     flatPriceCents: row?.flatPriceCents ?? null,
     restaurant: restaurant ?? null,
+    pickup,
+    picker,
     restaurantIsDefault: Boolean(defaultRestaurant),
     dishes: menu,
     deadline: orderDeadline(date),
@@ -715,12 +800,14 @@ export async function hostedFridaysBetween(
     .map((entry) => entry.date);
 }
 
+/** What one person still owes one payee, or gets back, for an earlier Friday. */
 export type OpenBalance = {
   fridayDate: IsoDate;
   member: Pick<Member, 'id' | 'name' | 'kind' | 'phone'>;
   /** Who brought a guest; their open money is that person's to sort out. */
   addedById: number | null;
   money: Money;
+  debt: Debt;
   payee: Pick<Member, 'id' | 'name' | 'paypalMe'> | null;
   title: string;
 };
@@ -728,9 +815,8 @@ export type OpenBalance = {
 const BALANCE_LOOKBACK_WEEKS = 8;
 
 /**
- * Everyone who still owes money or gets some back for the Fridays before `before`. A
- * delivery Friday counts once it is settled, a flat-price one once it is locked, a
- * cancelled one whenever someone had paid in advance.
+ * Everyone who still owes money or gets some back for the Fridays before `before`, once
+ * the Friday's amounts are final (`isBilled`), one entry per payee.
  */
 export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<OpenBalance[]> {
   const candidates = await db
@@ -746,24 +832,26 @@ export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<
   const result: OpenBalance[] = [];
   for (const { date } of candidates) {
     const view = await loadFriday(db, date, now);
-    const billed = view.cancelled || (view.mode === 'flat' ? view.locked : view.settled);
-    if (!billed) continue;
+    if (!isBilled(view)) continue;
+    const title = view.cancelled
+      ? 'abgesagt'
+      : view.mode === 'flat'
+        ? (view.flatTitle ?? 'Pauschale')
+        : (view.restaurant?.name ?? 'Freitag');
     for (const participant of view.participants) {
-      if (participant.money.openCents === 0) continue;
-      result.push({
-        fridayDate: date,
-        member: participant.member,
-        addedById: participant.addedById,
-        money: participant.money,
-        payee: view.host
-          ? { id: view.host.id, name: view.host.name, paypalMe: view.host.paypalMe }
-          : null,
-        title: view.cancelled
-          ? 'abgesagt'
-          : view.mode === 'flat'
-            ? (view.flatTitle ?? 'Pauschale')
-            : (view.restaurant?.name ?? 'Freitag'),
-      });
+      for (const debt of participant.money.debts) {
+        if (debt.openCents === 0) continue;
+        const payee = payeeOf(view, debt);
+        result.push({
+          fridayDate: date,
+          member: participant.member,
+          addedById: participant.addedById,
+          money: participant.money,
+          debt,
+          payee: payee ? { id: payee.id, name: payee.name, paypalMe: payee.paypalMe } : null,
+          title,
+        });
+      }
     }
   }
   return result;

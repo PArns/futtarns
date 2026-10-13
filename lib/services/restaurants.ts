@@ -15,7 +15,8 @@ export type RestaurantInput = Pick<
   | 'freeDeliveryFromCents'
   | 'serviceFeeCents'
   | 'notes'
->;
+> &
+  Partial<Pick<Restaurant, 'pickup'>>;
 
 export async function listRestaurants(db: Db, includeArchived = false) {
   const rows = await db.select().from(restaurants).orderBy(asc(restaurants.name));

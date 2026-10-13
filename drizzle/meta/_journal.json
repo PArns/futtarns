@@ -36,6 +36,13 @@
       "when": 1791880141101,
       "tag": "0004_friday-voucher",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791883928416,
+      "tag": "0005_pickup",
+      "breakpoints": true
     }
   ]
 }

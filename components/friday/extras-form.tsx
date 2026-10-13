@@ -20,6 +20,7 @@ export function ExtrasForm({
   defaultDrinksFeeCents,
   voucherCents,
   showVoucher,
+  showTip = true,
 }: {
   date: string;
   tipCents: number | null;
@@ -28,6 +29,8 @@ export function ExtrasForm({
   voucherCents: number | null;
   /** Only a delivery Friday has an order a voucher can go on. */
   showVoucher: boolean;
+  /** Fetched food has no driver to tip. */
+  showTip?: boolean;
 }) {
   const [tip, setTip] = useState(centsToInput(tipCents));
   const [drinks, setDrinks] = useState(centsToInput(drinksFeeCents));
@@ -42,27 +45,29 @@ export function ExtrasForm({
         execute(() => setExtrasAction(date, tip, drinks, voucher));
       }}
     >
-      <Label>
-        Trinkgeld (€)
-        <span className="flex flex-wrap items-center gap-1.5">
-          <Input
-            value={tip}
-            onChange={(event) => setTip(event.target.value)}
-            inputMode="decimal"
-            placeholder={centsToInput(DEFAULT_TIP_CENTS)}
-            className="w-24"
-          />
-          {TIP_CHOICES.map((cents) => (
-            <Chip
-              key={cents}
-              selected={shownTip === centsToInput(cents)}
-              onClick={() => setTip(centsToInput(cents))}
-            >
-              {centsToInput(cents)} €
-            </Chip>
-          ))}
-        </span>
-      </Label>
+      {showTip && (
+        <Label>
+          Trinkgeld (€)
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Input
+              value={tip}
+              onChange={(event) => setTip(event.target.value)}
+              inputMode="decimal"
+              placeholder={centsToInput(DEFAULT_TIP_CENTS)}
+              className="w-24"
+            />
+            {TIP_CHOICES.map((cents) => (
+              <Chip
+                key={cents}
+                selected={shownTip === centsToInput(cents)}
+                onClick={() => setTip(centsToInput(cents))}
+              >
+                {centsToInput(cents)} €
+              </Chip>
+            ))}
+          </span>
+        </Label>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Label>
           Getränkepauschale (€)
@@ -90,7 +95,9 @@ export function ExtrasForm({
           <Save /> Speichern
         </Button>
         <Hint className="min-w-0 flex-1">
-          Leer heißt: wie immer. 0 schaltet Trinkgeld oder Getränkepauschale ab.
+          {showTip
+            ? 'Leer heißt: wie immer. 0 schaltet Trinkgeld oder Getränkepauschale ab.'
+            : 'Leer heißt: wie immer. 0 schaltet die Getränkepauschale ab.'}
           {showVoucher &&
             ' Ein Gutschein gilt für diese Bestellung und wird auf alle verteilt, die essen.'}
         </Hint>

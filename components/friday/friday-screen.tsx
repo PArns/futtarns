@@ -42,7 +42,7 @@ import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
-import { moneyLines } from '@/lib/balance';
+import { debtLines, toPayee } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listMembers } from '@/lib/services/members';
@@ -107,6 +107,13 @@ export async function FridayScreen({
   const me = view.participants.find((participant) => participant.member.id === viewer.id);
   const myDefault = view.restaurant ? await getDefault(db, viewer.id, view.restaurant.id) : null;
   const otherBalances = isCurrent ? await openBalancesFor(db, viewer.id, date, now) : [];
+  // One box per earlier Friday and person, even when the food and the drinks go to two people.
+  const balanceGroups = [
+    ...Map.groupBy(
+      otherBalances,
+      (balance) => `${balance.fridayDate}-${balance.member.id}`
+    ).values(),
+  ];
   const [restaurants, members, defaultHost, messages] = await Promise.all([
     manage ? listRestaurants(db) : [],
     manage || swapHostOnly ? listMembers(db) : [],
@@ -386,34 +393,40 @@ export async function FridayScreen({
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Wallet className="text-warning size-4" /> Von früheren Freitagen
             </div>
-            {otherBalances.map((balance) => {
-              const forGuest = balance.member.id !== viewer.id;
+            {balanceGroups.map((balances) => {
+              const { fridayDate, member, money, title } = balances[0]!;
+              const forGuest = member.id !== viewer.id;
+              const owed = balances.filter((balance) => balance.debt.openCents > 0);
+              const back = balances.filter((balance) => balance.debt.openCents < 0);
               return (
-                <div key={`${balance.fridayDate}-${balance.member.id}`}>
+                <div key={`${fridayDate}-${member.id}`} className="space-y-2">
                   <Link
-                    href={`/freitag/${balance.fridayDate}`}
-                    className="hover:text-primary mb-2 block text-sm"
+                    href={`/freitag/${fridayDate}`}
+                    className="hover:text-primary block text-sm"
                   >
-                    {formatDayShort(balance.fridayDate)} · {balance.title}
-                    {forGuest && ` · für ${balance.member.name}`}
+                    {formatDayShort(fridayDate)} · {title}
+                    {forGuest && ` · für ${member.name}`}
                   </Link>
-                  {balance.money.openCents > 0 && balance.payee ? (
+                  {owed.length > 0 && (
                     <PayBox
-                      date={balance.fridayDate}
-                      memberId={balance.member.id}
-                      amountCents={balance.money.openCents}
-                      lines={moneyLines(balance.money)}
-                      payeeName={balance.payee.name}
-                      paypalMe={balance.payee.paypalMe}
-                      label={forGuest ? `Noch offen für ${balance.member.name}` : 'Noch offen'}
+                      date={fridayDate}
+                      memberId={member.id}
+                      amountCents={owed.reduce((sum, balance) => sum + balance.debt.openCents, 0)}
+                      lines={debtLines(
+                        money,
+                        owed.map((balance) => balance.debt)
+                      )}
+                      payees={owed.map((balance) => toPayee(balance.payee, balance.debt))}
+                      label={forGuest ? `Noch offen für ${member.name}` : 'Noch offen'}
                     />
-                  ) : (
-                    <p className="text-muted-foreground text-sm">
-                      {forGuest ? `${balance.member.name} bekommt` : 'Du bekommst'}{' '}
-                      {formatEuro(-balance.money.openCents)} von{' '}
+                  )}
+                  {back.map((balance) => (
+                    <p key={balance.debt.what} className="text-muted-foreground text-sm">
+                      {forGuest ? `${member.name} bekommt` : 'Du bekommst'}{' '}
+                      {formatEuro(-balance.debt.openCents)} von{' '}
                       {balance.payee?.name ?? 'dem Gastgeber'} zurück.
                     </p>
-                  )}
+                  ))}
                 </div>
               );
             })}

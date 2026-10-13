@@ -4,13 +4,19 @@ import {
   loadFriday,
   recordPayment,
   setAttendance,
+  setPickup,
   setRestaurant,
   settleFriday,
 } from '@/lib/services/fridays';
 import { handleIncoming } from '@/lib/services/incoming';
 import { addAbsence, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
-import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
+import {
+  createDish,
+  createRestaurant,
+  listDishes,
+  updateRestaurant,
+} from '@/lib/services/restaurants';
 import { openPayLink, payByLink } from '@/lib/services/pay-links';
 import { runScheduler, upcomingMessages } from '@/lib/services/scheduler';
 import { createTestDb } from '@/test/db';
@@ -305,5 +311,66 @@ describe('upcoming messages', () => {
       'Einladung',
       'Carla',
     ]);
+  });
+});
+
+describe('fetching the food', () => {
+  it('sends the list to whoever fetches it and splits the money between them and the host', async () => {
+    const { host, anna, ben, restaurant, dish } = await setup();
+    await updateRestaurant(db, restaurant.id, { pickup: true });
+    await setPickup(db, FRIDAY, true, anna.id);
+    for (const member of [host, anna, ben]) {
+      await addItem(db, FRIDAY, member.id, {
+        dishId: dish.id,
+        selection: {},
+        note: null,
+        quantity: 1,
+      });
+    }
+
+    const view = await loadFriday(db, FRIDAY, at('2026-10-16T12:00:00Z'));
+    expect(view.estimate).toMatchObject({ deliveryFeeCents: 0, tipCents: 0, totalCents: 2700 });
+    const ben0 = view.participants.find((entry) => entry.member.id === ben.id)!;
+    expect(ben0.money.debts.map((debt) => [debt.payeeId, debt.openCents])).toEqual([
+      [anna.id, 900],
+      [host.id, 150],
+    ]);
+
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    const sheet = sent.find((message) => message.text.includes('Zum Abholen'));
+    expect(sheet?.to).toBe('+491702222222');
+    expect(sheet?.text).toContain('*Bella Napoli*');
+    const toBen = sent.find((message) => message.to === '+491703333333')!;
+    expect(toBen.text).toContain('*9,00\u00a0€* fürs Essen an Anna');
+    expect(toBen.text).toContain('*1,50\u00a0€* für die Getränke an Patrick');
+    // The host pays their food to Anna, Anna her drinks to the host.
+    expect(sent.find((message) => message.to === '+491701111111')?.text).toContain('9,00');
+    expect(
+      sent.find((message) => message.to === '+491702222222' && message.text.includes('/bezahlt/'))
+        ?.text
+    ).toContain('1,50');
+
+    const token = toBen.text.match(/\/bezahlt\/(\S+)/)![1]!;
+    expect(await payByLink(db, token, at('2026-10-16T17:30:00Z'))).toBe(1050);
+    const after = await loadFriday(db, FRIDAY, at('2026-10-16T17:30:00Z'));
+    expect(after.participants.find((entry) => entry.member.id === ben.id)!.money.openCents).toBe(0);
+    await expect(setPickup(db, FRIDAY, false, null)).rejects.toThrow('schon bezahlt');
+
+    // No real total to ask for; the payment reminders start the next evening.
+    sent = [];
+    await runScheduler(db, at('2026-10-17T08:05:00Z'), send, noPause);
+    expect(sent).toEqual([]);
+    await runScheduler(db, at('2026-10-17T16:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
+  });
+
+  it('names who fetches it in the invitation', async () => {
+    const { anna, restaurant } = await setup();
+    await updateRestaurant(db, restaurant.id, { pickup: true });
+    await setPickup(db, FRIDAY, true, anna.id);
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
+      'bestellen wir bei Bella Napoli (Anna holt ab)'
+    );
   });
 });

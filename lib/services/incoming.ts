@@ -134,30 +134,29 @@ export async function handleIncoming(
       const current = view.participants.find((entry) => entry.member.id === member.id);
       const payable = paymentOpen(view, now);
       const open = [
-        ...(payable && current && current.money.openCents > 0
-          ? [{ fridayDate: date, openCents: current.money.openCents }]
+        ...(payable && current
+          ? current.money.debts.map((debt) => ({ fridayDate: date, debt }))
           : []),
-        ...(await openBalancesFor(db, member.id, date, now))
-          .filter((balance) => balance.money.openCents > 0)
-          .map((balance) => ({
-            fridayDate: balance.fridayDate,
-            openCents: balance.money.openCents,
-          })),
-      ];
+        ...(await openBalancesFor(db, member.id, date, now)).map((balance) => ({
+          fridayDate: balance.fridayDate,
+          debt: balance.debt,
+        })),
+      ].filter((entry) => entry.debt.openCents > 0);
       if (open.length === 0) {
         return !payable && current && current.money.openCents > 0
           ? `Bezahlt wird erst nach dem Bestellschluss um ${bold(formatTime(view.deadline))}, dann steht fest, was du zahlst. Ich schick dir den Betrag.`
           : 'Bei dir ist gerade nichts offen. Danke trotzdem!';
       }
-      for (const entry of open) {
+      for (const { fridayDate, debt } of open) {
         await recordPayment(db, {
-          date: entry.fridayDate,
+          date: fridayDate,
           memberId: member.id,
-          amountCents: entry.openCents,
+          amountCents: debt.openCents,
           recordedById: member.id,
+          payeeId: debt.payeeId,
         });
       }
-      const total = open.reduce((sum, entry) => sum + entry.openCents, 0);
+      const total = open.reduce((sum, entry) => sum + entry.debt.openCents, 0);
       return `Danke! ${bold(formatEuro(total))} sind als bezahlt vermerkt.`;
     }
 

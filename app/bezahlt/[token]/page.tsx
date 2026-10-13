@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { payByLinkAction } from '@/app/actions';
 import { LoginShell } from '@/components/login/login-shell';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { payeePurpose, payeesFor } from '@/lib/balance';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { paypalMeLink } from '@/lib/paypal';
@@ -39,7 +40,7 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
   const { view, entry, payable } = opened;
   const open = entry.money.openCents;
   const forGuest = entry.member.kind === 'guest' ? ` für ${entry.member.name}` : '';
-  const handle = view.host?.paypalMe;
+  const payees = payeesFor(view, entry.money);
 
   return (
     <LoginShell>
@@ -74,15 +75,21 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
               </h1>
               <p className="mt-1 text-3xl font-extrabold tabular-nums">{formatEuro(open)}</p>
             </div>
-            {handle && (
-              <a
-                href={paypalMeLink(handle, open)}
-                target="_blank"
-                rel="noreferrer"
-                className={buttonVariants({ variant: 'outline', className: 'w-full' })}
-              >
-                Mit PayPal an {view.host?.name} zahlen
-              </a>
+            {payees.map(
+              (payee) =>
+                payee.paypalMe && (
+                  <a
+                    key={payee.what}
+                    href={paypalMeLink(payee.paypalMe, payee.cents)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={buttonVariants({ variant: 'outline', className: 'w-full' })}
+                  >
+                    {payees.length > 1
+                      ? `${formatEuro(payee.cents)} ${payeePurpose(payee.what)} an ${payee.name}`
+                      : `Mit PayPal an ${payee.name} zahlen`}
+                  </a>
+                )
             )}
             <form action={payByLinkAction.bind(null, token)}>
               <Button type="submit" size="lg" className="w-full">
@@ -90,7 +97,8 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
               </Button>
             </form>
             <p className="text-muted-foreground text-xs">
-              {handle && 'In PayPal bitte „Freunde und Familie“ wählen. '}
+              {payees.some((payee) => payee.paypalMe) &&
+                'In PayPal bitte „Freunde und Familie“ wählen. '}
               Nach „Hab bezahlt“ hören die Erinnerungen für diesen Freitag auf.
             </p>
           </>

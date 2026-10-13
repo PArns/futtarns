@@ -122,3 +122,29 @@ describe('a voucher', () => {
     expect(estimateFees(500, restaurant, 250, 5000).totalCents).toBe(0);
   });
 });
+
+describe('fetching the food', () => {
+  const restaurant = {
+    minOrderCents: 1500,
+    deliveryFeeCents: 300,
+    freeDeliveryFromCents: null,
+    serviceFeeCents: 99,
+  };
+
+  it('costs the menu prices, with no fees, tip or minimum', () => {
+    expect(estimateFees(1000, restaurant, 250, 0, true)).toEqual({
+      subtotalCents: 1000,
+      deliveryFeeCents: 0,
+      serviceFeeCents: 0,
+      tipCents: 0,
+      voucherCents: 0,
+      sharedCents: 0,
+      totalCents: 1000,
+      missingForMinimumCents: 0,
+    });
+  });
+
+  it('still takes a voucher off', () => {
+    expect(estimateFees(1000, restaurant, 250, 300, true).totalCents).toBe(700);
+  });
+});

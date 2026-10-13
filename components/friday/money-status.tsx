@@ -14,17 +14,14 @@ export function MoneyStatus({
   date,
   memberId,
   money,
-  isHost,
   canManage,
 }: {
   date: string;
   memberId: number;
   money: Money;
-  isHost: boolean;
   canManage: boolean;
 }) {
   const { pending, execute } = useAction();
-  if (isHost) return null;
   const status =
     money.openCents > 0 ? (
       <Pill tone="warning">

@@ -6,6 +6,7 @@ import {
   CancelToggle,
   HostPicker,
   NoteEditor,
+  PickupPicker,
   RestaurantPicker,
 } from '@/components/friday/host-tools';
 import { SettleForm } from '@/components/friday/settle-form';
@@ -62,6 +63,17 @@ export function HostSection({
               hasOrders={hasOrders}
               disabled={view.settled}
             />
+            {!flat && view.restaurant?.pickup && (
+              <PickupPicker
+                date={view.date}
+                pickup={view.pickup}
+                pickerId={view.picker && view.picker.id !== view.host?.id ? view.picker.id : null}
+                hostId={view.host?.id ?? null}
+                hostName={view.host?.name ?? 'Gastgeber'}
+                members={members}
+                disabled={view.settled}
+              />
+            )}
             <details className="border-border/60 rounded-xl border p-3" open={flat}>
               <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold">
                 <Flame className="text-primary size-4" /> Oder Pauschale, z. B. Grillen
@@ -100,6 +112,7 @@ export function HostSection({
                   defaultDrinksFeeCents={DRINKS_FEE_CENTS}
                   voucherCents={view.voucherCents}
                   showVoucher={!flat}
+                  showTip={!flat && !view.pickup}
                 />
               )}
               <NoteEditor date={view.date} note={view.note} />

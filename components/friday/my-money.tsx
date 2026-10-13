@@ -1,14 +1,15 @@
 import { CircleCheck, Undo2 } from 'lucide-react';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { PayBox } from '@/components/friday/pay-box';
-import { shareLines } from '@/lib/balance';
+import { foodLines, isBilled, payeeOf, payeesFor, shareLines } from '@/lib/balance';
 import { formatEuro, formatTime } from '@/lib/format';
 import { NAG_THRESHOLD_CENTS } from '@/lib/reminders';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 
 /**
  * The viewer's money for one Friday: the drinks switch and then whatever applies — pay
- * now, all paid, money back, or a few cents that the settlement will sort out.
+ * now, all paid, money back, or a few cents that the settlement will sort out. Whoever
+ * pays the restaurant (the host, or whoever fetches the food) sees their own share instead.
  */
 export function MyMoney({
   view,
@@ -24,25 +25,9 @@ export function MyMoney({
 }) {
   const host = view.host;
   if (!host) return null;
-  // The host sees the same box with their own share, minus the pay buttons.
-  if (host.id === me.member.id) {
-    if (!me.share) return null;
-    return (
-      <PayBox
-        date={view.date}
-        memberId={me.member.id}
-        amountCents={me.share.totalCents}
-        lines={shareLines(view, me)}
-        payeeName={null}
-        paypalMe={null}
-        label="Dein Anteil"
-        payable={false}
-        note="Du bist Gastgeber: Lieferando zahlst du direkt, das Geld der anderen kommt zu dir."
-      />
-    );
-  }
+  const isHost = host.id === me.member.id;
+  const paysRestaurant = (view.picker ?? host).id === me.member.id;
   const comes = me.attendance.status !== 'out' && !view.cancelled;
-  const billed = view.mode === 'flat' || view.settled;
   const open = me.money.openCents;
   const box = (props: { label?: string; payable: boolean; note?: string }) => (
     <PayBox
@@ -50,15 +35,35 @@ export function MyMoney({
       memberId={me.member.id}
       amountCents={open}
       lines={shareLines(view, me)}
-      payeeName={host.name}
-      paypalMe={host.paypalMe}
+      payees={payeesFor(view, me.money)}
       {...props}
     />
   );
+  const refundFrom =
+    payeeOf(view, me.money.debts.find((debt) => debt.openCents < 0) ?? { payeeId: host.id })
+      ?.name ?? host.name;
 
   return (
     <div className="space-y-3">
-      {comes && view.drinksFeeCents > 0 && (
+      {paysRestaurant && me.share && (
+        <PayBox
+          date={view.date}
+          memberId={me.member.id}
+          amountCents={me.share.totalCents}
+          lines={foodLines(view, me)}
+          payees={[]}
+          label="Dein Anteil"
+          payable={false}
+          note={
+            view.pickup
+              ? 'Du holst das Essen ab und zahlst es im Restaurant, das Essensgeld der anderen kommt zu dir.'
+              : view.mode === 'flat'
+                ? 'Du bist Gastgeber: Das Geld der anderen kommt zu dir.'
+                : 'Du bist Gastgeber: Lieferando zahlst du direkt, das Geld der anderen kommt zu dir.'
+          }
+        />
+      )}
+      {!isHost && comes && view.drinksFeeCents > 0 && (
         <DrinksToggle
           date={view.date}
           memberId={me.member.id}
@@ -73,7 +78,7 @@ export function MyMoney({
           payable: false,
           note: `Bezahlt wird nach dem Bestellschluss um ${formatTime(view.deadline)}, dann steht fest, was alle bestellt haben. Den Link bekommst du per WhatsApp.`,
         })
-      ) : open >= NAG_THRESHOLD_CENTS || (open > 0 && billed) ? (
+      ) : open >= NAG_THRESHOLD_CENTS || (open > 0 && isBilled(view)) ? (
         box({ payable: true })
       ) : open > 0 ? (
         <p className="text-muted-foreground text-sm">
@@ -83,7 +88,7 @@ export function MyMoney({
       ) : open < 0 ? (
         <p className="border-primary/40 bg-primary/10 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm">
           <Undo2 className="text-primary size-4 shrink-0" />
-          Du hast {formatEuro(-open)} zu viel gezahlt. {host.name} gibt dir das zurück.
+          Du hast {formatEuro(-open)} zu viel gezahlt. {refundFrom} gibt dir das zurück.
         </p>
       ) : me.money.dueCents > 0 ? (
         <p className="text-success flex items-center gap-2 text-sm font-semibold">

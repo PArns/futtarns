@@ -33,7 +33,7 @@ import {
   setHostRestaurant,
   setRestaurantArchived,
 } from '@/lib/services/restaurants';
-import { shareLines } from '@/lib/balance';
+import { foodLines, shareLines } from '@/lib/balance';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -402,7 +402,7 @@ describe('a Friday', () => {
     // 2800 in dishes, 300 delivery, 250 tip: estimate 3350.
     const before = await loadFriday(db, FRIDAY, BEFORE);
     const moneyBefore = (id: number) => before.participants.find((p) => p.member.id === id)!.money;
-    expect(moneyBefore(anna.id)).toEqual({
+    expect(moneyBefore(anna.id)).toMatchObject({
       foodCents: 1183,
       drinksCents: 150,
       dueCents: 1333,
@@ -497,9 +497,9 @@ describe('a Friday', () => {
     ]);
     expect(sum(annaLines)).toBe(entry(anna.id).money.openCents);
     expect(shareLines(view, entry(ben.id))[0]!.label).toBe('Margherita (Standard)');
-    const hostLines = shareLines(view, entry(patrick.id));
-    expect(hostLines.some((line) => line.label === 'Getränke')).toBe(false);
-    expect(sum(hostLines)).toBe(entry(patrick.id).share!.totalCents);
+    // The host pays Lieferando, so owes nothing; their own share is shown on its own.
+    expect(shareLines(view, entry(patrick.id))).toEqual([]);
+    expect(sum(foodLines(view, entry(patrick.id)))).toBe(entry(patrick.id).share!.totalCents);
   });
 
   it('takes a voucher off everyone who eats, as a line of its own', async () => {

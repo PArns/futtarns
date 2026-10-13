@@ -70,6 +70,8 @@ export const restaurants = pgTable('restaurants', {
   freeDeliveryFromCents: integer('free_delivery_from_cents'),
   // Lieferando's service fee per order.
   serviceFeeCents: integer('service_fee_cents').notNull().default(99),
+  // Whether we can also fetch the food ourselves, at the menu prices and without the fees.
+  pickup: boolean('pickup').notNull().default(false),
   notes: text('notes'),
   archived: boolean('archived').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -110,6 +112,10 @@ export const fridays = pgTable('fridays', {
   drinksFeeCents: integer('drinks_fee_cents'),
   // A Lieferando voucher redeemed with this Friday's order, split like the fees.
   voucherCents: integer('voucher_cents'),
+  // Someone fetches the food (if the restaurant offers it): no delivery fee, service fee or tip.
+  pickup: boolean('pickup').notNull().default(false),
+  // Who fetches it and so pays the restaurant and gets the food money; null means the host.
+  pickerId: integer('picker_id').references(() => members.id, { onDelete: 'set null' }),
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
@@ -186,8 +192,8 @@ export const charges = pgTable(
 );
 
 /**
- * Money moving between a member and the host for one Friday: positive when the member
- * paid, negative when the host paid something back. Paying up front is the normal case,
+ * Money moving between a member and whoever they owe for one Friday: positive when the
+ * member paid, negative when they got something back. Paying up front is the normal case,
  * so this is a ledger rather than a paid flag.
  */
 export const payments = pgTable(
@@ -199,6 +205,8 @@ export const payments = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
+    // Who got the money: the one who fetched the food, or null for the host.
+    payeeId: integer('payee_id').references(() => members.id, { onDelete: 'set null' }),
     recordedById: integer('recorded_by_id').references(() => members.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

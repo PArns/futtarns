@@ -96,7 +96,7 @@ export default async function PeoplePage() {
               <ul className="divide-border/50 divide-y text-sm">
                 {balances.map((balance) => (
                   <li
-                    key={`${balance.fridayDate}-${balance.member.id}`}
+                    key={`${balance.fridayDate}-${balance.member.id}-${balance.debt.what}`}
                     className="flex items-center gap-3 py-2"
                   >
                     <Avatar
@@ -117,10 +117,10 @@ export default async function PeoplePage() {
                     <span
                       className={cn(
                         'font-bold tabular-nums',
-                        balance.money.openCents > 0 ? 'text-warning' : 'text-primary'
+                        balance.debt.openCents > 0 ? 'text-warning' : 'text-primary'
                       )}
                     >
-                      {formatEuro(balance.money.openCents)}
+                      {formatEuro(balance.debt.openCents)}
                     </span>
                   </li>
                 ))}

@@ -1,4 +1,4 @@
-import { shareLines } from '@/lib/balance';
+import { isBilled, payeeOf, payeePurpose, payeesFor, shareLines, type Money } from '@/lib/balance';
 import { berlinAt, daysBetween, todayIso } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold } from '@/lib/messages';
@@ -33,11 +33,20 @@ function between(now: Date, from: Date, to: Date) {
   return now >= from && now < to;
 }
 
-function payLines(view: FridayView, cents: number) {
-  const handle = view.host?.paypalMe;
-  return handle
-    ? `PayPal: ${paypalMeLink(handle, cents)}\nBitte als „Freunde und Familie“.`
-    : `Bitte direkt an ${view.host?.name ?? 'den Gastgeber'} zahlen.`;
+/** How to pay what is open, per payee when the food and the drinks go to two people. */
+function payLines(view: FridayView, money: Money) {
+  const payees = payeesFor(view, money);
+  const split = payees.length > 1;
+  const lines = payees.map((payee) => {
+    const intro = split
+      ? `${bold(formatEuro(payee.cents))} ${payeePurpose(payee.what)} an ${payee.name}:\n`
+      : '';
+    return payee.paypalMe
+      ? `${intro}PayPal: ${paypalMeLink(payee.paypalMe, payee.cents)}`
+      : `${intro}Bitte direkt ${split ? '' : `an ${payee.name} `}zahlen.`;
+  });
+  if (payees.some((payee) => payee.paypalMe)) lines.push('Bitte als „Freunde und Familie“.');
+  return lines.join('\n');
 }
 
 const ANSWER_HINT = [
@@ -138,7 +147,7 @@ export function planReminders({
   const what = flat
     ? `gibt's ${view.flatTitle ?? 'was Leckeres'} für ${formatEuro(view.flatPriceCents ?? 0)} pro Person`
     : view.restaurant
-      ? `bestellen wir bei ${view.restaurant.name}`
+      ? `bestellen wir bei ${view.restaurant.name}${view.picker ? ` (${view.picker.name} holt ab)` : ''}`
       : 'bestellen wir zusammen (Restaurant kommt noch)';
   const rule = flat ? 'Dafür brauchen wir deine Zusage.' : 'Wer nichts sagt, ist dabei.';
   const unanswered = reachable.filter(
@@ -235,7 +244,7 @@ export function planReminders({
   if (view.locked && between(now, view.deadline, sheetUntil)) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
-      if (open < NAG_THRESHOLD_CENTS || entry.member.id === view.host?.id) continue;
+      if (open < NAG_THRESHOLD_CENTS) continue;
       const { phone, prefix } = billTo(entry);
       if (!phone) continue;
       out.push({
@@ -246,8 +255,10 @@ export function planReminders({
           '',
           ...shareLines(view, entry).map((line) => `${line.label}: ${formatEuro(line.cents)}`),
           '',
-          payLines(view, open),
-          ...(flat ? [] : ['Kleine Abweichungen gleichen wir nach der Abrechnung aus.']),
+          payLines(view, entry.money),
+          ...(flat || view.pickup
+            ? []
+            : ['Kleine Abweichungen gleichen wir nach der Abrechnung aus.']),
           '',
           `Schon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`,
         ].join('\n'),
@@ -255,7 +266,9 @@ export function planReminders({
     }
   }
 
-  if (view.locked && hostPhone && between(now, view.deadline, sheetUntil)) {
+  // The order list goes to whoever orders: the host, or whoever fetches the food.
+  const ordererPhone = view.picker ? view.picker.phone : hostPhone;
+  if (view.locked && ordererPhone && between(now, view.deadline, sheetUntil)) {
     const eating = view.participants.filter((entry) => entry.attendance.status === 'in').length;
     const sheet = orderSheetText(
       buildOrderSheet(
@@ -263,18 +276,25 @@ export function planReminders({
         (id) => view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?'
       )
     );
+    const restaurant = bold(view.restaurant?.name ?? 'das Restaurant');
+    const lieferando = view.restaurant?.lieferandoUrl;
     out.push({
       key: `sheet:${date}`,
-      to: hostPhone,
+      to: ordererPhone,
       text: flat
         ? `${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.\n${link}`
-        : `${bold('Bestellschluss!')} Das geht an ${bold(view.restaurant?.name ?? 'das Restaurant')}:\n\n${
-            sheet || 'Niemand hat etwas bestellt.'
-          }${
-            view.voucherCents
-              ? `\n\n${bold('Gutschein einlösen:')} ${formatEuro(view.voucherCents)}`
-              : ''
-          }\n\nNach der Bestellung den Betrag hier eintragen:\n${link}`,
+        : [
+            `${bold('Bestellschluss!')} ${view.pickup ? `Zum Abholen bei ${restaurant}` : `Das geht an ${restaurant}`}:`,
+            '',
+            sheet || 'Niemand hat etwas bestellt.',
+            ...(view.voucherCents
+              ? ['', `${bold('Gutschein einlösen:')} ${formatEuro(view.voucherCents)}`]
+              : []),
+            '',
+            view.pickup
+              ? `Das Essensgeld der anderen kommt zu dir. Kostet es im Restaurant anders, kann ${host} den Betrag eintragen:\n${link}`
+              : `${lieferando ? `Bestellen: ${lieferando}\n\n` : ''}Nach der Bestellung den Betrag hier eintragen:\n${link}`,
+          ].join('\n'),
     });
   }
 
@@ -283,8 +303,12 @@ export function planReminders({
   const morning = [berlinAt(date, dayOffset, 10), berlinAt(date, dayOffset + 1, 0)] as const;
   const evening = [berlinAt(date, dayOffset, 18), berlinAt(date, dayOffset + 1, 0)] as const;
   const hasOrders = view.participants.some((entry) => entry.items.length > 0);
+  const refundFrom = (money: Money) =>
+    payeeOf(view, money.debts.find((debt) => debt.openCents < 0) ?? { payeeId: null })?.name ??
+    host;
 
-  if (!flat && view.locked && !view.settled && hasOrders && hostPhone) {
+  // Fetched food costs the menu prices, so there is no real total to ask for.
+  if (!flat && !view.pickup && view.locked && !view.settled && hasOrders && hostPhone) {
     if (dayOffset >= 1 && dayOffset <= SETTLE_REMINDER_DAYS && between(now, ...morning)) {
       out.push({
         key: `settle:${date}:${today}`,
@@ -294,21 +318,20 @@ export function planReminders({
     }
   }
 
-  const billed = flat ? view.locked : view.settled;
-  if (billed) {
+  if (isBilled(view)) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
-      if (Math.abs(open) < NAG_THRESHOLD_CENTS || entry.member.id === view.host?.id) continue;
+      if (Math.abs(open) < NAG_THRESHOLD_CENTS) continue;
       const { phone, prefix } = billTo(entry);
       if (!phone) continue;
-      if (!flat && dayOffset <= 7) {
+      if (view.settled && !flat && dayOffset <= 7) {
         out.push({
           key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}`,
           to: phone,
           text:
             open > 0
-              ? `${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, open)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
-              : `${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${host} gibt das zurück.`,
+              ? `${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
+              : `${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`,
         });
       }
       if (
@@ -320,7 +343,7 @@ export function planReminders({
         out.push({
           key: `pay:${date}:${entry.member.id}:${today}`,
           to: phone,
-          text: `${prefix}${bold('Kleine Erinnerung:')} Für Freitag (${day}) sind noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, open)}\n\nSchon gezahlt? Hier abhaken, dann hören die Erinnerungen auf:\n${paidLink(entry.member.id)}`,
+          text: `${prefix}${bold('Kleine Erinnerung:')} Für Freitag (${day}) sind noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken, dann hören die Erinnerungen auf:\n${paidLink(entry.member.id)}`,
         });
       }
     }

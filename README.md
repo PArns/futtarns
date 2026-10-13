@@ -21,6 +21,8 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
   amount filled in. After the order the host enters the real total and the split is
   corrected; reminders follow until everyone has paid. The host pays nothing to themselves.
 - **Flat-price Fridays** such as a barbecue: one price per person, no menu.
+- **Pickup**: for restaurants that offer it, someone fetches the food at the menu prices,
+  without fees or tip, and gets the food money; the drinks money still goes to the host.
 - **Calendar**: who hosts (substitutes per Friday), cancelled Fridays, everyone's absences,
   and an iCal feed for the phone calendar. A host who enters an absence is told which
   Fridays need a substitute, and those Fridays ask „wer übernimmt?“.

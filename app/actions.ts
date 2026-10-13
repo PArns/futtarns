@@ -28,13 +28,13 @@ import {
   verifyLoginCode,
 } from '@/lib/services/auth';
 import {
+  bookOpen,
   clearPayments,
   getFridayRow,
   hostedFridaysBetween,
   hostIdFor,
   loadFriday,
   paymentOpen,
-  recordPayment,
   reopenSettlement,
   setAttendance,
   setCancelled,
@@ -43,6 +43,7 @@ import {
   setFlat,
   setFridayNote,
   setHost,
+  setPickup,
   setRestaurant,
   setTip,
   setVoucher,
@@ -300,6 +301,24 @@ export async function chooseRestaurantAction(
   });
 }
 
+/** Fetch the food instead of having it delivered, and who fetches it (null: the host). */
+export async function setPickupAction(
+  date: string,
+  pickup: boolean,
+  pickerId: number | null
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    await setPickup(
+      db,
+      day,
+      z.boolean().parse(pickup),
+      pickerId === null ? null : memberId.parse(pickerId)
+    );
+  });
+}
+
 export async function setHostAction(date: string, hostId: number | null): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
@@ -397,14 +416,11 @@ export async function payAction(date: string, target: number): Promise<ActionRes
     if (!paymentOpen(view, new Date())) {
       throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
     }
-    const open = view.participants.find((entry) => entry.member.id === id)?.money.openCents ?? 0;
-    if (open <= 0) throw new ServiceError('Da ist nichts offen');
-    await recordPayment(db, {
-      date: day,
-      memberId: id,
-      amountCents: open,
-      recordedById: viewer.id,
-    });
+    const entry = view.participants.find((participant) => participant.member.id === id);
+    const booked = entry
+      ? await bookOpen(db, { date: day, memberId: id, money: entry.money, recordedById: viewer.id })
+      : 0;
+    if (booked <= 0) throw new ServiceError('Da ist nichts offen');
     return { ok: true, message: 'Danke! Als bezahlt vermerkt' };
   });
 }
@@ -468,14 +484,15 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
     }
     const entry = view.participants.find((participant) => participant.member.id === id);
     const open = entry?.money.openCents ?? 0;
-    if (open === 0) throw new ServiceError('Da ist nichts offen');
-    await recordPayment(db, {
-      date: day,
-      memberId: id,
-      amountCents: open,
-      recordedById: viewer.id,
-    });
-    return { ok: true, message: open > 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
+    if (!entry || entry.money.debts.every((debt) => debt.openCents === 0)) {
+      throw new ServiceError('Da ist nichts offen');
+    }
+    await bookOpen(
+      db,
+      { date: day, memberId: id, money: entry.money, recordedById: viewer.id },
+      { refunds: true }
+    );
+    return { ok: true, message: open >= 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
   });
 }
 
@@ -761,6 +778,7 @@ const restaurantForm = z.object({
   freeDeliveryFrom: z.string(),
   serviceFee: z.string(),
   notes: optionalText,
+  pickup: z.string().optional(),
 });
 
 function euroField(value: string, label: string, optional = false): number | null {
@@ -785,6 +803,7 @@ function restaurantInput(form: FormData) {
     freeDeliveryFromCents: euroField(data.freeDeliveryFrom, 'Kostenlos ab', true),
     serviceFeeCents: euroField(data.serviceFee, 'Servicegebühr')!,
     notes: data.notes,
+    pickup: data.pickup === 'on',
   };
 }
 

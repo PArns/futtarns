@@ -76,6 +76,21 @@ export function RestaurantForm({ restaurant }: { restaurant?: Restaurant }) {
         />
         <Hint>Was Lieferando pro Bestellung extra nimmt.</Hint>
       </Label>
+      <label className="flex items-start gap-2 text-sm sm:col-span-2">
+        <input
+          type="checkbox"
+          name="pickup"
+          defaultChecked={restaurant?.pickup ?? false}
+          className="accent-primary mt-0.5 size-4"
+        />
+        <span>
+          <span className="font-semibold">Abholen geht auch</span>
+          <span className="text-muted-foreground block text-xs">
+            Dann kann der Gastgeber pro Freitag wählen, dass jemand das Essen holt: gleiche Preise,
+            ohne Liefer- und Servicegebühr und ohne Trinkgeld.
+          </span>
+        </span>
+      </label>
       <Label className="sm:col-span-2">
         Notizen
         <Textarea

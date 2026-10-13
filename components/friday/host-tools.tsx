@@ -1,14 +1,16 @@
 'use client';
 
-import { Ban, CalendarCheck, Save } from 'lucide-react';
+import { Ban, CalendarCheck, Save, ShoppingBag, Truck } from 'lucide-react';
 import { useState } from 'react';
 import {
   chooseRestaurantAction,
   setCancelledAction,
   setHostAction,
   setNoteAction,
+  setPickupAction,
 } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import { Chip } from '@/components/ui/chip';
 import { Hint, Input, Label, Select } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
 
@@ -58,6 +60,79 @@ export function RestaurantPicker({
       </Select>
       {disabled && <Hint>Schon abgerechnet. Zum Wechseln erst die Abrechnung öffnen.</Hint>}
     </Label>
+  );
+}
+
+/**
+ * Delivered or fetched, for a restaurant that offers both, and who fetches it: they pay
+ * the restaurant and get the food money, the drinks money still goes to the host.
+ */
+export function PickupPicker({
+  date,
+  pickup,
+  pickerId,
+  hostId,
+  hostName,
+  members,
+  disabled,
+}: {
+  date: string;
+  pickup: boolean;
+  /** Who fetches it when not the host. */
+  pickerId: number | null;
+  hostId: number | null;
+  hostName: string;
+  members: Option[];
+  disabled?: boolean;
+}) {
+  const { pending, execute } = useAction();
+  const off = pending || disabled;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          selected={!pickup}
+          disabled={off}
+          onClick={() => !pickup || execute(() => setPickupAction(date, false, null))}
+        >
+          <Truck className="size-3.5" /> Liefern lassen
+        </Chip>
+        <Chip
+          selected={pickup}
+          disabled={off}
+          onClick={() => pickup || execute(() => setPickupAction(date, true, pickerId))}
+        >
+          <ShoppingBag className="size-3.5" /> Abholen
+        </Chip>
+      </div>
+      {pickup && (
+        <Label>
+          Wer holt ab?
+          <Select
+            value={pickerId ?? ''}
+            disabled={off}
+            onChange={(event) =>
+              execute(() =>
+                setPickupAction(date, true, event.target.value ? Number(event.target.value) : null)
+              )
+            }
+          >
+            <option value="">{hostName} (Gastgeber)</option>
+            {members
+              .filter((member) => member.id !== hostId)
+              .map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+          </Select>
+          <Hint>
+            Zahlt im Restaurant und bekommt das Geld fürs Essen. Ohne Liefer- und Servicegebühr,
+            ohne Trinkgeld; die Getränkepauschale geht weiter an {hostName}.
+          </Hint>
+        </Label>
+      )}
+    </div>
   );
 }
 

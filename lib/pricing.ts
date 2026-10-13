@@ -40,19 +40,23 @@ type FeeRules = Pick<
 /** The tip for the driver unless the host sets another amount for a Friday. */
 export const DEFAULT_TIP_CENTS = 250;
 
-/** What Lieferando will roughly charge before the order is placed, tip and voucher included. */
+/**
+ * What Lieferando will roughly charge before the order is placed, tip and voucher included.
+ * Fetched food costs the menu prices: no delivery or service fee, no tip, no minimum.
+ */
 export function estimateFees(
   subtotalCents: number,
   restaurant: FeeRules,
   tipCents: number = DEFAULT_TIP_CENTS,
-  voucherCents = 0
+  voucherCents = 0,
+  pickup = false
 ): FeeEstimate {
   const freeDelivery =
     restaurant.freeDeliveryFromCents !== null && subtotalCents >= restaurant.freeDeliveryFromCents;
-  const empty = subtotalCents === 0;
-  const deliveryFeeCents = empty || freeDelivery ? 0 : restaurant.deliveryFeeCents;
-  const serviceFeeCents = empty ? 0 : restaurant.serviceFeeCents;
-  const tip = empty ? 0 : tipCents;
+  const noFees = subtotalCents === 0 || pickup;
+  const deliveryFeeCents = noFees || freeDelivery ? 0 : restaurant.deliveryFeeCents;
+  const serviceFeeCents = noFees ? 0 : restaurant.serviceFeeCents;
+  const tip = noFees ? 0 : tipCents;
   const fees = deliveryFeeCents + serviceFeeCents + tip;
   const voucher = Math.min(Math.max(voucherCents, 0), subtotalCents + fees);
   const sharedCents = fees - voucher;
@@ -64,7 +68,7 @@ export function estimateFees(
     voucherCents: voucher,
     sharedCents,
     totalCents: subtotalCents + sharedCents,
-    missingForMinimumCents: Math.max(0, restaurant.minOrderCents - subtotalCents),
+    missingForMinimumCents: pickup ? 0 : Math.max(0, restaurant.minOrderCents - subtotalCents),
   };
 }
 
