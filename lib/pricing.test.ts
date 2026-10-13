@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateFees, splitTotal } from '@/lib/pricing';
+import { estimateFees, feeParts, splitTotal } from '@/lib/pricing';
 
 const restaurant = {
   minOrderCents: 2000,
@@ -70,5 +70,24 @@ describe('splitTotal', () => {
 
   it('leaves out people who ordered nothing', () => {
     expect(splitTotal([{ memberId: 9, unitPriceCents: 0, quantity: 1 }], 0)).toEqual([]);
+  });
+});
+
+describe('feeParts', () => {
+  it('splits a share in proportion to the fees and adds up exactly', () => {
+    // 3,00 € delivery, 0,99 € service fee, 2,50 € tip shared by five: 1,30 € each.
+    const parts = feeParts(130, { deliveryFeeCents: 300, serviceFeeCents: 99, tipCents: 250 });
+    expect(parts).toEqual({ deliveryCents: 60, serviceCents: 20, tipCents: 50 });
+    expect(parts.deliveryCents + parts.serviceCents + parts.tipCents).toBe(130);
+    const odd = feeParts(131, { deliveryFeeCents: 300, serviceFeeCents: 99, tipCents: 250 });
+    expect(odd.deliveryCents + odd.serviceCents + odd.tipCents).toBe(131);
+  });
+
+  it('puts everything on the tip when there are no fees to weigh by', () => {
+    expect(feeParts(50, { deliveryFeeCents: 0, serviceFeeCents: 0, tipCents: 0 })).toEqual({
+      deliveryCents: 0,
+      serviceCents: 0,
+      tipCents: 50,
+    });
   });
 });

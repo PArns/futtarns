@@ -79,3 +79,29 @@ export function splitTotal(items: PricedItem[], totalCents: number): MemberShare
     return { memberId, itemsCents, sharedCents, totalCents: itemsCents + sharedCents };
   });
 }
+
+/**
+ * One person's share of the fees split into what it is made of, in proportion to the
+ * Friday's fees. The parts add up to the share exactly; leftover cents go to the parts
+ * that lost most to rounding.
+ */
+export function feeParts(
+  sharedCents: number,
+  fees: Pick<FeeEstimate, 'deliveryFeeCents' | 'serviceFeeCents' | 'tipCents'>
+): { deliveryCents: number; serviceCents: number; tipCents: number } {
+  const weights = [fees.deliveryFeeCents, fees.serviceFeeCents, fees.tipCents];
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  if (total <= 0) return { deliveryCents: 0, serviceCents: 0, tipCents: sharedCents };
+  const exact = weights.map((weight) => (sharedCents * weight) / total);
+  const parts = exact.map(Math.floor);
+  let left = sharedCents - parts.reduce((sum, part) => sum + part, 0);
+  const byRemainder = exact
+    .map((value, index) => ({ index, rest: value - Math.floor(value) }))
+    .sort((a, b) => b.rest - a.rest);
+  for (const { index } of byRemainder) {
+    if (left <= 0) break;
+    parts[index]!++;
+    left--;
+  }
+  return { deliveryCents: parts[0]!, serviceCents: parts[1]!, tipCents: parts[2]! };
+}

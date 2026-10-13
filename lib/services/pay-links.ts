@@ -6,6 +6,7 @@ import { appSecrets } from '@/lib/db/schema';
 import { payLinkToken, readPayLinkToken } from '@/lib/pay-links';
 import {
   loadFriday,
+  paymentOpen,
   recordPayment,
   type FridayView,
   type Participant,
@@ -36,14 +37,14 @@ export async function openPayLink(
   db: Db,
   token: string,
   now: Date
-): Promise<{ view: FridayView; entry: Participant } | null> {
+): Promise<{ view: FridayView; entry: Participant; payable: boolean } | null> {
   const target = readPayLinkToken(await appSecret(db, SECRET), token);
   if (!target) return null;
   const age = daysBetween(target.date, todayIso(now));
   if (age < -7 || age > LINK_DAYS) return null;
   const view = await loadFriday(db, target.date, now);
   const entry = view.participants.find((participant) => participant.member.id === target.memberId);
-  return entry ? { view, entry } : null;
+  return entry ? { view, entry, payable: paymentOpen(view, now) } : null;
 }
 
 /**
@@ -53,9 +54,9 @@ export async function openPayLink(
 export async function payByLink(db: Db, token: string, now: Date): Promise<number | null> {
   const opened = await openPayLink(db, token, now);
   if (!opened) return null;
-  const { view, entry } = opened;
+  const { view, entry, payable } = opened;
   const open = entry.money.openCents;
-  if (open <= 0) return 0;
+  if (open <= 0 || !payable) return 0;
   await recordPayment(db, {
     date: view.date,
     memberId: entry.member.id,

@@ -1,5 +1,7 @@
+import { shareLines } from '@/lib/balance';
 import { berlinAt, daysBetween, todayIso } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { bold } from '@/lib/messages';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
@@ -29,14 +31,19 @@ function between(now: Date, from: Date, to: Date) {
   return now >= from && now < to;
 }
 
-function payLine(view: FridayView, cents: number) {
+function payLines(view: FridayView, cents: number) {
   const handle = view.host?.paypalMe;
   return handle
-    ? `${paypalMeLink(handle, cents)} (bitte als „Freunde und Familie“)`
+    ? `PayPal: ${paypalMeLink(handle, cents)}\nBitte als „Freunde und Familie“.`
     : `Bitte direkt an ${view.host?.name ?? 'den Gastgeber'} zahlen.`;
 }
 
-const ANSWER_HINT = 'Antworte mit\n1 – bin dabei\n2 – komme, esse aber nix\n3 – bin raus';
+const ANSWER_HINT = [
+  'Bist du dabei? Antworte mit',
+  `${bold('1')} – bin dabei`,
+  `${bold('2')} – komme, esse aber nix`,
+  `${bold('3')} – bin raus`,
+].join('\n');
 
 /**
  * Every WhatsApp message one Friday calls for at `now`. Each message has a key; the
@@ -73,7 +80,9 @@ export function planReminders({
 
   if (view.cancelled) {
     if (between(now, berlinAt(date, -2, 12), view.deadline)) {
-      const text = `Freitag (${day}) fällt aus${view.cancelReason ? `: ${view.cancelReason}` : '.'}`;
+      const text = [bold(`Freitag (${day}) fällt aus.`), view.cancelReason]
+        .filter(Boolean)
+        .join('\n');
       for (const entry of reachable) {
         out.push({ key: `cancel:${date}:${entry.member.id}`, to: entry.member.phone!, text });
       }
@@ -92,7 +101,7 @@ export function planReminders({
         out.push({
           key: `hostaway:${date}:${key}`,
           to: hostPhone,
-          text: `Freitag (${day}) bist du weg, stehst aber als Gastgeber drin. Trag ein, wer übernimmt, oder sag den Freitag ab:\n${appUrl}/kalender`,
+          text: `${bold(`Freitag (${day}) bist du weg`)}, stehst aber als Gastgeber drin.\nTrag ein, wer übernimmt, oder sag den Freitag ab:\n${appUrl}/kalender`,
         });
       }
     }
@@ -102,43 +111,57 @@ export function planReminders({
   if (noRestaurant && hostPhone) {
     for (const [key, at] of [
       ['thu', berlinAt(date, -1, 18)],
-      ['fri', berlinAt(date, 0, 12)],
+      // An hour before the invitations, so they can already name the restaurant.
+      ['fri', berlinAt(date, 0, 9)],
     ] as const) {
       if (between(now, at, view.deadline)) {
         out.push({
           key: `pick:${date}:${key}`,
           to: hostPhone,
-          text: `Für Freitag (${day}) steht noch kein Restaurant fest. Such eins aus, dann können alle bestellen:\n${link}`,
+          text: `${bold(`Für Freitag (${day}) steht noch kein Restaurant fest.`)}\nSuch eins aus, dann können alle bestellen:\n${link}`,
         });
       }
     }
   }
 
-  // Invitations wait until Thursday noon for a restaurant; after that they go out anyway
-  // and a second message follows once it is chosen.
-  const inviteFrom = noRestaurant ? berlinAt(date, -1, 12) : berlinAt(date, -2, 12);
-  if (between(now, inviteFrom, berlinAt(date, 0, 17))) {
+  const deadline = formatTime(view.deadline);
+  const invited = (id: number) =>
+    sent.has(`invite:${date}:${id}`) || sent.has(`invite-open:${date}:${id}`);
+  /** What happens to someone who is in but orders nothing: their default, or no food. */
+  const orderFallback = (memberId: number) => {
+    const fallback = defaultDish.get(memberId);
+    return fallback ? `bekommst du deinen Standard (${bold(fallback)})` : 'gibt’s für dich nichts';
+  };
+
+  // The invitation goes out on the Friday morning. Without a restaurant by then it goes out
+  // anyway, and a second message follows once one is chosen.
+  if (between(now, berlinAt(date, 0, 10), berlinAt(date, 0, 17))) {
     const what = flat
       ? `gibt's ${view.flatTitle ?? 'was Leckeres'} für ${formatEuro(view.flatPriceCents ?? 0)} pro Person`
       : view.restaurant
         ? `bestellen wir bei ${view.restaurant.name}`
         : 'bestellen wir zusammen (Restaurant kommt noch)';
     const rule = flat ? 'Dafür brauchen wir deine Zusage.' : 'Wer nichts sagt, ist dabei.';
+    // Silent members count as in, so the invitation also carries the order reminder.
+    const orderHint = (memberId: number) =>
+      !flat && view.restaurant
+        ? `\nSuch dir bis ${bold(deadline)} was aus, sonst ${orderFallback(memberId)}.`
+        : '';
     for (const entry of reachable) {
       if (entry.attendance.reason !== 'silent' || entry.member.id === view.host?.id) continue;
       const id = entry.member.id;
-      if (sent.has(`invite:${date}:${id}`) || sent.has(`invite-open:${date}:${id}`)) continue;
+      if (invited(id)) continue;
       out.push({
         key: `${noRestaurant ? 'invite-open' : 'invite'}:${date}:${id}`,
         to: entry.member.phone!,
-        text: `Hi ${entry.member.name}! Freitag (${day}) ${what}${place}.\nBist du dabei? ${ANSWER_HINT}\n\n${rule}\n${link}`,
+        text: `Hi ${entry.member.name}! 👋\n${bold(`Heute ${what}`)}${place}.\n\n${ANSWER_HINT}\n\n${rule}${orderHint(id)}\n${link}`,
       });
     }
     if (group && !sent.has(`invite:${date}:group`)) {
       out.push({
         key: `invite:${date}:group`,
         to: group,
-        text: `Freitag (${day}) ${what}${place}. ${flat ? 'Anmeldeschluss' : 'Bestellschluss'} ist um ${formatTime(view.deadline)}.\n${link}`,
+        text: `${bold(`Heute ${what}`)}${place}.\n${flat ? 'Anmeldeschluss' : 'Bestellschluss'}: ${bold(deadline)}\n${link}`,
       });
     }
   }
@@ -155,47 +178,66 @@ export function planReminders({
       out.push({
         key: `restaurant:${date}:${restaurant.id}:${entry.member.id}`,
         to: entry.member.phone!,
-        text: `Für Freitag steht es fest: ${restaurant.name}. Such dir bis ${formatTime(view.deadline)} was aus:\n${link}`,
+        text: `Für heute steht es fest: ${bold(restaurant.name)}.\nSuch dir bis ${bold(deadline)} was aus:\n${link}`,
       });
     }
 
-    const remind = (key: string, intro: string, onlyWithoutDefault: boolean) => {
-      for (const entry of reachable.filter(eatsWithoutOrder)) {
-        const fallback = defaultDish.get(entry.member.id);
-        if (onlyWithoutDefault && fallback) continue;
+    const remind = (key: string, intro: string, entries: Participant[]) => {
+      for (const entry of entries) {
         out.push({
           key: `${key}:${date}:${entry.member.id}`,
           to: entry.member.phone!,
-          text: `${intro} Bis ${formatTime(view.deadline)} kannst du bei ${restaurant.name} bestellen, sonst ${
-            fallback ? `bekommst du deinen Standard (${fallback})` : 'gibt’s für dich nichts'
-          }.\n${link}`,
+          text: `${intro}\nBis ${bold(deadline)} kannst du bei ${bold(restaurant.name)} bestellen, sonst ${orderFallback(entry.member.id)}.\n${link}`,
         });
       }
     };
-    // Whoever has a default gets one reminder; the rest a second, since they would go hungry.
-    if (between(now, berlinAt(date, 0, 17), view.deadline)) {
-      remind('order', 'Du hast für heute Abend noch nichts ausgesucht.', false);
+    const withoutOrder = reachable.filter(eatsWithoutOrder);
+    // Friday morning, for whoever said yes without the invitation, which already asked them
+    // to pick something.
+    if (between(now, berlinAt(date, 0, 10), view.deadline)) {
+      remind(
+        'order',
+        'Du hast für heute Abend noch nichts ausgesucht.',
+        withoutOrder.filter(
+          (entry) => entry.attendance.reason === 'answered' && !invited(entry.member.id)
+        )
+      );
     }
+    // Whoever has no default would go hungry, so they hear once more.
     if (between(now, berlinAt(date, 0, 18, 30), view.deadline)) {
-      remind('lastcall', 'Letzte Chance!', true);
-    }
-  }
-
-  if (between(now, berlinAt(date, 0, 18, 30), view.deadline)) {
-    for (const entry of view.participants) {
-      if (entry.money.openCents < NAG_THRESHOLD_CENTS || entry.member.id === view.host?.id)
-        continue;
-      const { phone, prefix } = billTo(entry);
-      if (!phone) continue;
-      out.push({
-        key: `prepay:${date}:${entry.member.id}`,
-        to: phone,
-        text: `${prefix}Für heute Abend sind ${formatEuro(entry.money.openCents)} offen. Am besten gleich zahlen:\n${payLine(view, entry.money.openCents)}\nDanach hier abhaken: ${paidLink(entry.member.id)}`,
-      });
+      remind(
+        'lastcall',
+        bold('Letzte Chance!'),
+        withoutOrder.filter((entry) => !defaultDish.has(entry.member.id))
+      );
     }
   }
 
   const sheetUntil = new Date(view.deadline.getTime() + 3 * 3_600_000);
+  // Paying opens with the deadline: before it, orders and with them the shares still change.
+  if (view.locked && between(now, view.deadline, sheetUntil)) {
+    for (const entry of view.participants) {
+      const open = entry.money.openCents;
+      if (open < NAG_THRESHOLD_CENTS || entry.member.id === view.host?.id) continue;
+      const { phone, prefix } = billTo(entry);
+      if (!phone) continue;
+      out.push({
+        key: `due:${date}:${entry.member.id}`,
+        to: phone,
+        text: [
+          `${prefix}${bold(flat ? 'Anmeldeschluss!' : 'Bestellschluss!')} Für heute Abend sind ${bold(formatEuro(open))} offen.`,
+          '',
+          ...shareLines(view, entry).map((line) => `${line.label}: ${formatEuro(line.cents)}`),
+          '',
+          payLines(view, open),
+          ...(flat ? [] : ['Kleine Abweichungen gleichen wir nach der Abrechnung aus.']),
+          '',
+          `Schon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`,
+        ].join('\n'),
+      });
+    }
+  }
+
   if (view.locked && hostPhone && between(now, view.deadline, sheetUntil)) {
     const eating = view.participants.filter((entry) => entry.attendance.status === 'in').length;
     const sheet = orderSheetText(
@@ -208,10 +250,10 @@ export function planReminders({
       key: `sheet:${date}`,
       to: hostPhone,
       text: flat
-        ? `Anmeldeschluss: ${eating} Leute sind dabei.\n${link}`
-        : `Bestellschluss! Das geht an ${view.restaurant?.name ?? 'das Restaurant'}:\n\n${
+        ? `${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.\n${link}`
+        : `${bold('Bestellschluss!')} Das geht an ${bold(view.restaurant?.name ?? 'das Restaurant')}:\n\n${
             sheet || 'Niemand hat etwas bestellt.'
-          }\n\nNach der Bestellung den Betrag hier eintragen: ${link}`,
+          }\n\nNach der Bestellung den Betrag hier eintragen:\n${link}`,
     });
   }
 
@@ -226,7 +268,7 @@ export function planReminders({
       out.push({
         key: `settle:${date}:${today}`,
         to: hostPhone,
-        text: `Was hat Freitag (${day}) bei Lieferando gekostet? Trag den Betrag ein, dann bekommen alle ihre Abrechnung:\n${link}`,
+        text: `${bold(`Was hat Freitag (${day}) bei Lieferando gekostet?`)}\nTrag den Betrag ein, dann bekommen alle ihre Abrechnung:\n${link}`,
       });
     }
   }
@@ -244,8 +286,8 @@ export function planReminders({
           to: phone,
           text:
             open > 0
-              ? `${prefix}Abgerechnet: Noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nDanach hier abhaken: ${paidLink(entry.member.id)}`
-              : `${prefix}Abgerechnet: ${formatEuro(-open)} zu viel gezahlt, ${host} gibt das zurück.`,
+              ? `${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, open)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
+              : `${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${host} gibt das zurück.`,
         });
       }
       if (
@@ -257,7 +299,7 @@ export function planReminders({
         out.push({
           key: `pay:${date}:${entry.member.id}:${today}`,
           to: phone,
-          text: `${prefix}Kleine Erinnerung: Für Freitag (${day}) sind noch ${formatEuro(open)} offen.\n${payLine(view, open)}\nSchon gezahlt? Hier abhaken, dann hören die Erinnerungen auf: ${paidLink(entry.member.id)}`,
+          text: `${prefix}${bold('Kleine Erinnerung:')} Für Freitag (${day}) sind noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, open)}\n\nSchon gezahlt? Hier abhaken, dann hören die Erinnerungen auf:\n${paidLink(entry.member.id)}`,
         });
       }
     }

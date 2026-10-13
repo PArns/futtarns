@@ -65,7 +65,7 @@ export function CostsSection({ view }: { view: FridayView }) {
                   <AmountRow icon={Truck} label="Liefergebühr" cents={estimate.deliveryFeeCents} />
                   <AmountRow
                     icon={Receipt}
-                    label="Servicegebühr"
+                    label="Servicegebühr (Lieferando)"
                     cents={estimate.serviceFeeCents}
                   />
                   <AmountRow icon={HandCoins} label="Trinkgeld" cents={estimate.tipCents} />
@@ -86,7 +86,8 @@ export function CostsSection({ view }: { view: FridayView }) {
                   {eaters > 0 && (
                     <p className="text-muted-foreground pt-1 text-xs">
                       Gebühren und Trinkgeld teilen sich alle, die essen: etwa{' '}
-                      {formatEuro(feesEach)} pro Person.
+                      {formatEuro(feesEach)} pro Person. Die Servicegebühr ist die Systemgebühr von
+                      Lieferando, nicht unsere.
                     </p>
                   )}
                 </>

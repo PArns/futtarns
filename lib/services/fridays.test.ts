@@ -32,6 +32,7 @@ import {
   setHostRestaurant,
   setRestaurantArchived,
 } from '@/lib/services/restaurants';
+import { shareLines } from '@/lib/balance';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -463,6 +464,41 @@ describe('a Friday', () => {
     expect(benEntry.projectedDefault).toEqual({ name: 'Margherita', unitPriceCents: 800 });
     expect(view.estimate?.subtotalCents).toBe(1600);
     expect(benEntry.money.foodCents).toBeGreaterThan(800);
+  });
+
+  it('explains every amount: dish, each fee share, drinks, and the host without drinks', async () => {
+    const { patrick, anna, ben, pizzeria, margherita } = await setup();
+    await setDefaultDish(db, ben.id, pizzeria.id, {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+    });
+    for (const id of [anna.id, patrick.id]) {
+      await addItem(db, FRIDAY, id, {
+        dishId: margherita.id,
+        selection: { grosse: ['normal'] },
+        note: null,
+        quantity: 1,
+      });
+    }
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    const entry = (id: number) => view.participants.find((p) => p.member.id === id)!;
+    const sum = (lines: { cents: number }[]) =>
+      lines.reduce((total, line) => total + line.cents, 0);
+
+    const annaLines = shareLines(view, entry(anna.id));
+    // Three eat (Anna, Patrick, and Ben with his default): 3,00 € delivery, 2,50 € tip.
+    expect(annaLines.map((line) => line.label)).toEqual([
+      'Margherita',
+      'Anteil Liefergebühr (3,00\u00a0€ ÷ 3)',
+      'Anteil Trinkgeld (2,50\u00a0€ ÷ 3)',
+      'Getränke',
+    ]);
+    expect(sum(annaLines)).toBe(entry(anna.id).money.openCents);
+    expect(shareLines(view, entry(ben.id))[0]!.label).toBe('Margherita (Standard)');
+    const hostLines = shareLines(view, entry(patrick.id));
+    expect(hostLines.some((line) => line.label === 'Getränke')).toBe(false);
+    expect(sum(hostLines)).toBe(entry(patrick.id).share!.totalCents);
   });
 
   it('lets the host switch restaurant after the lock and hands out the new defaults', async () => {

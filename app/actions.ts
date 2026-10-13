@@ -33,6 +33,7 @@ import {
   hostedFridaysBetween,
   hostIdFor,
   loadFriday,
+  paymentOpen,
   recordPayment,
   reopenSettlement,
   setAttendance,
@@ -66,6 +67,7 @@ import {
   setNoFoodDefault,
 } from '@/lib/services/orders';
 import { payByLink } from '@/lib/services/pay-links';
+import { loginCodeText } from '@/lib/messages';
 import {
   addMissingDish,
   createDish,
@@ -391,6 +393,9 @@ export async function payAction(date: string, target: number): Promise<ActionRes
       }
     }
     const view = await loadFriday(db, day, new Date());
+    if (!paymentOpen(view, new Date())) {
+      throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
+    }
     const open = view.participants.find((entry) => entry.member.id === id)?.money.openCents ?? 0;
     if (open <= 0) throw new ServiceError('Da ist nichts offen');
     await recordPayment(db, {
@@ -450,6 +455,9 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
     const id = memberId.parse(target);
     const { db, viewer } = await requireFridayManager(day);
     const view = await loadFriday(db, day, new Date());
+    if (!paymentOpen(view, new Date())) {
+      throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
+    }
     const entry = view.participants.find((participant) => participant.member.id === id);
     const open = entry?.money.openCents ?? 0;
     if (open === 0) throw new ServiceError('Da ist nichts offen');
@@ -484,10 +492,7 @@ export async function requestCodeAction(phoneInput: string): Promise<ActionResul
     const onItsWay = 'Wenn die Nummer bei uns eingetragen ist, kommt der Code gleich per WhatsApp.';
     if (!issued) return { ok: true, message: onItsWay };
     const { code } = issued;
-    const result = await sendWhatsApp(
-      phone,
-      `Dein Code für freitach: ${code}\nEr gilt 10 Minuten.`
-    );
+    const result = await sendWhatsApp(phone, loginCodeText(code));
     if (result === 'failed') {
       return fail(
         (await botState()).kind === 'linking'

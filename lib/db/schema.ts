@@ -141,8 +141,9 @@ export const orderItems = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     dishId: integer('dish_id').references(() => dishes.id, { onDelete: 'set null' }),
-    // Name and price are copied so a later menu edit cannot change a placed order.
+    // Name, category and price are copied so a later menu edit cannot change a placed order.
     name: text('name').notNull(),
+    category: text('category'),
     unitPriceCents: integer('unit_price_cents').notNull(),
     quantity: integer('quantity').notNull().default(1),
     options: jsonb('options').$type<SelectedOption[]>().notNull().default([]),

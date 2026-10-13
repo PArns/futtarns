@@ -1,7 +1,8 @@
-import { CircleCheck, House, Undo2 } from 'lucide-react';
+import { CircleCheck, Undo2 } from 'lucide-react';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { PayBox } from '@/components/friday/pay-box';
-import { formatEuro } from '@/lib/format';
+import { shareLines } from '@/lib/balance';
+import { formatEuro, formatTime } from '@/lib/format';
 import { NAG_THRESHOLD_CENTS } from '@/lib/reminders';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 
@@ -13,24 +14,47 @@ export function MyMoney({
   view,
   me,
   canEdit,
+  payable,
 }: {
   view: FridayView;
   me: Participant;
   canEdit: boolean;
+  /** Whether paying is open yet; it opens at the deadline. */
+  payable: boolean;
 }) {
   const host = view.host;
   if (!host) return null;
+  // The host sees the same box with their own share, minus the pay buttons.
   if (host.id === me.member.id) {
+    if (!me.share) return null;
     return (
-      <p className="text-muted-foreground flex items-center gap-2 text-sm">
-        <House className="text-primary size-4 shrink-0" />
-        Du bist Gastgeber und zahlst nichts – das Geld kommt zu dir.
-      </p>
+      <PayBox
+        date={view.date}
+        memberId={me.member.id}
+        amountCents={me.share.totalCents}
+        lines={shareLines(view, me)}
+        payeeName={null}
+        paypalMe={null}
+        label="Dein Anteil"
+        payable={false}
+        note="Du bist Gastgeber: Lieferando zahlst du direkt, das Geld der anderen kommt zu dir."
+      />
     );
   }
   const comes = me.attendance.status !== 'out' && !view.cancelled;
   const billed = view.mode === 'flat' || view.settled;
   const open = me.money.openCents;
+  const box = (props: { label?: string; payable: boolean; note?: string }) => (
+    <PayBox
+      date={view.date}
+      memberId={me.member.id}
+      amountCents={open}
+      lines={shareLines(view, me)}
+      payeeName={host.name}
+      paypalMe={host.paypalMe}
+      {...props}
+    />
+  );
 
   return (
     <div className="space-y-3">
@@ -43,14 +67,14 @@ export function MyMoney({
           disabled={!canEdit}
         />
       )}
-      {open >= NAG_THRESHOLD_CENTS || (open > 0 && billed) ? (
-        <PayBox
-          date={view.date}
-          memberId={me.member.id}
-          money={me.money}
-          payeeName={host.name}
-          paypalMe={host.paypalMe}
-        />
+      {open > 0 && !payable ? (
+        box({
+          label: 'Bis jetzt',
+          payable: false,
+          note: `Bezahlt wird nach dem Bestellschluss um ${formatTime(view.deadline)}, dann steht fest, was alle bestellt haben. Den Link bekommst du per WhatsApp.`,
+        })
+      ) : open >= NAG_THRESHOLD_CENTS || (open > 0 && billed) ? (
+        box({ payable: true })
       ) : open > 0 ? (
         <p className="text-muted-foreground text-sm">
           Noch {formatEuro(open)} offen, weil sich die Gebühren verteilt haben. Das gleichen wir

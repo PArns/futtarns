@@ -131,6 +131,13 @@ function formatPlainEuro(cents: number): string {
   return `${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')}`;
 }
 
+/** The stored choices of an order or default back as a selection the dialog would send. */
+export function selectionOf(options: SelectedOption[]): Record<string, string[]> {
+  const selection: Record<string, string[]> = {};
+  for (const option of options) (selection[option.groupId] ??= []).push(option.choiceId);
+  return selection;
+}
+
 /**
  * Checks a selection of choice ids against a dish's option groups and returns the
  * snapshot that is stored with the order, or the first rule it breaks.

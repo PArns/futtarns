@@ -88,8 +88,14 @@ export function HostSection({
             <p className="text-muted-foreground text-sm">Noch nichts bestellt.</p>
           ) : (
             <ul className="space-y-2 text-sm">
-              {sheet.map((line) => (
-                <li key={line.key} className="flex gap-2">
+              {sheet.map((line, index) => (
+                <li key={line.key} className="flex flex-wrap gap-2">
+                  {sheet.some((other) => other.category) &&
+                    (index === 0 || line.category !== sheet[index - 1]!.category) && (
+                      <span className="text-primary w-full pt-1 text-[11px] font-bold tracking-[0.14em] uppercase">
+                        {line.category ?? 'Sonstiges'}
+                      </span>
+                    )}
                   <span className="text-primary w-7 shrink-0 font-extrabold tabular-nums">
                     {line.count}×
                   </span>

@@ -27,9 +27,10 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Restaurants**: fees, minimum order, menus from Lieferando (bookmarklet or copy and paste,
   with a preview); anyone can add a missing dish. Every host has their own usual restaurant.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
-- **WhatsApp bot**: invitations on Wednesday, order reminders on Friday afternoon, the order
-  list for the host at 19:00, the settled amounts and daily payment reminders. People can
-  answer with `1`, `2`, `3`, `bezahlt`, `status` or `code`.
+- **WhatsApp bot**: the invitation and order reminder on Friday at 10:00, the order list for
+  the host and everyone's payment link at 19:00, the settled amounts and daily payment
+  reminders. People can
+  answer with `1`, `2`, `3`, `wie immer`, `andere`, `bezahlt`, `status` or `code`.
 
 ## Screenshots
 

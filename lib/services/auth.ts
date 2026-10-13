@@ -160,7 +160,7 @@ export async function verifyLoginCode(
     )
     .returning({ id: loginCodes.id });
   if (!counted) throw expired;
-  if (latest.codeHash !== hashCode(member.id, code.replace(/\s/g, ''))) {
+  if (latest.codeHash !== hashCode(member.id, code.replace(/\D/g, ''))) {
     throw new ServiceError('Der Code stimmt nicht.');
   }
   const [used] = await db

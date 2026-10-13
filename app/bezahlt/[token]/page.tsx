@@ -1,11 +1,11 @@
-import { Check, PartyPopper, Wallet } from 'lucide-react';
+import { Check, Clock, PartyPopper, Wallet } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { payByLinkAction } from '@/app/actions';
 import { LoginShell } from '@/components/login/login-shell';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { getDb } from '@/lib/db';
-import { formatDayShort, formatEuro } from '@/lib/format';
+import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { paypalMeLink } from '@/lib/paypal';
 import { openPayLink } from '@/lib/services/pay-links';
 
@@ -36,7 +36,7 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
     );
   }
 
-  const { view, entry } = opened;
+  const { view, entry, payable } = opened;
   const open = entry.money.openCents;
   const forGuest = entry.member.kind === 'guest' ? ` für ${entry.member.name}` : '';
   const handle = view.host?.paypalMe;
@@ -48,7 +48,17 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
           Freitag, {formatDayShort(view.date)}
           {forGuest}
         </p>
-        {open <= 0 ? (
+        {open > 0 && !payable ? (
+          <>
+            <h1 className="flex items-center gap-2 text-xl font-bold">
+              <Clock className="text-primary size-5" /> Noch nicht
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Bezahlt wird nach dem Bestellschluss um {formatTime(view.deadline)}, dann steht fest,
+              was alle bestellt haben.
+            </p>
+          </>
+        ) : open <= 0 ? (
           <>
             <h1 className="flex items-center gap-2 text-xl font-bold">
               <PartyPopper className="text-primary size-5" />

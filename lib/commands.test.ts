@@ -10,6 +10,8 @@ describe('parseCommand', () => {
     ['3', { kind: 'answer', status: 'out', confirmed: false }],
     ['Nein.', { kind: 'answer', status: 'out', confirmed: false }],
     ['3 sicher', { kind: 'answer', status: 'out', confirmed: true }],
+    ['Wie immer!', { kind: 'usual' }],
+    ['andere', { kind: 'others' }],
     ['Hab bezahlt', { kind: 'paid' }],
     ['Code', { kind: 'login' }],
     ['?', { kind: 'status' }],

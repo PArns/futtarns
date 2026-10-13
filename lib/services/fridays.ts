@@ -227,6 +227,7 @@ async function applyDefaults(tx: Tx, date: IsoDate, restaurantId: number) {
       memberId: member.id,
       dishId: fallback.dish.id,
       name: fallback.dish.name,
+      category: fallback.dish.category,
       unitPriceCents: unitPriceCents(fallback.dish.priceCents, fallback.entry.options),
       options: fallback.entry.options,
       note: fallback.entry.note,
@@ -291,6 +292,14 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
     .update(fridays)
     .set({ settledAt: null, updatedAt: new Date() })
     .where(eq(fridays.date, date));
+}
+
+/**
+ * Paying opens at the deadline: before it, orders and with them everyone's share still
+ * change, so an amount paid early would rarely be right.
+ */
+export function paymentOpen(view: Pick<FridayView, 'date' | 'locked'>, now: Date): boolean {
+  return view.locked || isPastDeadline(view.date, now);
 }
 
 export async function recordPayment(

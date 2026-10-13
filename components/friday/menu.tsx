@@ -75,10 +75,12 @@ export function Menu({
   }, [dishes, deferredQuery, deferredCategory, takenBy]);
   const takenCount = dishes.filter((dish) => takenBy[dish.id]).length;
 
-  // Under „Alles“ the menu reads like the restaurant's: one heading per category.
   const groups = useMemo(() => {
     const sorted = [...visible].sort((a, b) => byName(a.name, b.name));
-    if (deferredCategory !== ALL) return [{ key: '', name: null, dishes: sorted }];
+    // „Alles“ and „Was die anderen nehmen“ read like the menu: one heading per category.
+    if (deferredCategory !== ALL && deferredCategory !== TAKEN) {
+      return [{ key: '', name: null, dishes: sorted }];
+    }
     const byCategory = new Map<string | null, MenuDish[]>();
     for (const name of [...categories, null]) byCategory.set(name, []);
     for (const dish of sorted) byCategory.get(dish.category ?? null)!.push(dish);
