@@ -9,7 +9,20 @@ import type { ActionResult } from '@/lib/action-result';
 import type { Restaurant } from '@/lib/db/schema';
 import { centsToInput } from '@/lib/format';
 
-export function RestaurantForm({ restaurant }: { restaurant?: Restaurant }) {
+/**
+ * A restaurant's details and fees, and which hosts it delivers to: not every restaurant
+ * reaches every host's address. None ticked means it delivers to everyone.
+ */
+export function RestaurantForm({
+  restaurant,
+  members,
+  deliversTo = [],
+}: {
+  restaurant?: Restaurant;
+  /** Everyone who could host a Friday. */
+  members: { id: number; name: string }[];
+  deliversTo?: number[];
+}) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     restaurant ? updateRestaurantAction : createRestaurantAction,
     null
@@ -76,6 +89,27 @@ export function RestaurantForm({ restaurant }: { restaurant?: Restaurant }) {
         />
         <Hint>Was Lieferando pro Bestellung extra nimmt.</Hint>
       </Label>
+      <fieldset className="space-y-2 sm:col-span-2">
+        <legend className="text-sm font-semibold">Liefert zu</legend>
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          {members.map((member) => (
+            <label key={member.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="deliversTo"
+                value={member.id}
+                defaultChecked={deliversTo.includes(member.id)}
+                className="accent-primary size-4"
+              />
+              {member.name}
+            </label>
+          ))}
+        </div>
+        <Hint>
+          Wessen Adresse im Liefergebiet liegt. Keiner angehakt heißt: liefert zu allen. Bei wem es
+          nicht liefert, steht es nur zur Wahl, wenn Abholen geht.
+        </Hint>
+      </fieldset>
       <label className="flex items-start gap-2 text-sm sm:col-span-2">
         <input
           type="checkbox"

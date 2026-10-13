@@ -8,6 +8,7 @@ import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold, loginCodeText } from '@/lib/messages';
 import { requestLoginCode } from '@/lib/services/auth';
 import {
+  castVote,
   loadFriday,
   openBalancesFor,
   paymentOpen,
@@ -17,6 +18,8 @@ import {
 } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
 import { orderUsual } from '@/lib/services/orders';
+import { restaurantsForHost } from '@/lib/services/restaurants';
+import { optionForLetter, standings, voteLetter, votingAt } from '@/lib/vote';
 import { sendWhatsApp } from '@/lib/whatsapp';
 
 const ANSWER_REPLY = {
@@ -193,6 +196,41 @@ export async function handleIncoming(
       const money =
         me && me.money.openCents > 0 ? `\nOffen: ${bold(formatEuro(me.money.openCents))}` : '';
       return `${bold(`Freitag (${formatDayShort(date)})`)} bei ${view.host?.name ?? '?'}: ${bold(what)}\n${status}${items}${money}\n${link}`;
+    }
+
+    case 'vote': {
+      const view = await loadFriday(db, date, now);
+      const options = await restaurantsForHost(db, view.host?.id ?? null);
+      if (!votingAt(view, now) || options.length < 2) {
+        return view.restaurant && view.mode === 'delivery' && !view.cancelled
+          ? `Gerade läuft keine Restaurantwahl. Freitag gibt's ${bold(view.restaurant.name)}. 🍽️`
+          : 'Gerade läuft keine Restaurantwahl.';
+      }
+      const option = optionForLetter(options, command.letter);
+      if (!option) {
+        return [
+          'Den Buchstaben gibt’s nicht. Zur Wahl stehen:',
+          ...options.map((entry, index) => `${bold(voteLetter(index))} · ${entry.name}`),
+        ].join('\n');
+      }
+      try {
+        await castVote(db, date, member.id, option.id, now);
+      } catch (error) {
+        if (error instanceof ServiceError) return error.message;
+        throw error;
+      }
+      const after = await loadFriday(db, date, now);
+      const nameOf = (id: number) =>
+        after.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
+      return [
+        `🗳️ Stimme gezählt: ${bold(option.name)}!`,
+        '',
+        bold('Stand:'),
+        ...standings(options, after.votes, nameOf),
+        '',
+        `Umentscheiden geht bis ${bold('Donnerstag um 23:59')}, einfach einen anderen Buchstaben schicken.`,
+        link,
+      ].join('\n');
     }
 
     case 'help':

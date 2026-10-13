@@ -18,6 +18,8 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                                                                 |
 | `absences`                | date ranges someone is away                                                                                                                                                                                     |
 | `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, pickup and who fetches the food, lock and settlement |
+| `restaurant_votes`        | who wants which restaurant for a Friday, one vote per member                                                                                                                                                    |
+| `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
 | `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
 | `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                             |
 | `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                                                          |
@@ -92,8 +94,10 @@ stale reminders afterwards.
 | When (Berlin)        | Who                                      | What                                                 |
 | -------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | Mon 18:00, Wed 10:00 | a host who is away that day              | find a substitute or cancel                          |
-| Wed 12:00            | members who haven't answered             | whether they come, with reply options                |
+| Wed 12:00            | members who haven't answered             | whether they come, with reply options, and the vote  |
+| Wed 12:00            | everyone else coming who hasn't voted    | the restaurant vote, if one is running               |
 | Thu 18:00, Fri 09:00 | host, no restaurant yet                  | pick one                                             |
+| Fri 09:00            | whose order the vote threw away          | the winner, and to pick again                        |
 | Fri 10:00 – 17:00    | members who haven't answered             | invitation with reply options and what to order      |
 | Fri 10:00            | said yes without an invitation, no order | order reminder naming their default                  |
 | Fri 18:30            | in, nothing ordered, no default          | last call                                            |
@@ -123,6 +127,25 @@ whoever answers or orders in the meantime drops out of later reminders.
 
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
 without food for a „nix“ default) and „andere“ (who eats what this Friday).
+
+## Restaurant vote (`lib/vote.ts`)
+
+Unless the host picks the restaurant themselves (`restaurantChosen`), the group votes on it
+until Thursday 23:59. The ballot lists the restaurants that can serve this Friday's host
+(`restaurantsForHost`): those that deliver to the host's address (`restaurant_hosts`, ticked
+under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
+pickup, marked „nur abholen“. They are lettered in the order they were created, so a
+letter stays put while new restaurants join. Members vote on the Friday page or by
+replying with the letter to the Wednesday message, which carries every Lieferando link;
+they can change or take back their vote until the end. The page and the bot's reply show
+who voted for what.
+
+At midnight (`closeVote`, from the timer or the first page view) the restaurant with the
+most votes wins. Without votes, or when two share the lead, the current restaurant (the
+host's usual one, or whatever the first order pinned) stays. Ordering already works during
+the vote; if another restaurant wins, those orders are deleted (`voteDroppedIds`) and their
+owners get a message on Friday at 09:00 asking them to pick again, never at night. A
+winner that does not deliver to the host makes the Friday a pickup Friday.
 
 ## Pentecost
 

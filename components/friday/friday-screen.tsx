@@ -14,6 +14,7 @@ import {
   TriangleAlert,
   Users,
   UtensilsCrossed,
+  Vote,
   Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -29,6 +30,7 @@ import { Menu } from '@/components/friday/menu';
 import { MyMoney } from '@/components/friday/my-money';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
+import { RestaurantVote } from '@/components/friday/restaurant-vote';
 import { TimeLine } from '@/components/friday/time-line';
 import { AttendancePills } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
@@ -47,8 +49,9 @@ import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
-import { listRestaurants } from '@/lib/services/restaurants';
+import { restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
+import { voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -114,8 +117,9 @@ export async function FridayScreen({
       (balance) => `${balance.fridayDate}-${balance.member.id}`
     ).values(),
   ];
+  const voting = votingAt(view, now);
   const [restaurants, members, defaultHost, messages] = await Promise.all([
-    manage ? listRestaurants(db) : [],
+    manage || voting ? restaurantsForHost(db, hostId) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
     manage ? upcomingMessages(db, view, now) : [],
@@ -232,6 +236,21 @@ export async function FridayScreen({
     (me
       ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
       : false);
+
+  const showVote = voting && restaurants.length > 1 && Boolean(me);
+  const ballot = restaurants.map((option, index) => ({
+    ...option,
+    letter: voteLetter(index),
+    current: option.id === view.restaurant?.id,
+    voters: view.votes
+      .filter((vote) => vote.restaurantId === option.id)
+      .map((vote) => ({ id: vote.memberId, name: nameOf(vote.memberId) })),
+  }));
+  // The host's picker keeps the current restaurant even if it no longer serves this host.
+  const pickable =
+    view.restaurant && !restaurants.some((option) => option.id === view.restaurant!.id)
+      ? [{ id: view.restaurant.id, name: view.restaurant.name, delivers: true }, ...restaurants]
+      : restaurants;
 
   let chapter = 0;
 
@@ -433,6 +452,29 @@ export async function FridayScreen({
           </GlassCard>
         )}
 
+        {showVote && (
+          <section id="wahl" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={Vote}
+              kicker="Restaurantwahl"
+              title="Wo essen wir?"
+              hint={
+                view.restaurant
+                  ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.`
+                  : 'Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.'
+              }
+            />
+            <RestaurantVote
+              date={date}
+              options={ballot}
+              myVote={view.votes.find((vote) => vote.memberId === viewer.id)?.restaurantId ?? null}
+              closesAt={voteClosesAt(date).getTime()}
+              serverNow={now.getTime()}
+            />
+          </section>
+        )}
+
         {!view.cancelled && me && (
           <section>
             <ChapterHeading
@@ -567,11 +609,12 @@ export async function FridayScreen({
               closed={closed}
               sheet={sheet}
               hungry={hungry}
-              restaurants={restaurants.map(({ id, name }) => ({
+              restaurants={pickable.map(({ id, name, delivers }) => ({
                 id,
-                name,
+                name: delivers ? name : `${name} (nur abholen)`,
                 isDefault: id === view.host?.defaultRestaurantId,
               }))}
+              voting={voting}
               members={hostOptions}
               defaultHostName={defaultHost?.name ?? null}
               viewerIsHost={amHost}
@@ -617,7 +660,9 @@ export async function FridayScreen({
               hint={
                 closed
                   ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
-                  : 'Tippe auf ein Gericht, um es zu bestellen.'
+                  : voting
+                    ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
+                    : 'Tippe auf ein Gericht, um es zu bestellen.'
               }
             />
             <Menu

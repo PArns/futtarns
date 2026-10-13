@@ -9,6 +9,8 @@ export type Command =
   | { kind: 'login' }
   | { kind: 'status' }
   | { kind: 'help' }
+  /** A letter from the restaurant vote's ballot. */
+  | { kind: 'vote'; letter: string }
   | { kind: 'unknown' };
 
 const WORDS: [RegExp, Command][] = [
@@ -44,6 +46,7 @@ export function parseCommand(text: string): Command {
     .trim();
   const confirmed = / sicher$/.test(normalized);
   const plain = normalized.replace(/ sicher$/, '');
+  if (/^[a-z]$/.test(plain)) return { kind: 'vote', letter: plain };
   const command = WORDS.find(([pattern]) => pattern.test(plain))?.[1] ?? { kind: 'unknown' };
   return command.kind === 'answer' ? { ...command, confirmed } : command;
 }
@@ -56,6 +59,7 @@ export const HELP_TEXT = [
   `${bold('3')} – bin raus`,
   `${bold('wie immer')} – bin dabei, mit meinem Standardgericht`,
   `${bold('andere')} – was essen die anderen?`,
+  `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Donnerstag 23:59)`,
   `${bold('bezahlt')} – ich hab gezahlt`,
   `${bold('status')} – was gibt’s am Freitag?`,
   `${bold('code')} – Login-Code für die Webseite`,

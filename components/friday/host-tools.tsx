@@ -22,12 +22,15 @@ export function RestaurantPicker({
   restaurants,
   hasOrders,
   disabled,
+  voting,
 }: {
   date: string;
   restaurantId: number | null;
   restaurants: (Option & { isDefault?: boolean })[];
   hasOrders: boolean;
   disabled?: boolean;
+  /** The group is still voting; picking one here ends the vote. */
+  voting?: boolean;
 }) {
   const { pending, execute } = useAction();
   return (
@@ -59,6 +62,11 @@ export function RestaurantPicker({
         ))}
       </Select>
       {disabled && <Hint>Schon abgerechnet. Zum Wechseln erst die Abrechnung öffnen.</Hint>}
+      {voting && !disabled && (
+        <Hint>
+          Die Restaurantwahl läuft bis Donnerstag, 23:59. Wählst du hier selbst, ist sie vorbei.
+        </Hint>
+      )}
     </Label>
   );
 }
@@ -75,6 +83,7 @@ export function PickupPicker({
   hostName,
   members,
   disabled,
+  delivers = true,
 }: {
   date: string;
   pickup: boolean;
@@ -84,6 +93,8 @@ export function PickupPicker({
   hostName: string;
   members: Option[];
   disabled?: boolean;
+  /** The restaurant delivers to the host; if not, the food has to be fetched. */
+  delivers?: boolean;
 }) {
   const { pending, execute } = useAction();
   const off = pending || disabled;
@@ -92,7 +103,8 @@ export function PickupPicker({
       <div className="flex flex-wrap gap-2">
         <Chip
           selected={!pickup}
-          disabled={off}
+          disabled={off || !delivers}
+          title={delivers ? undefined : `Liefert nicht zu ${hostName}`}
           onClick={() => !pickup || execute(() => setPickupAction(date, false, null))}
         >
           <Truck className="size-3.5" /> Liefern lassen

@@ -196,7 +196,7 @@ await payInFull(lastWeek, 'Clara');
 await payInFull(lastWeek, 'Eva');
 
 // This week: pizza, half the group has ordered, one guest; paying opens at the deadline.
-await setRestaurant(db, thisWeek, pizzeria.id);
+// No pick for this week: Patrick's usual pizzeria applies, and the group can vote on it.
 await setFridayNote(db, thisWeek, 'Bringt gute Laune mit – Getränke sind da.');
 await addItem(db, thisWeek, id('Patrick'), {
   dishId: dish('Diavolo'),

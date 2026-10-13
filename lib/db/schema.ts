@@ -119,12 +119,48 @@ export const fridays = pgTable('fridays', {
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
+  // The host picked the restaurant themselves, which ends the vote; a first order only pins it.
+  restaurantChosen: boolean('restaurant_chosen').notNull().default(false),
+  // When the restaurant vote was counted (Thursday midnight), so it is counted once.
+  voteClosedAt: timestamp('vote_closed_at', { withTimezone: true }),
+  // Whose orders the vote threw away by switching the restaurant; they are asked to pick again.
+  voteDroppedIds: jsonb('vote_dropped_ids').$type<number[]>().notNull().default([]),
   note: text('note'),
   lockedAt: timestamp('locked_at', { withTimezone: true }),
   finalTotalCents: integer('final_total_cents'),
   settledAt: timestamp('settled_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Who wants which restaurant for a Friday; one vote per member, changeable until the vote closes. */
+export const restaurantVotes = pgTable(
+  'restaurant_votes',
+  {
+    fridayDate: date('friday_date', { mode: 'string' }).notNull(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    restaurantId: integer('restaurant_id')
+      .notNull()
+      .references(() => restaurants.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.fridayDate, t.memberId] })]
+);
+
+/** The hosts a restaurant delivers to; a restaurant without any delivers to everyone. */
+export const restaurantHosts = pgTable(
+  'restaurant_hosts',
+  {
+    restaurantId: integer('restaurant_id')
+      .notNull()
+      .references(() => restaurants.id, { onDelete: 'cascade' }),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.restaurantId, t.memberId] })]
+);
 
 export const attendance = pgTable(
   'attendance',

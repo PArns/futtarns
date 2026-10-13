@@ -12,6 +12,7 @@ import {
 } from '@/lib/reminders';
 import { getFridayRow, loadFriday, lockDueFridays, type FridayView } from '@/lib/services/fridays';
 import { payLinkMaker } from '@/lib/services/pay-links';
+import { restaurantsForHost } from '@/lib/services/restaurants';
 import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
 
 type Send = (to: string, text: string) => Promise<SendResult>;
@@ -83,6 +84,7 @@ export async function runScheduler(
       group: process.env.WHATSAPP_GROUP || null,
       sent: await sentKeysFor(db, date),
       paidLink: (memberId) => paidLink(date, memberId),
+      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
     });
     for (const message of messages) {
       if (await deliver(db, message, send)) {
@@ -110,6 +112,7 @@ export async function upcomingMessages(
       sent: await sentKeysFor(db, view.date),
       // Only who and when are shown, never the text.
       paidLink: () => '',
+      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
     },
     now
   );

@@ -29,6 +29,7 @@ import {
 } from '@/lib/services/auth';
 import {
   bookOpen,
+  castVote,
   clearPayments,
   getFridayRow,
   hostedFridaysBetween,
@@ -81,6 +82,7 @@ import {
   setDishArchived,
   setRestaurantArchived,
   updateDish,
+  setRestaurantHosts,
   updateRestaurant,
 } from '@/lib/services/restaurants';
 
@@ -171,6 +173,21 @@ async function requireGroupManager() {
 }
 
 // ---------------------------------------------------------------- Friday: answers and orders
+
+/** The viewer's vote for a Friday's restaurant, or null to take it back. */
+export async function voteAction(date: string, restaurantId: number | null): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { viewer } = await getGroupContext();
+    await castVote(
+      await getDb(),
+      day,
+      viewer.id,
+      restaurantId === null ? null : recordId.parse(restaurantId),
+      new Date()
+    );
+  });
+}
 
 export async function setAnswerAction(input: {
   date: string;
@@ -807,6 +824,11 @@ function restaurantInput(form: FormData) {
   };
 }
 
+/** The hosts ticked under „Liefert zu“. */
+function deliveryArea(form: FormData): number[] {
+  return z.array(z.coerce.number().int().positive()).max(200).parse(form.getAll('deliversTo'));
+}
+
 export async function createRestaurantAction(
   _: ActionResult | null,
   form: FormData
@@ -815,6 +837,7 @@ export async function createRestaurantAction(
   const result = await run(async () => {
     const { db } = await requireGroupManager();
     id = (await createRestaurant(db, restaurantInput(form))).id;
+    await setRestaurantHosts(db, id, deliveryArea(form));
   });
   if (result.ok && id) redirect(`/restaurants/${id}`);
   return result;
@@ -828,6 +851,7 @@ export async function updateRestaurantAction(
     const { db } = await requireGroupManager();
     const id = z.coerce.number().int().positive().parse(form.get('id'));
     await updateRestaurant(db, id, restaurantInput(form));
+    await setRestaurantHosts(db, id, deliveryArea(form));
     return { ok: true, message: 'Gespeichert' };
   });
 }

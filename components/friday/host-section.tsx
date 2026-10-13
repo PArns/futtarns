@@ -34,6 +34,7 @@ export function HostSection({
   viewerIsHost,
   messages,
   serverNow,
+  voting,
 }: {
   view: FridayView;
   closed: boolean;
@@ -45,6 +46,8 @@ export function HostSection({
   viewerIsHost: boolean;
   messages: UpcomingMessage[];
   serverNow: number;
+  /** The group is still voting on the restaurant. */
+  voting: boolean;
 }) {
   const flat = view.mode === 'flat';
   const hasOrders = sheet.length > 0;
@@ -62,6 +65,7 @@ export function HostSection({
               restaurants={restaurants}
               hasOrders={hasOrders}
               disabled={view.settled}
+              voting={voting}
             />
             {!flat && view.restaurant?.pickup && (
               <PickupPicker
@@ -72,6 +76,7 @@ export function HostSection({
                 hostName={view.host?.name ?? 'Gastgeber'}
                 members={members}
                 disabled={view.settled}
+                delivers={view.restaurantDelivers}
               />
             )}
             <details className="border-border/60 rounded-xl border p-3" open={flat}>
