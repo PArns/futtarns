@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, max } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, max } from 'drizzle-orm';
 import type { Db } from '@/lib/db/client';
 import {
   dishes,
@@ -63,13 +63,18 @@ export async function setRestaurantHosts(db: Db, restaurantId: number, memberIds
  * always be fetched.
  */
 export async function restaurantsForHost(db: Db, hostId: number | null): Promise<VoteOption[]> {
-  const [rows, areas] = await Promise.all([
+  const [rows, areas, menus] = await Promise.all([
     db
       .select()
       .from(restaurants)
       .where(eq(restaurants.archived, false))
       .orderBy(asc(restaurants.id)),
     db.select().from(restaurantHosts),
+    db
+      .select({ restaurantId: dishes.restaurantId, dishes: count() })
+      .from(dishes)
+      .where(eq(dishes.archived, false))
+      .groupBy(dishes.restaurantId),
   ]);
   return rows
     .map((row) => {
@@ -84,6 +89,7 @@ export async function restaurantsForHost(db: Db, hostId: number | null): Promise
         minOrderCents: row.minOrderCents,
         deliveryFeeCents: row.deliveryFeeCents,
         freeDeliveryFromCents: row.freeDeliveryFromCents,
+        dishCount: menus.find((menu) => menu.restaurantId === row.id)?.dishes ?? 0,
       };
     })
     .filter((option) => option.delivers || option.pickup);

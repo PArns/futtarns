@@ -14,6 +14,8 @@ export type VoteOption = {
   minOrderCents: number;
   deliveryFeeCents: number;
   freeDeliveryFromCents: number | null;
+  /** How many dishes its menu has here, so the ballot can offer to show it. */
+  dishCount: number;
 };
 
 /** What ordering there costs on top: `Mindestbestellwert 15,00 € · Lieferung 2,99 € (ab 60,00 € gratis)`. */

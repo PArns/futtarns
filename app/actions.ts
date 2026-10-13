@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
+import type { MenuPreviewDish } from '@/components/friday/menu-preview';
 import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -80,6 +81,7 @@ import {
   createRestaurant,
   deleteAllDishes,
   deleteRestaurant,
+  listDishes,
   setHostRestaurant,
   setDishArchived,
   setRestaurantArchived,
@@ -175,6 +177,19 @@ async function requireGroupManager() {
 }
 
 // ---------------------------------------------------------------- Friday: answers and orders
+
+/** A restaurant's menu to look at, for the ballot: dishes and prices, nothing to order. */
+export async function menuPreviewAction(restaurantId: number): Promise<MenuPreviewDish[]> {
+  await getGroupContext();
+  const rows = await listDishes(await getDb(), recordId.parse(restaurantId));
+  return rows.map(({ id, category, name, description, priceCents }) => ({
+    id,
+    category,
+    name,
+    description,
+    priceCents,
+  }));
+}
 
 /** The viewer's vote for a Friday's restaurant, or null to take it back. */
 export async function voteAction(date: string, restaurantId: number | null): Promise<ActionResult> {

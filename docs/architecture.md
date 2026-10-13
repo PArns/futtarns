@@ -161,7 +161,8 @@ pickup, marked „nur abholen“. They are lettered in the order they were creat
 letter stays put while new restaurants join. Members vote on the Friday page or by
 replying with the letter to the Wednesday message, which carries every Lieferando link;
 they can change or take back their vote until the end. The page and the bot's reply show
-who voted for what.
+who voted for what, and each restaurant's menu folds open on the page, fetched when first
+opened (`menuPreviewAction`).
 
 At midnight (`closeVote`, from the timer or the first page view) the restaurant with the
 most votes wins. Without votes, or when two share the lead, the current restaurant (the

@@ -12,9 +12,9 @@ import { MissingDishForm } from '@/components/friday/missing-dish-form';
 import { Chip } from '@/components/ui/chip';
 import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
+import { byDishName, categoriesOf, groupByCategory } from '@/lib/menu/groups';
 
 const ALL = '__all__';
-const byName = new Intl.Collator('de', { numeric: true }).compare;
 const TAKEN = '__taken__';
 const NAMES_SHOWN = 3;
 
@@ -51,14 +51,7 @@ export function Menu({
   const deferredQuery = useDeferredValue(query);
   const deferredCategory = useDeferredValue(category);
 
-  const categories = useMemo(
-    () => [
-      ...new Set(
-        dishes.map((dish) => dish.category).filter((name): name is string => Boolean(name))
-      ),
-    ],
-    [dishes]
-  );
+  const categories = useMemo(() => categoriesOf(dishes), [dishes]);
 
   const visible = useMemo(() => {
     const needle = deferredQuery.trim().toLowerCase();
@@ -76,21 +69,11 @@ export function Menu({
   const takenCount = dishes.filter((dish) => takenBy[dish.id]).length;
 
   const groups = useMemo(() => {
-    const sorted = [...visible].sort((a, b) => byName(a.name, b.name));
     // „Alles“ and „Was die anderen nehmen“ read like the menu: one heading per category.
     if (deferredCategory !== ALL && deferredCategory !== TAKEN) {
-      return [{ key: '', name: null, dishes: sorted }];
+      return [{ key: '', name: null, dishes: [...visible].sort(byDishName) }];
     }
-    const byCategory = new Map<string | null, MenuDish[]>();
-    for (const name of [...categories, null]) byCategory.set(name, []);
-    for (const dish of sorted) byCategory.get(dish.category ?? null)!.push(dish);
-    return [...byCategory.entries()]
-      .filter(([, list]) => list.length > 0)
-      .map(([name, list]) => ({
-        key: name ?? '',
-        name: name ?? (categories.length > 0 ? 'Sonstiges' : null),
-        dishes: list,
-      }));
+    return groupByCategory(visible, categories);
   }, [visible, deferredCategory, categories]);
 
   if (dishes.length === 0) {
