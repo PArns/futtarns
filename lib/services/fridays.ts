@@ -4,7 +4,14 @@ import {
   type AttendancePerson,
   type EffectiveAttendance,
 } from '@/lib/attendance';
-import { DRINKS_FEE_CENTS, moneyFor, type Money } from '@/lib/balance';
+import {
+  DRINKS_FEE_CENTS,
+  isBilled,
+  moneyFor,
+  payeeOf,
+  type Debt,
+  type Money,
+} from '@/lib/balance';
 import {
   addWeeks,
   currentFriday,
@@ -27,6 +34,7 @@ import {
   members,
   orderItems,
   payments,
+  restaurantVotes,
   restaurants,
   type AttendanceStatus,
   type Dish,
@@ -45,7 +53,8 @@ import {
   type MemberShare,
 } from '@/lib/pricing';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
-import { hostRestaurant } from '@/lib/services/restaurants';
+import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/services/restaurants';
+import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
@@ -100,21 +109,139 @@ async function requireOpen(tx: Tx, date: IsoDate) {
 /**
  * Picks the restaurant. Switching drops the orders placed so far. After the deadline the
  * host may still switch (the first choice turned out to be closed); everyone who counts
- * as coming then gets their default from the new restaurant.
+ * as coming then gets their default from the new restaurant. A host's pick (`chosen`)
+ * ends the vote. A restaurant that does not deliver to the host but offers pickup turns
+ * the Friday into one where someone fetches the food.
  */
-export async function setRestaurant(db: Db, date: IsoDate, restaurantId: number | null) {
+export async function setRestaurant(
+  db: Db,
+  date: IsoDate,
+  restaurantId: number | null,
+  { chosen = true } = {}
+) {
   await db.transaction(async (tx) => {
     await ensureFridayRow(tx, date);
     const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
     if (row!.settledAt) throw new ServiceError('Schon abgerechnet – erst die Abrechnung öffnen');
-    if (row!.mode === 'delivery' && row!.restaurantId === restaurantId) return;
+    const restaurantChosen = row!.restaurantChosen || chosen;
+    if (row!.mode === 'delivery' && row!.restaurantId === restaurantId) {
+      if (restaurantChosen !== row!.restaurantChosen) {
+        await tx.update(fridays).set({ restaurantChosen }).where(eq(fridays.date, date));
+      }
+      return;
+    }
+    const [restaurant] = restaurantId
+      ? await tx.select().from(restaurants).where(eq(restaurants.id, restaurantId))
+      : [];
+    const hostId = row!.hostId ?? (await getDefaultHost(tx))?.id ?? null;
+    const area = restaurant ? await restaurantHostIds(tx, restaurant.id) : [];
+    const delivers = area.length === 0 || (hostId !== null && area.includes(hostId));
     await tx.delete(orderItems).where(eq(orderItems.fridayDate, date));
     await tx
       .update(fridays)
-      .set({ mode: 'delivery', restaurantId, updatedAt: new Date() })
+      .set({
+        mode: 'delivery',
+        restaurantId,
+        restaurantChosen,
+        ...(restaurant && !delivers && restaurant.pickup ? { pickup: true } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(fridays.date, date));
     if (row!.lockedAt && restaurantId) await applyDefaults(tx, date, restaurantId);
   });
+}
+
+/**
+ * Counts the restaurant vote once Thursday is over: the most votes win, no votes or a tie
+ * leave the restaurant as it is. Runs once per Friday, from a page view or the timer.
+ */
+export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boolean> {
+  if (now < voteClosesAt(date)) return false;
+  const row = await getFridayRow(db, date);
+  if (!row || row.voteClosedAt) return false;
+  const [claimed] = await db
+    .update(fridays)
+    .set({ voteClosedAt: now })
+    .where(and(eq(fridays.date, date), isNull(fridays.voteClosedAt)))
+    .returning();
+  if (!claimed || claimed.mode !== 'delivery' || claimed.cancelled || claimed.restaurantChosen) {
+    return false;
+  }
+  if (claimed.lockedAt || claimed.settledAt) return false;
+  const hostId = claimed.hostId ?? (await getDefaultHost(db))?.id ?? null;
+  const options = await restaurantsForHost(db, hostId);
+  const votes = (
+    await db.select().from(restaurantVotes).where(eq(restaurantVotes.fridayDate, date))
+  ).filter((vote) => options.some((option) => option.id === vote.restaurantId));
+  const currentId = claimed.restaurantId ?? (await hostRestaurant(db, hostId))?.id ?? null;
+  const winner = voteWinner(votes, currentId);
+  if (winner === null || winner === currentId) return false;
+  // Orders placed during the vote were for the old restaurant; their owners hear about it.
+  const dropped = await db
+    .selectDistinct({ memberId: orderItems.memberId })
+    .from(orderItems)
+    .where(eq(orderItems.fridayDate, date));
+  await setRestaurant(db, date, winner, { chosen: false });
+  await db
+    .update(fridays)
+    .set({ voteDroppedIds: dropped.map((entry) => entry.memberId) })
+    .where(eq(fridays.date, date));
+  return true;
+}
+
+/**
+ * One member's vote for a Friday's restaurant, or null to take it back. Only while the
+ * vote is open and only for a restaurant that can serve this Friday's host.
+ */
+export async function castVote(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  restaurantId: number | null,
+  now: Date
+) {
+  const row = await getFridayRow(db, date);
+  const friday = {
+    date,
+    mode: row?.mode ?? 'delivery',
+    cancelled: row?.cancelled ?? false,
+    restaurantChosen: row?.restaurantChosen ?? false,
+    voteClosed: Boolean(row?.voteClosedAt),
+  };
+  if (!votingAt(friday, now)) {
+    throw new ServiceError('Die Restaurantwahl für diesen Freitag ist vorbei');
+  }
+  // Outside the Stammtruppe, only those invited to this Friday have a say in it.
+  const [voter] = await db.select().from(members).where(eq(members.id, memberId));
+  if (!voter || voter.kind !== 'member' || !voter.active) {
+    throw new ServiceError('Abstimmen kann nur, wer dabei ist');
+  }
+  if (!voter.core) {
+    const [invited] = await db
+      .select()
+      .from(attendance)
+      .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+    if (!invited)
+      throw new ServiceError('Abstimmen kannst du an Freitagen, zu denen du eingeladen bist');
+  }
+  const where = and(eq(restaurantVotes.fridayDate, date), eq(restaurantVotes.memberId, memberId));
+  // The count looks for the Friday's row, so a vote makes sure there is one.
+  await ensureFridayRow(db, date);
+  if (restaurantId === null) {
+    await db.delete(restaurantVotes).where(where);
+    return;
+  }
+  const options = await restaurantsForHost(db, await hostIdFor(db, date));
+  if (!options.some((option) => option.id === restaurantId)) {
+    throw new ServiceError('Das Restaurant steht nicht zur Wahl');
+  }
+  await db
+    .insert(restaurantVotes)
+    .values({ fridayDate: date, memberId, restaurantId })
+    .onConflictDoUpdate({
+      target: [restaurantVotes.fridayDate, restaurantVotes.memberId],
+      set: { restaurantId, createdAt: now },
+    });
 }
 
 /** Turns a Friday into one with a single price for everyone, e.g. a barbecue. */
@@ -304,15 +431,48 @@ export function paymentOpen(view: Pick<FridayView, 'date' | 'locked'>, now: Date
 
 export async function recordPayment(
   db: Db,
-  input: { date: IsoDate; memberId: number; amountCents: number; recordedById: number }
+  input: {
+    date: IsoDate;
+    memberId: number;
+    amountCents: number;
+    recordedById: number;
+    /** Who got the money; null or left out for the host. */
+    payeeId?: number | null;
+  }
 ) {
   if (input.amountCents === 0) return;
   await db.insert(payments).values({
     fridayDate: input.date,
     memberId: input.memberId,
     amountCents: input.amountCents,
+    payeeId: input.payeeId ?? null,
     recordedById: input.recordedById,
   });
+}
+
+/**
+ * Books what someone still owes, one payment per payee, so the food money can go to
+ * whoever fetched the food and the drinks money to the host. With `refunds`, money due
+ * back is booked as paid back too. Returns the amount booked.
+ */
+export async function bookOpen(
+  db: Db,
+  input: { date: IsoDate; memberId: number; money: Money; recordedById: number },
+  { refunds = false } = {}
+): Promise<number> {
+  let booked = 0;
+  for (const debt of input.money.debts) {
+    if (debt.openCents === 0 || (debt.openCents < 0 && !refunds)) continue;
+    await recordPayment(db, {
+      date: input.date,
+      memberId: input.memberId,
+      amountCents: debt.openCents,
+      recordedById: input.recordedById,
+      payeeId: debt.payeeId,
+    });
+    booked += debt.openCents;
+  }
+  return booked;
 }
 
 /** Forgets every payment of one person for a Friday, for when one was a mistake. */
@@ -340,6 +500,30 @@ export async function setTip(db: Db, date: IsoDate, tipCents: number | null) {
 /** A voucher for this Friday's order, or null for none. */
 export async function setVoucher(db: Db, date: IsoDate, voucherCents: number | null) {
   await touch(db, date, { voucherCents });
+}
+
+/**
+ * Whether someone fetches the food, and who (null: the host). Once anyone has paid, the
+ * money already went to someone, so it stays as it is.
+ */
+export async function setPickup(db: Db, date: IsoDate, pickup: boolean, pickerId: number | null) {
+  const row = await getFridayRow(db, date);
+  if (row?.settledAt) throw new ServiceError('Schon abgerechnet – erst die Abrechnung öffnen');
+  const [paid] = await db
+    .select({ id: payments.id })
+    .from(payments)
+    .where(eq(payments.fridayDate, date))
+    .limit(1);
+  if (paid) {
+    throw new ServiceError('Es wurde schon bezahlt, Abholen und Abholer bleiben deshalb so');
+  }
+  if (pickerId !== null) {
+    const [picker] = await db.select().from(members).where(eq(members.id, pickerId));
+    if (!picker || picker.kind !== 'member' || !picker.active) {
+      throw new ServiceError('Abholen kann nur jemand aus der Runde');
+    }
+  }
+  await touch(db, date, { pickup, pickerId: pickup ? pickerId : null });
 }
 
 /** The drinks fee per person for the Friday, or null for the usual one; 0 means none. */
@@ -374,6 +558,19 @@ export type FridayView = {
   flatTitle: string | null;
   flatPriceCents: number | null;
   restaurant: Restaurant | null;
+  /** Someone fetches the food: the restaurant offers it and the host chose it. */
+  pickup: boolean;
+  /** Who fetches it, pays the restaurant and gets the food money; the host unless set. */
+  picker: Member | null;
+  /** The restaurant delivers to this Friday's host (otherwise it can only be fetched). */
+  restaurantDelivers: boolean;
+  /** The host picked the restaurant, so there is no vote. */
+  restaurantChosen: boolean;
+  /** The vote was counted. */
+  voteClosed: boolean;
+  votes: Vote[];
+  /** Whose orders the vote threw away by switching the restaurant. */
+  voteDroppedIds: number[];
   /** True when no restaurant was picked and the default one applies. */
   restaurantIsDefault: boolean;
   dishes: Dish[];
@@ -398,6 +595,7 @@ export type FridayView = {
 
 /** Everything a Friday page shows, after closing ordering if the deadline has passed. */
 export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<FridayView> {
+  await closeVote(db, date, now);
   await lockFriday(db, date, now);
   const row = await getFridayRow(db, date);
   const defaultHost = await getDefaultHost(db);
@@ -420,7 +618,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     .from(members)
     .where(
       or(
-        and(eq(members.kind, 'member'), eq(members.active, true)),
+        and(eq(members.kind, 'member'), eq(members.active, true), eq(members.core, true)),
         involvedIds.length ? inArray(members.id, involvedIds) : undefined
       )
     )
@@ -511,8 +709,29 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     ),
   ];
   const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const area = restaurant ? await restaurantHostIds(db, restaurant.id) : [];
+  const restaurantDelivers = area.length === 0 || (hostId !== null && area.includes(hostId));
+  const votes = await db
+    .select({ memberId: restaurantVotes.memberId, restaurantId: restaurantVotes.restaurantId })
+    .from(restaurantVotes)
+    .where(eq(restaurantVotes.fridayDate, date))
+    .orderBy(asc(restaurantVotes.createdAt));
+  // A restaurant that does not deliver to the host can only be fetched.
+  const pickup = Boolean(restaurant?.pickup && (row?.pickup || !restaurantDelivers));
+  const picker = !pickup
+    ? null
+    : ((row?.pickerId
+        ? (people.find((person) => person.id === row.pickerId) ??
+          (await db.select().from(members).where(eq(members.id, row.pickerId)))[0])
+        : null) ?? host);
   const estimate = restaurant
-    ? estimateFees(subtotal, restaurant, row?.tipCents ?? DEFAULT_TIP_CENTS, row?.voucherCents ?? 0)
+    ? estimateFees(
+        subtotal,
+        restaurant,
+        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.voucherCents ?? 0,
+        pickup
+      )
     : null;
   const finalTotalCents = row?.finalTotalCents ?? null;
   const flatPrice = row?.flatPriceCents ?? 0;
@@ -541,7 +760,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       share,
       drinksOptOut,
       money: moneyFor({
-        isHost: entry.member.id === hostId,
+        memberId: entry.member.id,
+        hostId,
+        pickerId: picker?.id ?? null,
         foodCents,
         drinksCents: comes && !drinksOptOut ? drinksFeeCents : 0,
         payments: ledger.filter((payment) => payment.memberId === entry.member.id),
@@ -561,6 +782,13 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     flatTitle: row?.flatTitle ?? null,
     flatPriceCents: row?.flatPriceCents ?? null,
     restaurant: restaurant ?? null,
+    pickup,
+    picker,
+    restaurantDelivers,
+    restaurantChosen: row?.restaurantChosen ?? false,
+    voteClosed: Boolean(row?.voteClosedAt),
+    votes,
+    voteDroppedIds: row?.voteDroppedIds ?? [],
     restaurantIsDefault: Boolean(defaultRestaurant),
     dishes: menu,
     deadline: orderDeadline(date),
@@ -651,7 +879,7 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     const people = everyone
       .filter(
         (member) =>
-          (member.kind === 'member' && member.active) ||
+          (member.kind === 'member' && member.active && member.core) ||
           dayAnswers.some((entry) => entry.memberId === member.id)
       )
       .map((member) => {
@@ -715,12 +943,14 @@ export async function hostedFridaysBetween(
     .map((entry) => entry.date);
 }
 
+/** What one person still owes one payee, or gets back, for an earlier Friday. */
 export type OpenBalance = {
   fridayDate: IsoDate;
   member: Pick<Member, 'id' | 'name' | 'kind' | 'phone'>;
   /** Who brought a guest; their open money is that person's to sort out. */
   addedById: number | null;
   money: Money;
+  debt: Debt;
   payee: Pick<Member, 'id' | 'name' | 'paypalMe'> | null;
   title: string;
 };
@@ -728,9 +958,8 @@ export type OpenBalance = {
 const BALANCE_LOOKBACK_WEEKS = 8;
 
 /**
- * Everyone who still owes money or gets some back for the Fridays before `before`. A
- * delivery Friday counts once it is settled, a flat-price one once it is locked, a
- * cancelled one whenever someone had paid in advance.
+ * Everyone who still owes money or gets some back for the Fridays before `before`, once
+ * the Friday's amounts are final (`isBilled`), one entry per payee.
  */
 export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<OpenBalance[]> {
   const candidates = await db
@@ -746,24 +975,26 @@ export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<
   const result: OpenBalance[] = [];
   for (const { date } of candidates) {
     const view = await loadFriday(db, date, now);
-    const billed = view.cancelled || (view.mode === 'flat' ? view.locked : view.settled);
-    if (!billed) continue;
+    if (!isBilled(view)) continue;
+    const title = view.cancelled
+      ? 'abgesagt'
+      : view.mode === 'flat'
+        ? (view.flatTitle ?? 'Pauschale')
+        : (view.restaurant?.name ?? 'Freitag');
     for (const participant of view.participants) {
-      if (participant.money.openCents === 0) continue;
-      result.push({
-        fridayDate: date,
-        member: participant.member,
-        addedById: participant.addedById,
-        money: participant.money,
-        payee: view.host
-          ? { id: view.host.id, name: view.host.name, paypalMe: view.host.paypalMe }
-          : null,
-        title: view.cancelled
-          ? 'abgesagt'
-          : view.mode === 'flat'
-            ? (view.flatTitle ?? 'Pauschale')
-            : (view.restaurant?.name ?? 'Freitag'),
-      });
+      for (const debt of participant.money.debts) {
+        if (debt.openCents === 0) continue;
+        const payee = payeeOf(view, debt);
+        result.push({
+          fridayDate: date,
+          member: participant.member,
+          addedById: participant.addedById,
+          money: participant.money,
+          debt,
+          payee: payee ? { id: payee.id, name: payee.name, paypalMe: payee.paypalMe } : null,
+          title,
+        });
+      }
     }
   }
   return result;

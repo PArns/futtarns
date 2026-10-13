@@ -3,9 +3,16 @@ import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
-import { planReminders, type Outgoing } from '@/lib/reminders';
-import { getFridayRow, loadFriday, lockDueFridays } from '@/lib/services/fridays';
+import {
+  planReminders,
+  previewReminders,
+  summarizePlanned,
+  type MessagePreview,
+  type Outgoing,
+} from '@/lib/reminders';
+import { getFridayRow, loadFriday, lockDueFridays, type FridayView } from '@/lib/services/fridays';
 import { payLinkMaker } from '@/lib/services/pay-links';
+import { restaurantsForHost } from '@/lib/services/restaurants';
 import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
 
 type Send = (to: string, text: string) => Promise<SendResult>;
@@ -77,6 +84,7 @@ export async function runScheduler(
       group: process.env.WHATSAPP_GROUP || null,
       sent: await sentKeysFor(db, date),
       paidLink: (memberId) => paidLink(date, memberId),
+      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
     });
     for (const message of messages) {
       if (await deliver(db, message, send)) {
@@ -86,4 +94,27 @@ export async function runScheduler(
     }
   }
   return sent;
+}
+
+/** The messages a Friday will still send, one line per time and kind, for the host. */
+export async function upcomingMessages(
+  db: Db,
+  view: FridayView,
+  now: Date
+): Promise<MessagePreview[]> {
+  const group = process.env.WHATSAPP_GROUP || null;
+  const planned = previewReminders(
+    {
+      view,
+      appUrl: appUrl(),
+      defaultDish: await defaultDishNames(db, view.restaurant?.id ?? null),
+      group,
+      sent: await sentKeysFor(db, view.date),
+      // Only who and when are shown, never the text.
+      paidLink: () => '',
+      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
+    },
+    now
+  );
+  return summarizePlanned(planned, view, group);
 }

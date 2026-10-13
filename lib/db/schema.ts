@@ -31,6 +31,9 @@ export const members = pgTable('members', {
   isDefaultHost: boolean('is_default_host').notNull().default(false),
   // The „Gastgeber“ role: may hand any single Friday to another host.
   assignsHosts: boolean('assigns_hosts').notNull().default(false),
+  // The „Stammtruppe“: asked every week and counted in when silent. A member outside it
+  // has a login and a vote, but only for the Fridays someone added them to.
+  core: boolean('core').notNull().default(true),
   paypalMe: text('paypal_me'),
   address: text('address'),
   // Where a Friday this member hosts orders from when nobody picks another restaurant.
@@ -70,6 +73,8 @@ export const restaurants = pgTable('restaurants', {
   freeDeliveryFromCents: integer('free_delivery_from_cents'),
   // Lieferando's service fee per order.
   serviceFeeCents: integer('service_fee_cents').notNull().default(99),
+  // Whether we can also fetch the food ourselves, at the menu prices and without the fees.
+  pickup: boolean('pickup').notNull().default(false),
   notes: text('notes'),
   archived: boolean('archived').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -110,15 +115,55 @@ export const fridays = pgTable('fridays', {
   drinksFeeCents: integer('drinks_fee_cents'),
   // A Lieferando voucher redeemed with this Friday's order, split like the fees.
   voucherCents: integer('voucher_cents'),
+  // Someone fetches the food (if the restaurant offers it): no delivery fee, service fee or tip.
+  pickup: boolean('pickup').notNull().default(false),
+  // Who fetches it and so pays the restaurant and gets the food money; null means the host.
+  pickerId: integer('picker_id').references(() => members.id, { onDelete: 'set null' }),
   restaurantId: integer('restaurant_id').references(() => restaurants.id, {
     onDelete: 'set null',
   }),
+  // The host picked the restaurant themselves, which ends the vote; a first order only pins it.
+  restaurantChosen: boolean('restaurant_chosen').notNull().default(false),
+  // When the restaurant vote was counted (Thursday midnight), so it is counted once.
+  voteClosedAt: timestamp('vote_closed_at', { withTimezone: true }),
+  // Whose orders the vote threw away by switching the restaurant; they are asked to pick again.
+  voteDroppedIds: jsonb('vote_dropped_ids').$type<number[]>().notNull().default([]),
   note: text('note'),
   lockedAt: timestamp('locked_at', { withTimezone: true }),
   finalTotalCents: integer('final_total_cents'),
   settledAt: timestamp('settled_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Who wants which restaurant for a Friday; one vote per member, changeable until the vote closes. */
+export const restaurantVotes = pgTable(
+  'restaurant_votes',
+  {
+    fridayDate: date('friday_date', { mode: 'string' }).notNull(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    restaurantId: integer('restaurant_id')
+      .notNull()
+      .references(() => restaurants.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.fridayDate, t.memberId] })]
+);
+
+/** The hosts a restaurant delivers to; a restaurant without any delivers to everyone. */
+export const restaurantHosts = pgTable(
+  'restaurant_hosts',
+  {
+    restaurantId: integer('restaurant_id')
+      .notNull()
+      .references(() => restaurants.id, { onDelete: 'cascade' }),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.restaurantId, t.memberId] })]
+);
 
 export const attendance = pgTable(
   'attendance',
@@ -186,8 +231,8 @@ export const charges = pgTable(
 );
 
 /**
- * Money moving between a member and the host for one Friday: positive when the member
- * paid, negative when the host paid something back. Paying up front is the normal case,
+ * Money moving between a member and whoever they owe for one Friday: positive when the
+ * member paid, negative when they got something back. Paying up front is the normal case,
  * so this is a ledger rather than a paid flag.
  */
 export const payments = pgTable(
@@ -199,6 +244,8 @@ export const payments = pgTable(
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
     amountCents: integer('amount_cents').notNull(),
+    // Who got the money: the one who fetched the food, or null for the host.
+    payeeId: integer('payee_id').references(() => members.id, { onDelete: 'set null' }),
     recordedById: integer('recorded_by_id').references(() => members.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

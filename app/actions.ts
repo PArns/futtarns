@@ -10,11 +10,11 @@ import { loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { attendance, members, type Member } from '@/lib/db/schema';
-import { formatDayList } from '@/lib/format';
+import { formatDayList, formatDayShort } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
-import { welcomeText } from '@/lib/welcome';
+import { guestWelcomeText, welcomeText } from '@/lib/welcome';
 import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
 
 // Validation messages reach the toast as they are, and the app speaks German.
@@ -28,13 +28,14 @@ import {
   verifyLoginCode,
 } from '@/lib/services/auth';
 import {
+  bookOpen,
+  castVote,
   clearPayments,
   getFridayRow,
   hostedFridaysBetween,
   hostIdFor,
   loadFriday,
   paymentOpen,
-  recordPayment,
   reopenSettlement,
   setAttendance,
   setCancelled,
@@ -43,6 +44,7 @@ import {
   setFlat,
   setFridayNote,
   setHost,
+  setPickup,
   setRestaurant,
   setTip,
   setVoucher,
@@ -51,6 +53,7 @@ import {
 import {
   addAbsence,
   addGuest,
+  addGuestWithPhone,
   consumeLoginToken,
   createMember,
   issueLoginToken,
@@ -80,6 +83,7 @@ import {
   setDishArchived,
   setRestaurantArchived,
   updateDish,
+  setRestaurantHosts,
   updateRestaurant,
 } from '@/lib/services/restaurants';
 
@@ -170,6 +174,21 @@ async function requireGroupManager() {
 }
 
 // ---------------------------------------------------------------- Friday: answers and orders
+
+/** The viewer's vote for a Friday's restaurant, or null to take it back. */
+export async function voteAction(date: string, restaurantId: number | null): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { viewer } = await getGroupContext();
+    await castVote(
+      await getDb(),
+      day,
+      viewer.id,
+      restaurantId === null ? null : recordId.parse(restaurantId),
+      new Date()
+    );
+  });
+}
 
 export async function setAnswerAction(input: {
   date: string;
@@ -265,7 +284,15 @@ export async function removeDefaultAction(restaurantId: number): Promise<ActionR
   });
 }
 
-export async function addGuestAction(date: string, name: string): Promise<ActionResult> {
+/**
+ * Adds a guest to a Friday. With a phone number the guest becomes a member outside the
+ * Stammtruppe, who gets an invitation by WhatsApp and can log in, order and vote.
+ */
+export async function addGuestAction(
+  date: string,
+  name: string,
+  phoneInput = ''
+): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     const data = z
@@ -274,6 +301,7 @@ export async function addGuestAction(date: string, name: string): Promise<Action
         name: z.string().trim().min(1, 'Bitte einen Namen angeben').max(60),
       })
       .parse({ date, name });
+    const phone = optionalPhone(phoneInput);
     const db = await getDb();
     const row = await getFridayRow(db, data.date);
     const hostId = await hostIdFor(db, data.date);
@@ -282,8 +310,41 @@ export async function addGuestAction(date: string, name: string): Promise<Action
     if (closed && !canManageFriday(viewer, hostId)) {
       throw new ServiceError('Bestellschluss ist vorbei – der Gastgeber kann noch Gäste eintragen');
     }
-    const guest = await addGuest(db, data.date, data.name, viewer.id);
-    return { ok: true, message: `${guest.name} ist dabei` };
+    if (!phone) {
+      const guest = await addGuest(db, data.date, data.name, viewer.id);
+      return { ok: true, message: `${guest.name} ist dabei` };
+    }
+    const { member, loginToken } = await addGuestWithPhone(
+      db,
+      data.date,
+      { name: data.name, phone },
+      viewer.id
+    );
+    if (loginToken && whatsappConfigured()) {
+      const [host] = hostId
+        ? await db.select({ name: members.name }).from(members).where(eq(members.id, hostId))
+        : [];
+      await sendWhatsApp(
+        phone,
+        guestWelcomeText({
+          name: member.name,
+          invitedBy: viewer.name,
+          day: formatDayShort(data.date),
+          host: host?.name ?? null,
+          link: loginLink(loginToken),
+        })
+      );
+    }
+    const known =
+      member.name.toLowerCase() !== data.name.toLowerCase()
+        ? `Die Nummer gehört ${member.name}, `
+        : '';
+    return {
+      ok: true,
+      message: loginToken
+        ? `${member.name} ist dabei und hat eine Einladung per WhatsApp bekommen`
+        : `${known}${member.name} ist dabei`,
+    };
   });
 }
 
@@ -297,6 +358,24 @@ export async function chooseRestaurantAction(
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
     await setRestaurant(db, day, restaurantId === null ? null : recordId.parse(restaurantId));
+  });
+}
+
+/** Fetch the food instead of having it delivered, and who fetches it (null: the host). */
+export async function setPickupAction(
+  date: string,
+  pickup: boolean,
+  pickerId: number | null
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    await setPickup(
+      db,
+      day,
+      z.boolean().parse(pickup),
+      pickerId === null ? null : memberId.parse(pickerId)
+    );
   });
 }
 
@@ -397,14 +476,11 @@ export async function payAction(date: string, target: number): Promise<ActionRes
     if (!paymentOpen(view, new Date())) {
       throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
     }
-    const open = view.participants.find((entry) => entry.member.id === id)?.money.openCents ?? 0;
-    if (open <= 0) throw new ServiceError('Da ist nichts offen');
-    await recordPayment(db, {
-      date: day,
-      memberId: id,
-      amountCents: open,
-      recordedById: viewer.id,
-    });
+    const entry = view.participants.find((participant) => participant.member.id === id);
+    const booked = entry
+      ? await bookOpen(db, { date: day, memberId: id, money: entry.money, recordedById: viewer.id })
+      : 0;
+    if (booked <= 0) throw new ServiceError('Da ist nichts offen');
     return { ok: true, message: 'Danke! Als bezahlt vermerkt' };
   });
 }
@@ -468,14 +544,15 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
     }
     const entry = view.participants.find((participant) => participant.member.id === id);
     const open = entry?.money.openCents ?? 0;
-    if (open === 0) throw new ServiceError('Da ist nichts offen');
-    await recordPayment(db, {
-      date: day,
-      memberId: id,
-      amountCents: open,
-      recordedById: viewer.id,
-    });
-    return { ok: true, message: open > 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
+    if (!entry || entry.money.debts.every((debt) => debt.openCents === 0)) {
+      throw new ServiceError('Da ist nichts offen');
+    }
+    await bookOpen(
+      db,
+      { date: day, memberId: id, money: entry.money, recordedById: viewer.id },
+      { refunds: true }
+    );
+    return { ok: true, message: open >= 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
   });
 }
 
@@ -566,10 +643,12 @@ export async function createMemberAction(
         phone: z.string().trim().min(1, 'Bitte die Handynummer angeben – damit meldet man sich an'),
         isAdmin: z.string().optional(),
         assignsHosts: z.string().optional(),
+        core: z.string().optional(),
       })
       .parse(formObject(form));
     const phone = normalizePhone(data.phone);
     if (!phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    const core = data.core === 'on';
     const { member, loginToken } = await createMember(
       db,
       {
@@ -577,6 +656,7 @@ export async function createMemberAction(
         phone,
         isAdmin: viewer.isAdmin && data.isAdmin === 'on',
         assignsHosts: viewer.isAdmin && data.assignsHosts === 'on',
+        core,
       },
       viewer.id
     ).catch((error: unknown) => {
@@ -587,7 +667,12 @@ export async function createMemberAction(
     if (whatsappConfigured()) {
       await sendWhatsApp(
         phone,
-        welcomeText({ name: member.name, invitedBy: viewer.name, link: loginLink(loginToken) })
+        welcomeText({
+          name: member.name,
+          invitedBy: viewer.name,
+          link: loginLink(loginToken),
+          core,
+        })
       );
     }
     return { ok: true, message: `${member.name} ist angelegt`, link: loginLink(loginToken) };
@@ -635,14 +720,26 @@ export async function issueLoginLinkAction(target: number): Promise<ActionResult
 
 export async function setRolesAction(
   target: number,
-  roles: { isAdmin?: boolean; isDefaultHost?: boolean; assignsHosts?: boolean; active?: boolean }
+  roles: {
+    isAdmin?: boolean;
+    isDefaultHost?: boolean;
+    assignsHosts?: boolean;
+    active?: boolean;
+    core?: boolean;
+  }
 ): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
     const id = memberId.parse(target);
     const changes = z
-      .object({ isAdmin: flag, isDefaultHost: flag, assignsHosts: flag, active: flag })
+      .object({
+        isAdmin: flag,
+        isDefaultHost: flag,
+        assignsHosts: flag,
+        active: flag,
+        core: flag,
+      })
       .partial()
       .parse(roles);
     if (id === viewer.id && (changes.isAdmin === false || changes.active === false)) {
@@ -761,6 +858,7 @@ const restaurantForm = z.object({
   freeDeliveryFrom: z.string(),
   serviceFee: z.string(),
   notes: optionalText,
+  pickup: z.string().optional(),
 });
 
 function euroField(value: string, label: string, optional = false): number | null {
@@ -785,7 +883,13 @@ function restaurantInput(form: FormData) {
     freeDeliveryFromCents: euroField(data.freeDeliveryFrom, 'Kostenlos ab', true),
     serviceFeeCents: euroField(data.serviceFee, 'Servicegebühr')!,
     notes: data.notes,
+    pickup: data.pickup === 'on',
   };
+}
+
+/** The hosts ticked under „Liefert zu“. */
+function deliveryArea(form: FormData): number[] {
+  return z.array(z.coerce.number().int().positive()).max(200).parse(form.getAll('deliversTo'));
 }
 
 export async function createRestaurantAction(
@@ -796,6 +900,7 @@ export async function createRestaurantAction(
   const result = await run(async () => {
     const { db } = await requireGroupManager();
     id = (await createRestaurant(db, restaurantInput(form))).id;
+    await setRestaurantHosts(db, id, deliveryArea(form));
   });
   if (result.ok && id) redirect(`/restaurants/${id}`);
   return result;
@@ -809,6 +914,7 @@ export async function updateRestaurantAction(
     const { db } = await requireGroupManager();
     const id = z.coerce.number().int().positive().parse(form.get('id'));
     await updateRestaurant(db, id, restaurantInput(form));
+    await setRestaurantHosts(db, id, deliveryArea(form));
     return { ok: true, message: 'Gespeichert' };
   });
 }

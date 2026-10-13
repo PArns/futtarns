@@ -36,6 +36,27 @@
       "when": 1791880141101,
       "tag": "0004_friday-voucher",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791883928416,
+      "tag": "0005_pickup",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791886037932,
+      "tag": "0006_restaurant-vote",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791886487550,
+      "tag": "0007_stammtruppe",
+      "breakpoints": true
     }
   ]
 }

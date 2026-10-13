@@ -1,14 +1,16 @@
 'use client';
 
-import { Ban, CalendarCheck, Save } from 'lucide-react';
+import { Ban, CalendarCheck, Save, ShoppingBag, Truck } from 'lucide-react';
 import { useState } from 'react';
 import {
   chooseRestaurantAction,
   setCancelledAction,
   setHostAction,
   setNoteAction,
+  setPickupAction,
 } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import { Chip } from '@/components/ui/chip';
 import { Hint, Input, Label, Select } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
 
@@ -20,12 +22,15 @@ export function RestaurantPicker({
   restaurants,
   hasOrders,
   disabled,
+  voting,
 }: {
   date: string;
   restaurantId: number | null;
   restaurants: (Option & { isDefault?: boolean })[];
   hasOrders: boolean;
   disabled?: boolean;
+  /** The group is still voting; picking one here ends the vote. */
+  voting?: boolean;
 }) {
   const { pending, execute } = useAction();
   return (
@@ -57,7 +62,89 @@ export function RestaurantPicker({
         ))}
       </Select>
       {disabled && <Hint>Schon abgerechnet. Zum Wechseln erst die Abrechnung öffnen.</Hint>}
+      {voting && !disabled && (
+        <Hint>
+          Die Restaurantwahl läuft bis Donnerstag, 23:59. Wählst du hier selbst, ist sie vorbei.
+        </Hint>
+      )}
     </Label>
+  );
+}
+
+/**
+ * Delivered or fetched, for a restaurant that offers both, and who fetches it: they pay
+ * the restaurant and get the food money, the drinks money still goes to the host.
+ */
+export function PickupPicker({
+  date,
+  pickup,
+  pickerId,
+  hostId,
+  hostName,
+  members,
+  disabled,
+  delivers = true,
+}: {
+  date: string;
+  pickup: boolean;
+  /** Who fetches it when not the host. */
+  pickerId: number | null;
+  hostId: number | null;
+  hostName: string;
+  members: Option[];
+  disabled?: boolean;
+  /** The restaurant delivers to the host; if not, the food has to be fetched. */
+  delivers?: boolean;
+}) {
+  const { pending, execute } = useAction();
+  const off = pending || disabled;
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          selected={!pickup}
+          disabled={off || !delivers}
+          title={delivers ? undefined : `Liefert nicht zu ${hostName}`}
+          onClick={() => !pickup || execute(() => setPickupAction(date, false, null))}
+        >
+          <Truck className="size-3.5" /> Liefern lassen
+        </Chip>
+        <Chip
+          selected={pickup}
+          disabled={off}
+          onClick={() => pickup || execute(() => setPickupAction(date, true, pickerId))}
+        >
+          <ShoppingBag className="size-3.5" /> Abholen
+        </Chip>
+      </div>
+      {pickup && (
+        <Label>
+          Wer holt ab?
+          <Select
+            value={pickerId ?? ''}
+            disabled={off}
+            onChange={(event) =>
+              execute(() =>
+                setPickupAction(date, true, event.target.value ? Number(event.target.value) : null)
+              )
+            }
+          >
+            <option value="">{hostName} (Gastgeber)</option>
+            {members
+              .filter((member) => member.id !== hostId)
+              .map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+          </Select>
+          <Hint>
+            Zahlt im Restaurant und bekommt das Geld fürs Essen. Ohne Liefer- und Servicegebühr,
+            ohne Trinkgeld; die Getränkepauschale geht weiter an {hostName}.
+          </Hint>
+        </Label>
+      )}
+    </div>
   );
 }
 

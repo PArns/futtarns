@@ -14,6 +14,7 @@ import {
   TriangleAlert,
   Users,
   UtensilsCrossed,
+  Vote,
   Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -29,6 +30,7 @@ import { Menu } from '@/components/friday/menu';
 import { MyMoney } from '@/components/friday/my-money';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
+import { RestaurantVote } from '@/components/friday/restaurant-vote';
 import { TimeLine } from '@/components/friday/time-line';
 import { AttendancePills } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
@@ -40,14 +42,16 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
-import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
-import { moneyLines } from '@/lib/balance';
+import { debtLines, toPayee } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
-import { listRestaurants } from '@/lib/services/restaurants';
+import { restaurantsForHost } from '@/lib/services/restaurants';
+import { upcomingMessages } from '@/lib/services/scheduler';
+import { voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -106,13 +110,22 @@ export async function FridayScreen({
   const me = view.participants.find((participant) => participant.member.id === viewer.id);
   const myDefault = view.restaurant ? await getDefault(db, viewer.id, view.restaurant.id) : null;
   const otherBalances = isCurrent ? await openBalancesFor(db, viewer.id, date, now) : [];
-  const [restaurants, members, defaultHost] = await Promise.all([
-    manage ? listRestaurants(db) : [],
+  // One box per earlier Friday and person, even when the food and the drinks go to two people.
+  const balanceGroups = [
+    ...Map.groupBy(
+      otherBalances,
+      (balance) => `${balance.fridayDate}-${balance.member.id}`
+    ).values(),
+  ];
+  const voting = votingAt(view, now);
+  const [restaurants, members, defaultHost, messages] = await Promise.all([
+    manage || voting ? restaurantsForHost(db, hostId) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
+    manage ? upcomingMessages(db, view, now) : [],
   ]);
   const hostOptions = members
-    .filter((member) => member.active)
+    .filter((member) => member.active && member.core)
     .map(({ id, name }) => ({ id, name }));
 
   const takenBy: Record<number, string[]> = {};
@@ -138,6 +151,7 @@ export async function FridayScreen({
         participant.member.id === viewer.id ||
         (editable(participant) &&
           (participant.member.kind === 'guest' ||
+            !participant.member.core ||
             (manage && participant.attendance.status !== 'out')))
     )
     .map((participant) => ({
@@ -170,7 +184,9 @@ export async function FridayScreen({
     ...(silent.length ? [`${silent.length} ohne Antwort`] : []),
   ].join(' · ');
   const visibleParticipants = view.participants.filter(
-    (participant) => participant.member.kind === 'member' || participant.attendance.status !== 'out'
+    (participant) =>
+      (participant.member.kind === 'member' && participant.member.core) ||
+      participant.attendance.status !== 'out'
   );
   const attendancePeople = visibleParticipants.map((participant) => ({
     id: participant.member.id,
@@ -223,6 +239,21 @@ export async function FridayScreen({
     (me
       ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
       : false);
+
+  const showVote = voting && restaurants.length > 1 && Boolean(me);
+  const ballot = restaurants.map((option, index) => ({
+    ...option,
+    letter: voteLetter(index),
+    current: option.id === view.restaurant?.id,
+    voters: view.votes
+      .filter((vote) => vote.restaurantId === option.id)
+      .map((vote) => ({ id: vote.memberId, name: nameOf(vote.memberId) })),
+  }));
+  // The host's picker keeps the current restaurant even if it no longer serves this host.
+  const pickable =
+    view.restaurant && !restaurants.some((option) => option.id === view.restaurant!.id)
+      ? [{ id: view.restaurant.id, name: view.restaurant.name, delivers: true }, ...restaurants]
+      : restaurants;
 
   let chapter = 0;
 
@@ -384,38 +415,67 @@ export async function FridayScreen({
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Wallet className="text-warning size-4" /> Von früheren Freitagen
             </div>
-            {otherBalances.map((balance) => {
-              const forGuest = balance.member.id !== viewer.id;
+            {balanceGroups.map((balances) => {
+              const { fridayDate, member, money, title } = balances[0]!;
+              const forGuest = member.id !== viewer.id;
+              const owed = balances.filter((balance) => balance.debt.openCents > 0);
+              const back = balances.filter((balance) => balance.debt.openCents < 0);
               return (
-                <div key={`${balance.fridayDate}-${balance.member.id}`}>
+                <div key={`${fridayDate}-${member.id}`} className="space-y-2">
                   <Link
-                    href={`/freitag/${balance.fridayDate}`}
-                    className="hover:text-primary mb-2 block text-sm"
+                    href={`/freitag/${fridayDate}`}
+                    className="hover:text-primary block text-sm"
                   >
-                    {formatDayShort(balance.fridayDate)} · {balance.title}
-                    {forGuest && ` · für ${balance.member.name}`}
+                    {formatDayShort(fridayDate)} · {title}
+                    {forGuest && ` · für ${member.name}`}
                   </Link>
-                  {balance.money.openCents > 0 && balance.payee ? (
+                  {owed.length > 0 && (
                     <PayBox
-                      date={balance.fridayDate}
-                      memberId={balance.member.id}
-                      amountCents={balance.money.openCents}
-                      lines={moneyLines(balance.money)}
-                      payeeName={balance.payee.name}
-                      paypalMe={balance.payee.paypalMe}
-                      label={forGuest ? `Noch offen für ${balance.member.name}` : 'Noch offen'}
+                      date={fridayDate}
+                      memberId={member.id}
+                      amountCents={owed.reduce((sum, balance) => sum + balance.debt.openCents, 0)}
+                      lines={debtLines(
+                        money,
+                        owed.map((balance) => balance.debt)
+                      )}
+                      payees={owed.map((balance) => toPayee(balance.payee, balance.debt))}
+                      label={forGuest ? `Noch offen für ${member.name}` : 'Noch offen'}
                     />
-                  ) : (
-                    <p className="text-muted-foreground text-sm">
-                      {forGuest ? `${balance.member.name} bekommt` : 'Du bekommst'}{' '}
-                      {formatEuro(-balance.money.openCents)} von{' '}
+                  )}
+                  {back.map((balance) => (
+                    <p key={balance.debt.what} className="text-muted-foreground text-sm">
+                      {forGuest ? `${member.name} bekommt` : 'Du bekommst'}{' '}
+                      {formatEuro(-balance.debt.openCents)} von{' '}
                       {balance.payee?.name ?? 'dem Gastgeber'} zurück.
                     </p>
-                  )}
+                  ))}
                 </div>
               );
             })}
           </GlassCard>
+        )}
+
+        {showVote && (
+          <section id="wahl" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={Vote}
+              kicker="Restaurantwahl"
+              title="Wo essen wir?"
+              hint={
+                view.restaurant
+                  ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.`
+                  : 'Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.'
+              }
+            />
+            <RestaurantVote
+              date={date}
+              options={ballot}
+              myVote={view.votes.find((vote) => vote.memberId === viewer.id)?.restaurantId ?? null}
+              closesAt={voteClosesAt(date).getTime()}
+              serverNow={now.getTime()}
+            />
+          </section>
         )}
 
         {!view.cancelled && me && (
@@ -538,6 +598,61 @@ export async function FridayScreen({
           </section>
         )}
 
+        {manage && (
+          <section id="chefsache" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={ChefHat}
+              kicker="Chefsache"
+              title="Für den Gastgeber"
+              hint="Nur du und die Admins sehen diesen Teil."
+            />
+            <HostSection
+              view={view}
+              closed={closed}
+              sheet={sheet}
+              hungry={hungry}
+              restaurants={pickable.map(({ id, name, delivers }) => ({
+                id,
+                name: delivers ? name : `${name} (nur abholen)`,
+                isDefault: id === view.host?.defaultRestaurantId,
+              }))}
+              voting={voting}
+              members={hostOptions}
+              defaultHostName={defaultHost?.name ?? null}
+              viewerIsHost={amHost}
+              messages={messages.map((message) => ({
+                at: message.at.getTime(),
+                when: formatWeekdayTime(message.at),
+                kind: message.kind,
+                recipients: message.recipients,
+              }))}
+              serverNow={now.getTime()}
+            />
+          </section>
+        )}
+
+        {swapHostOnly && !view.settled && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={House}
+              kicker="Vertretung"
+              title="Wer ist Gastgeber?"
+              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
+            />
+            <GlassCard variant="tile" className="max-w-md p-5">
+              <HostPicker
+                date={view.date}
+                hostId={hostId}
+                hostIsDefault={view.hostIsDefault}
+                defaultHostName={defaultHost?.name ?? null}
+                members={hostOptions}
+              />
+            </GlassCard>
+          </section>
+        )}
+
         {me && view.restaurant && canOrder && (
           <section id="karte" className="scroll-mt-16">
             <ChapterHeading
@@ -548,7 +663,9 @@ export async function FridayScreen({
               hint={
                 closed
                   ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
-                  : 'Tippe auf ein Gericht, um es zu bestellen.'
+                  : voting
+                    ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
+                    : 'Tippe auf ein Gericht, um es zu bestellen.'
               }
             />
             <Menu
@@ -591,57 +708,10 @@ export async function FridayScreen({
               ))}
             </div>
             {(!closed || manage) && (
-              <div className="mt-4 max-w-md">
+              <div className="mt-4 max-w-2xl">
                 <AddGuestForm date={date} />
               </div>
             )}
-          </section>
-        )}
-
-        {manage && (
-          <section id="chefsache" className="scroll-mt-16">
-            <ChapterHeading
-              number={++chapter}
-              icon={ChefHat}
-              kicker="Chefsache"
-              title="Für den Gastgeber"
-              hint="Nur du und die Admins sehen diesen Teil."
-            />
-            <HostSection
-              view={view}
-              closed={closed}
-              sheet={sheet}
-              hungry={hungry}
-              restaurants={restaurants.map(({ id, name }) => ({
-                id,
-                name,
-                isDefault: id === view.host?.defaultRestaurantId,
-              }))}
-              members={hostOptions}
-              defaultHostName={defaultHost?.name ?? null}
-              viewerIsHost={amHost}
-            />
-          </section>
-        )}
-
-        {swapHostOnly && !view.settled && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={House}
-              kicker="Vertretung"
-              title="Wer ist Gastgeber?"
-              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
-            />
-            <GlassCard variant="tile" className="max-w-md p-5">
-              <HostPicker
-                date={view.date}
-                hostId={hostId}
-                hostIsDefault={view.hostIsDefault}
-                defaultHostName={defaultHost?.name ?? null}
-                members={hostOptions}
-              />
-            </GlassCard>
           </section>
         )}
 

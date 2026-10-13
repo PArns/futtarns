@@ -1,13 +1,8 @@
 'use client';
 
 import { Pill, PillDot } from '@/components/ui/pill';
+import { formatMinutesLeft } from '@/lib/format';
 import { useNow } from '@/lib/hooks/use-now';
-
-function remaining(ms: number): string {
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.floor(ms / 1000) % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')} Min`;
-}
 
 /** Where ordering stands; in the last hour it counts down to the second. */
 export function DeadlinePill({
@@ -55,7 +50,7 @@ export function DeadlinePill({
     <Pill size="label" tone="success">
       <PillDot />
       {left < 3_600_000
-        ? `Nur noch ${remaining(left)}`
+        ? `Nur noch ${formatMinutesLeft(left)}`
         : `${flat ? 'Anmeldung' : 'Bestellung'} offen bis ${deadlineLabel}`}
     </Pill>
   );

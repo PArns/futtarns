@@ -69,6 +69,7 @@ const pizzeria = await createRestaurant(db, {
   freeDeliveryFromCents: 6000,
   serviceFeeCents: 99,
   notes: 'Pizza immer gut durch bestellen.',
+  pickup: true,
 });
 await setHostRestaurant(db, id('Patrick'), pizzeria.id);
 const size = 'Größe (1): Normal 28 cm | Groß 32 cm +2,50';
@@ -194,8 +195,8 @@ async function payInFull(date: string, name: string) {
 await payInFull(lastWeek, 'Clara');
 await payInFull(lastWeek, 'Eva');
 
-// This week: pizza, half the group has ordered, one guest, some paid up front.
-await setRestaurant(db, thisWeek, pizzeria.id);
+// This week: pizza, half the group has ordered, one guest; paying opens at the deadline.
+// No pick for this week: Patrick's usual pizzeria applies, and the group can vote on it.
 await setFridayNote(db, thisWeek, 'Bringt gute Laune mit – Getränke sind da.');
 await addItem(db, thisWeek, id('Patrick'), {
   dishId: dish('Diavolo'),
@@ -229,7 +230,6 @@ await addItem(db, thisWeek, guest.id, {
   note: 'ohne Zwiebeln',
   quantity: 1,
 });
-await payInFull(thisWeek, 'Clara');
 await setDrinksOptOut(db, thisWeek, id('Felix'), true);
 await addAbsence(db, id('Ben'), thisWeek, addWeeks(thisWeek, 1), 'Urlaub');
 

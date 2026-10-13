@@ -12,21 +12,23 @@ Two processes in one container (`scripts/start.mjs`), one database:
 
 ## Data model (`lib/db/schema.ts`)
 
-| Table                     | Holds                                                                                                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, PayPal.me, address, the restaurant they order from as host                                  |
-| `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                                |
-| `absences`                | date ranges someone is away                                                                                                                                                    |
-| `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, lock and settlement |
-| `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                 |
-| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee) and menus; option groups are JSON on the dish; members can add dishes                                                         |
-| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                         |
-| `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                            |
-| `charges`                 | the final share per person after settlement                                                                                                                                    |
-| `payments`                | the money ledger: what someone paid for a Friday (negative = paid back)                                                                                                        |
-| `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                                   |
-| `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                                  |
-| `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                           |
+| Table                     | Holds                                                                                                                                                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, the Stammtruppe flag (`core`), PayPal.me, address, the restaurant they order from as host                                    |
+| `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                                                                 |
+| `absences`                | date ranges someone is away                                                                                                                                                                                     |
+| `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, pickup and who fetches the food, lock and settlement |
+| `restaurant_votes`        | who wants which restaurant for a Friday, one vote per member                                                                                                                                                    |
+| `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
+| `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
+| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                             |
+| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                                                          |
+| `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                                                             |
+| `charges`                 | the final share per person after settlement                                                                                                                                                                     |
+| `payments`                | the money ledger: what someone paid for a Friday and to whom (negative = paid back; no payee = the host)                                                                                                        |
+| `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                                                                    |
+| `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                                                                   |
+| `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                                                            |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
 
@@ -46,7 +48,7 @@ A Friday without a row is a normal Friday: the default host and that host's rest
    cents distributed so the shares add up exactly. Flat-price Fridays skip this step.
 5. **Pay**: balances come from the ledger (`lib/balance.ts`): food share plus the drinks fee
    minus payments. Positive means still to pay, negative means the host pays back. The host
-   owes nothing.
+   owes nothing, unless someone else fetched the food (see Pickup).
 
 ## Money
 
@@ -60,6 +62,30 @@ A Friday without a row is a normal Friday: the default host and that host's rest
   off per Friday by each member; the host can change or drop it for a Friday.
 - **Paying**: a PayPal.me link with the amount filled in, to the host, as friends and family.
   Differences under 50 cents are shown but never chased.
+- **Pickup**: a restaurant can offer pickup („Abholen geht auch“), and the host then chooses
+  per Friday between delivery and pickup and who fetches the food. Fetched food costs the
+  menu prices: no delivery or service fee, no tip, no minimum order (`estimateFees`), a
+  voucher still comes off. Whoever fetches it pays the restaurant and gets the food money;
+  the drinks money still goes to the host. So a balance is split into debts per payee
+  (`moneyFor`, `Money.debts`): one debt to the host as before, or with a picker one for the
+  food to them and one for the drinks to the host. Payments record their payee, the pay
+  box and the WhatsApp messages show a PayPal link per payee, and „Hab bezahlt“, the pay
+  link and the bot's „bezahlt“ book every open debt at once. The order list goes to the
+  picker. The amounts are final at the deadline (`isBilled`), so there is no settle reminder
+  and the payment reminders start the next evening; the host can still enter a different
+  total. Once anyone has paid, pickup and picker stay as they are (`setPickup`).
+
+## Stammtruppe and guests
+
+Members carry a `core` flag, the Stammtruppe. Only they are asked every week, count as in
+when they say nothing, host and vote every Friday. A guest added with a phone number
+(`addGuestWithPhone`) becomes a member outside the Stammtruppe: they get an invitation by
+WhatsApp with a login link, log in with their number, order, pay and vote themselves, but
+only for the Fridays someone adds them to (an attendance row). On every other Friday they
+count as out and appear nowhere (`effectiveAttendance`, the people queries in
+`loadFriday` and `loadCalendar`), so they drop out by themselves the next week. The same
+number brings back the same member. A guest without a number stays a name on one Friday,
+whose bringer pays and orders for them. Admins switch the flag on the people page.
 
 ## Permissions (`lib/permissions.ts`)
 
@@ -80,7 +106,10 @@ stale reminders afterwards.
 | When (Berlin)        | Who                                      | What                                                 |
 | -------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | Mon 18:00, Wed 10:00 | a host who is away that day              | find a substitute or cancel                          |
+| Wed 12:00            | members who haven't answered             | whether they come, with reply options, and the vote  |
+| Wed 12:00            | everyone else coming who hasn't voted    | the restaurant vote, if one is running               |
 | Thu 18:00, Fri 09:00 | host, no restaurant yet                  | pick one                                             |
+| Fri 09:00            | whose order the vote threw away          | the winner, and to pick again                        |
 | Fri 10:00 – 17:00    | members who haven't answered             | invitation with reply options and what to order      |
 | Fri 10:00            | said yes without an invitation, no order | order reminder naming their default                  |
 | Fri 18:30            | in, nothing ordered, no default          | last call                                            |
@@ -101,8 +130,34 @@ Friday and one person, so it needs no login. Opening it only shows what is open;
 on the page books it, because chat apps open links for their previews. Once nothing is open,
 the reminders stop by themselves. Replying „bezahlt“ to the bot still works too.
 
+The host and admins see what is still to go out, to whom and when, with a countdown, in the
+Friday's „Chefsache“ (`previewReminders`, `upcomingMessages`). It runs `planReminders` at
+every moment a window opens, with the Friday locked from the deadline on, plus the
+scheduler's next pass for what is due right away, and leaves out keys already sent. Settle
+and payment reminders repeat daily, so it shows the next one of each. It is a forecast:
+whoever answers or orders in the meantime drops out of later reminders.
+
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
 without food for a „nix“ default) and „andere“ (who eats what this Friday).
+
+## Restaurant vote (`lib/vote.ts`)
+
+Unless the host picks the restaurant themselves (`restaurantChosen`), the group votes on it
+until Thursday 23:59. The ballot lists the restaurants that can serve this Friday's host
+(`restaurantsForHost`): those that deliver to the host's address (`restaurant_hosts`, ticked
+under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
+pickup, marked „nur abholen“. They are lettered in the order they were created, so a
+letter stays put while new restaurants join. Members vote on the Friday page or by
+replying with the letter to the Wednesday message, which carries every Lieferando link;
+they can change or take back their vote until the end. The page and the bot's reply show
+who voted for what.
+
+At midnight (`closeVote`, from the timer or the first page view) the restaurant with the
+most votes wins. Without votes, or when two share the lead, the current restaurant (the
+host's usual one, or whatever the first order pinned) stays. Ordering already works during
+the vote; if another restaurant wins, those orders are deleted (`voteDroppedIds`) and their
+owners get a message on Friday at 09:00 asking them to pick again, never at night. A
+winner that does not deliver to the host makes the Friday a pickup Friday.
 
 ## Pentecost
 

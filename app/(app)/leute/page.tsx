@@ -43,8 +43,9 @@ function forActions({
   assignsHosts,
   active,
   kind,
+  core,
 }: Member) {
-  return { id, name, phone, isAdmin, isDefaultHost, assignsHosts, active, kind };
+  return { id, name, phone, isAdmin, isDefaultHost, assignsHosts, active, kind, core };
 }
 
 export default async function PeoplePage() {
@@ -96,7 +97,7 @@ export default async function PeoplePage() {
               <ul className="divide-border/50 divide-y text-sm">
                 {balances.map((balance) => (
                   <li
-                    key={`${balance.fridayDate}-${balance.member.id}`}
+                    key={`${balance.fridayDate}-${balance.member.id}-${balance.debt.what}`}
                     className="flex items-center gap-3 py-2"
                   >
                     <Avatar
@@ -117,10 +118,10 @@ export default async function PeoplePage() {
                     <span
                       className={cn(
                         'font-bold tabular-nums',
-                        balance.money.openCents > 0 ? 'text-warning' : 'text-primary'
+                        balance.debt.openCents > 0 ? 'text-warning' : 'text-primary'
                       )}
                     >
-                      {formatEuro(balance.money.openCents)}
+                      {formatEuro(balance.debt.openCents)}
                     </span>
                   </li>
                 ))}
@@ -133,7 +134,7 @@ export default async function PeoplePage() {
           <ChapterHeading
             icon={Users}
             kicker="Stammtisch"
-            title={`${people.filter((p) => p.active).length} in der Runde`}
+            title={`${people.filter((p) => p.active && p.core).length} in der Stammtruppe`}
             hint={
               viewer.isAdmin
                 ? 'Die Rolle „Gastgeber“ darf für einzelne Freitage einen anderen Gastgeber eintragen.'
@@ -171,6 +172,7 @@ export default async function PeoplePage() {
                       label={`Freitag: ${ANSWER_LABEL[answerKind(thisFriday.get(member.id)!)]}`}
                     />
                   )}
+                  {!member.core && <Badge variant="outline">Gast</Badge>}
                   {member.isAdmin && <Badge variant="soft">Admin</Badge>}
                   {member.isDefaultHost && <Badge variant="soft">Standard-Gastgeber</Badge>}
                   {member.assignsHosts && <Badge variant="soft">Gastgeber</Badge>}

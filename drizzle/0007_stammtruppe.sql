@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "core" boolean DEFAULT true NOT NULL;

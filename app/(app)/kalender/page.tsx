@@ -37,7 +37,8 @@ export default async function CalendarPage() {
     getDefaultHost(db),
     listAbsences(db, viewer.id, todayIso()),
   ]);
-  const active = members.filter((member) => member.active);
+  // Only the Stammtruppe hosts.
+  const active = members.filter((member) => member.active && member.core);
   const feed = viewer.calendarToken ? calendarLink(viewer.calendarToken) : null;
 
   const months = new Map<string, typeof entries>();

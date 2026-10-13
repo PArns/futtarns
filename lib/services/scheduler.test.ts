@@ -1,12 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '@/lib/db/client';
-import { recordPayment, setAttendance, setRestaurant, settleFriday } from '@/lib/services/fridays';
+import {
+  castVote,
+  loadFriday,
+  recordPayment,
+  setAttendance,
+  setPickup,
+  setRestaurant,
+  settleFriday,
+} from '@/lib/services/fridays';
 import { handleIncoming } from '@/lib/services/incoming';
-import { addAbsence, createMember } from '@/lib/services/members';
+import { addAbsence, addGuestWithPhone, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
-import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
+import {
+  createDish,
+  createRestaurant,
+  listDishes,
+  setHostRestaurant,
+  setRestaurantHosts,
+  updateRestaurant,
+} from '@/lib/services/restaurants';
 import { openPayLink, payByLink } from '@/lib/services/pay-links';
-import { runScheduler } from '@/lib/services/scheduler';
+import { runScheduler, upcomingMessages } from '@/lib/services/scheduler';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -58,11 +73,18 @@ afterEach(async () => {
 });
 
 describe('reminders', () => {
-  it('invites on Friday at ten, once, and only those who have not answered', async () => {
+  it('asks on Wednesday and invites on Friday at ten, once, only those who have not answered', async () => {
     const { anna, dish } = await setup();
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
-    expect(await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause)).toBe(0);
+    expect(await runScheduler(db, at('2026-10-14T09:55:00Z'), send, noPause)).toBe(0);
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to)).toEqual(['+491703333333']);
+    expect(sent[0]!.text).toContain(
+      'Übermorgen ist wieder Freitag, bei Patrick: *Diesmal bestellen wir bei Bella Napoli*'
+    );
+    expect(await runScheduler(db, at('2026-10-15T10:05:00Z'), send, noPause)).toBe(0);
     expect(await runScheduler(db, at('2026-10-16T07:55:00Z'), send, noPause)).toBe(0);
+    sent = [];
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     expect(sent.map((message) => message.to)).toEqual(['+491703333333']);
     expect(sent[0]!.text).toContain('*Heute bestellen wir bei Bella Napoli*');
@@ -163,8 +185,9 @@ describe('reminders', () => {
     await setRestaurant(db, FRIDAY, null);
     await runScheduler(db, at('2026-10-15T16:05:00Z'), send, noPause);
     await runScheduler(db, at('2026-10-16T07:05:00Z'), send, noPause);
-    expect(sent.map((message) => message.to)).toEqual(['+491701111111', '+491701111111']);
-    expect(sent.every((message) => message.text.includes('noch kein Restaurant'))).toBe(true);
+    const toHost = sent.filter((message) => message.to === '+491701111111');
+    expect(toHost).toHaveLength(2);
+    expect(toHost.every((message) => message.text.includes('noch kein Restaurant'))).toBe(true);
     sent = [];
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     expect(sent.map((message) => message.to).sort()).toEqual(['+491702222222', '+491703333333']);
@@ -184,7 +207,7 @@ describe('reminders', () => {
     expect(sent[0]).toMatchObject({ to: '+491701111111' });
     expect(sent[0]!.text).toContain('wer übernimmt');
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
-    const invites = sent.filter((message) => message.text.startsWith('Hi '));
+    const invites = sent.filter((message) => message.text.startsWith('🎉'));
     expect(invites).toHaveLength(2);
     expect(invites[0]!.text).toContain('wo, klären wir noch');
     expect(invites[0]!.text).not.toContain('bei Patrick');
@@ -246,5 +269,252 @@ describe('reminders', () => {
     expect(
       await handleIncoming(db, '+491703333333', 'wie immer', at('2026-10-16T17:30:00Z'), send)
     ).toContain('Bestellschluss war');
+  });
+});
+
+describe('upcoming messages', () => {
+  const preview = async (now: Date) =>
+    (await upcomingMessages(db, await loadFriday(db, FRIDAY, now), now)).map((line) => [
+      line.at.toISOString(),
+      line.kind,
+      line.recipients.join(', '),
+    ]);
+
+  it('lists who hears what and when, and drops what went out', async () => {
+    const { anna, ben, restaurant, dish } = await setup();
+    await setDefaultDish(db, ben.id, restaurant.id, { dishId: dish.id, selection: {}, note: null });
+    await setAttendance(db, FRIDAY, anna.id, 'in');
+    expect((await preview(at('2026-10-12T08:00:00Z')))[0]).toEqual([
+      '2026-10-14T10:00:00.000Z',
+      'Kommst du?',
+      'Ben',
+    ]);
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    expect(await preview(at('2026-10-16T07:00:00Z'))).toEqual([
+      ['2026-10-16T08:00:00.000Z', 'Einladung', 'Ben'],
+      ['2026-10-16T08:00:00.000Z', 'Noch nichts ausgesucht', 'Anna'],
+      ['2026-10-16T16:30:00.000Z', 'Letzte Chance', 'Anna'],
+      ['2026-10-16T17:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
+      ['2026-10-16T17:00:00.000Z', 'Bestellliste', 'Patrick'],
+    ]);
+
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+    expect(await preview(at('2026-10-16T08:10:00Z'))).toEqual([
+      ['2026-10-16T17:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
+      ['2026-10-16T17:00:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-17T08:00:00.000Z', 'Was hat es gekostet?', 'Patrick'],
+    ]);
+  });
+
+  it("shows what is due right away on the scheduler's next pass", async () => {
+    await setup();
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    await createMember(db, { name: 'Carla', phone: '+491704444444' }, null);
+    expect((await preview(at('2026-10-16T09:00:00Z')))[0]).toEqual([
+      '2026-10-16T09:01:00.000Z',
+      'Einladung',
+      'Carla',
+    ]);
+  });
+});
+
+describe('fetching the food', () => {
+  it('sends the list to whoever fetches it and splits the money between them and the host', async () => {
+    const { host, anna, ben, restaurant, dish } = await setup();
+    await updateRestaurant(db, restaurant.id, { pickup: true });
+    await setPickup(db, FRIDAY, true, anna.id);
+    for (const member of [host, anna, ben]) {
+      await addItem(db, FRIDAY, member.id, {
+        dishId: dish.id,
+        selection: {},
+        note: null,
+        quantity: 1,
+      });
+    }
+
+    const view = await loadFriday(db, FRIDAY, at('2026-10-16T12:00:00Z'));
+    expect(view.estimate).toMatchObject({ deliveryFeeCents: 0, tipCents: 0, totalCents: 2700 });
+    const ben0 = view.participants.find((entry) => entry.member.id === ben.id)!;
+    expect(ben0.money.debts.map((debt) => [debt.payeeId, debt.openCents])).toEqual([
+      [anna.id, 900],
+      [host.id, 150],
+    ]);
+
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    const sheet = sent.find((message) => message.text.includes('Zum Abholen'));
+    expect(sheet?.to).toBe('+491702222222');
+    expect(sheet?.text).toContain('*Bella Napoli*');
+    const toBen = sent.find((message) => message.to === '+491703333333')!;
+    expect(toBen.text).toContain('*9,00\u00a0€* fürs Essen an Anna');
+    expect(toBen.text).toContain('*1,50\u00a0€* für die Getränke an Patrick');
+    // The host pays their food to Anna, Anna her drinks to the host.
+    expect(sent.find((message) => message.to === '+491701111111')?.text).toContain('9,00');
+    expect(
+      sent.find((message) => message.to === '+491702222222' && message.text.includes('/bezahlt/'))
+        ?.text
+    ).toContain('1,50');
+
+    const token = toBen.text.match(/\/bezahlt\/(\S+)/)![1]!;
+    expect(await payByLink(db, token, at('2026-10-16T17:30:00Z'))).toBe(1050);
+    const after = await loadFriday(db, FRIDAY, at('2026-10-16T17:30:00Z'));
+    expect(after.participants.find((entry) => entry.member.id === ben.id)!.money.openCents).toBe(0);
+    await expect(setPickup(db, FRIDAY, false, null)).rejects.toThrow('schon bezahlt');
+
+    // No real total to ask for; the payment reminders start the next evening.
+    sent = [];
+    await runScheduler(db, at('2026-10-17T08:05:00Z'), send, noPause);
+    expect(sent).toEqual([]);
+    await runScheduler(db, at('2026-10-17T16:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
+  });
+
+  it('names who fetches it in the invitation', async () => {
+    const { anna, restaurant } = await setup();
+    await updateRestaurant(db, restaurant.id, { pickup: true });
+    await setPickup(db, FRIDAY, true, anna.id);
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
+      'bestellen wir bei Bella Napoli (Anna holt ab)'
+    );
+  });
+});
+
+describe('the restaurant vote', () => {
+  const NEXT = '2026-10-23';
+  // Wednesday 12:05 and Friday 00:01, Berlin time.
+  const WEDNESDAY = at('2026-10-21T10:05:00Z');
+  const AFTER = at('2026-10-22T22:01:00Z');
+
+  async function voteSetup() {
+    const base = await setup();
+    await setHostRestaurant(db, base.host.id, base.restaurant.id);
+    const sushi = await createRestaurant(db, {
+      name: 'Sakura Sushi',
+      cuisine: 'Sushi',
+      lieferandoUrl: 'https://www.lieferando.de/sakura',
+      minOrderCents: 0,
+      deliveryFeeCents: 0,
+      freeDeliveryFromCents: null,
+      serviceFeeCents: 99,
+      notes: null,
+    });
+    return { ...base, sushi };
+  }
+
+  it('sends the ballot on Wednesday and lets the majority decide at midnight', async () => {
+    const { anna, dish, sushi } = await voteSetup();
+    await setAttendance(db, NEXT, anna.id, 'in');
+    // An order placed before the vote goes when the restaurant changes.
+    await addItem(db, NEXT, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    const ask = sent.find((message) => message.to === '+491703333333')!;
+    expect(ask.text).toContain('*Freunde des Freitagszocks!*');
+    expect(ask.text).toContain('*A* · Bella Napoli 👑');
+    expect(ask.text).toContain(
+      '*B* · Sakura Sushi\nkein Mindestbestellwert · Lieferung gratis\nhttps://www.lieferando.de/sakura'
+    );
+    expect(ask.text).toContain('Und bist du überhaupt dabei?');
+    // Anna already answered and the host is in anyway: they only get the ballot.
+    const ballots = sent.filter((message) => !message.text.includes('überhaupt dabei'));
+    expect(ballots.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
+
+    expect(await handleIncoming(db, '+491703333333', 'b', WEDNESDAY, send)).toContain(
+      'Stimme gezählt: *Sakura Sushi*'
+    );
+    await handleIncoming(db, '+491702222222', 'B', WEDNESDAY, send);
+    await handleIncoming(db, '+491701111111', 'b', WEDNESDAY, send);
+    // Changing one's mind replaces the vote.
+    const reply = await handleIncoming(db, '+491701111111', 'a', WEDNESDAY, send);
+    expect(reply).toContain('Sakura Sushi 2 (Ben, Anna)');
+    expect(reply).toContain('Bella Napoli 1 (Patrick)');
+    expect(await handleIncoming(db, '+491701111111', 'x', WEDNESDAY, send)).toContain(
+      'Den Buchstaben gibt’s nicht'
+    );
+
+    const view = await loadFriday(db, NEXT, AFTER);
+    expect(view.restaurant?.id).toBe(sushi.id);
+    expect(view.participants.find((entry) => entry.member.id === anna.id)!.items).toEqual([]);
+    expect(await handleIncoming(db, '+491703333333', 'a', AFTER, send)).toContain(
+      "Freitag gibt's *Sakura Sushi*"
+    );
+
+    // Anna's order went with the old restaurant; she hears about it in the morning, not at night.
+    sent = [];
+    await runScheduler(db, AFTER, send, noPause);
+    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+    await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
+    const repick = sent.find((message) => message.to === '+491702222222');
+    expect(repick?.text).toContain("*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!");
+    sent = [];
+    await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
+    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+  });
+
+  it('keeps the restaurant without votes or on a tie', async () => {
+    const { restaurant } = await voteSetup();
+    expect((await loadFriday(db, NEXT, AFTER)).restaurant?.id).toBe(restaurant.id);
+
+    const next = '2026-10-30';
+    const wednesday = at('2026-10-28T11:05:00Z');
+    await handleIncoming(db, '+491702222222', 'b', wednesday, send);
+    await handleIncoming(db, '+491703333333', 'a', wednesday, send);
+    expect((await loadFriday(db, next, at('2026-10-29T23:01:00Z'))).restaurant?.id).toBe(
+      restaurant.id
+    );
+  });
+
+  it('lets a guest with a phone vote, but only on the Friday they were invited to', async () => {
+    const { anna, restaurant } = await voteSetup();
+    const { member: tim, loginToken } = await addGuestWithPhone(
+      db,
+      NEXT,
+      { name: 'Tim', phone: '+491705555555' },
+      anna.id
+    );
+    expect(tim.core).toBe(false);
+    expect(loginToken).not.toBeNull();
+
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    expect(sent.find((message) => message.to === '+491705555555')?.text).toContain(
+      'Zur Wahl stehen'
+    );
+    expect(await handleIncoming(db, '+491705555555', 'b', WEDNESDAY, send)).toContain(
+      'Stimme gezählt'
+    );
+    const view = await loadFriday(db, NEXT, WEDNESDAY);
+    expect(view.participants.find((entry) => entry.member.id === tim.id)?.attendance).toEqual({
+      status: 'in',
+      reason: 'answered',
+    });
+
+    // A week later Tim is not part of it until someone invites him again.
+    const later = at('2026-10-28T11:05:00Z');
+    const nextWeek = await loadFriday(db, '2026-10-30', later);
+    expect(nextWeek.participants.some((entry) => entry.member.id === tim.id)).toBe(false);
+    await expect(castVote(db, '2026-10-30', tim.id, restaurant.id, later)).rejects.toThrow(
+      'eingeladen'
+    );
+    // The same number brings back the same member, without a second invitation.
+    const again = await addGuestWithPhone(
+      db,
+      '2026-10-30',
+      { name: 'Timmy', phone: '+491705555555' },
+      anna.id
+    );
+    expect([again.member.id, again.loginToken]).toEqual([tim.id, null]);
+  });
+
+  it('ends when the host picks a restaurant, and only offers what reaches the host', async () => {
+    const { host, anna, restaurant, sushi } = await voteSetup();
+    await setRestaurantHosts(db, sushi.id, [anna.id]);
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    // Only one restaurant delivers to Patrick, so there is nothing to vote on.
+    expect(sent.some((message) => message.text.includes('Zur Wahl stehen'))).toBe(false);
+
+    await setRestaurantHosts(db, sushi.id, [host.id]);
+    await setRestaurant(db, NEXT, restaurant.id);
+    await expect(castVote(db, NEXT, anna.id, sushi.id, WEDNESDAY)).rejects.toThrow('vorbei');
   });
 });

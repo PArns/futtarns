@@ -20,17 +20,25 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
   default and switched off with one tap. Pay up front with a PayPal.me link that has the
   amount filled in. After the order the host enters the real total and the split is
   corrected; reminders follow until everyone has paid. The host pays nothing to themselves.
+- **Restaurant vote**: unless the host decides, everyone votes until Thursday 23:59, on the
+  page or by WhatsApp, among the restaurants that deliver to the host (or can be fetched).
+  No votes or a tie keep the host's usual restaurant.
+- **Stammtruppe and guests**: the core group is asked every week; a guest added with a phone
+  number gets an invitation, logs in, orders, pays and votes, for that Friday only.
 - **Flat-price Fridays** such as a barbecue: one price per person, no menu.
+- **Pickup**: for restaurants that offer it, someone fetches the food at the menu prices,
+  without fees or tip, and gets the food money; the drinks money still goes to the host.
 - **Calendar**: who hosts (substitutes per Friday), cancelled Fridays, everyone's absences,
   and an iCal feed for the phone calendar. A host who enters an absence is told which
   Fridays need a substitute, and those Fridays ask „wer übernimmt?“.
 - **Restaurants**: fees, minimum order, menus from Lieferando (bookmarklet or copy and paste,
   with a preview); anyone can add a missing dish. Every host has their own usual restaurant.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
-- **WhatsApp bot**: the invitation and order reminder on Friday at 10:00, the order list for
-  the host and everyone's payment link at 19:00, the settled amounts and daily payment
-  reminders. People can
-  answer with `1`, `2`, `3`, `wie immer`, `andere`, `bezahlt`, `status` or `code`.
+- **WhatsApp bot**: on Wednesday the question who comes, the invitation and order reminder
+  on Friday at 10:00, the order list for the host and everyone's payment link at 19:00, the
+  settled amounts and daily payment reminders. The host sees which messages are still to
+  come, to whom and when. People can answer with `1`, `2`, `3`, `wie immer`, `andere`,
+  `bezahlt`, `status` or `code`.
 
 ## Screenshots
 

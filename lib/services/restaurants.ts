@@ -1,9 +1,18 @@
 import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import type { Db } from '@/lib/db/client';
-import { dishes, fridays, members, restaurants, type Dish, type Restaurant } from '@/lib/db/schema';
+import {
+  dishes,
+  fridays,
+  members,
+  restaurantHosts,
+  restaurants,
+  type Dish,
+  type Restaurant,
+} from '@/lib/db/schema';
 import type { BulkDish } from '@/lib/menu/bulk';
 import type { OptionGroup } from '@/lib/menu/options';
 import { ServiceError } from '@/lib/services/members';
+import type { VoteOption } from '@/lib/vote';
 
 export type RestaurantInput = Pick<
   Restaurant,
@@ -15,7 +24,8 @@ export type RestaurantInput = Pick<
   | 'freeDeliveryFromCents'
   | 'serviceFeeCents'
   | 'notes'
->;
+> &
+  Partial<Pick<Restaurant, 'pickup'>>;
 
 export async function listRestaurants(db: Db, includeArchived = false) {
   const rows = await db.select().from(restaurants).orderBy(asc(restaurants.name));
@@ -25,6 +35,58 @@ export async function listRestaurants(db: Db, includeArchived = false) {
 export async function getRestaurant(db: Db, id: number) {
   const [row] = await db.select().from(restaurants).where(eq(restaurants.id, id));
   return row ?? null;
+}
+
+/** The hosts a restaurant delivers to; empty means everyone. */
+export async function restaurantHostIds(db: Db, restaurantId: number): Promise<number[]> {
+  const rows = await db
+    .select({ memberId: restaurantHosts.memberId })
+    .from(restaurantHosts)
+    .where(eq(restaurantHosts.restaurantId, restaurantId));
+  return rows.map((row) => row.memberId);
+}
+
+export async function setRestaurantHosts(db: Db, restaurantId: number, memberIds: number[]) {
+  await db.transaction(async (tx) => {
+    await tx.delete(restaurantHosts).where(eq(restaurantHosts.restaurantId, restaurantId));
+    if (memberIds.length > 0) {
+      await tx
+        .insert(restaurantHosts)
+        .values([...new Set(memberIds)].map((memberId) => ({ restaurantId, memberId })));
+    }
+  });
+}
+
+/**
+ * The restaurants a Friday hosted by `hostId` can order from, oldest first so the vote's
+ * letters stay put: those that deliver to the host, and those that offer pickup, which can
+ * always be fetched.
+ */
+export async function restaurantsForHost(db: Db, hostId: number | null): Promise<VoteOption[]> {
+  const [rows, areas] = await Promise.all([
+    db
+      .select()
+      .from(restaurants)
+      .where(eq(restaurants.archived, false))
+      .orderBy(asc(restaurants.id)),
+    db.select().from(restaurantHosts),
+  ]);
+  return rows
+    .map((row) => {
+      const hosts = areas.filter((area) => area.restaurantId === row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        cuisine: row.cuisine,
+        lieferandoUrl: row.lieferandoUrl,
+        delivers: hosts.length === 0 || hosts.some((area) => area.memberId === hostId),
+        pickup: row.pickup,
+        minOrderCents: row.minOrderCents,
+        deliveryFeeCents: row.deliveryFeeCents,
+        freeDeliveryFromCents: row.freeDeliveryFromCents,
+      };
+    })
+    .filter((option) => option.delivers || option.pickup);
 }
 
 /** The restaurant a Friday hosted by `hostId` uses when nobody picks another one. */

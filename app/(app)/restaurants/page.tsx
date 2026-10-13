@@ -136,7 +136,11 @@ export default async function RestaurantsPage() {
           <section>
             <ChapterHeading icon={Plus} kicker="Neuer Laden" title="Restaurant anlegen" />
             <GlassCard variant="tile" className="p-5">
-              <RestaurantForm />
+              <RestaurantForm
+                members={people.filter(
+                  (person) => person.kind === 'member' && person.active && person.core
+                )}
+              />
             </GlassCard>
           </section>
         )}

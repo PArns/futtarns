@@ -30,6 +30,15 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
         <Button type="submit" disabled={pending}>
           <UserPlus /> Anlegen
         </Button>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-3">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" name="core" defaultChecked className="accent-primary size-4" />{' '}
+            Stammtruppe
+            <span className="text-muted-foreground text-xs">
+              (jede Woche gefragt; ohne Haken nur an Freitagen, zu denen jemand einlädt)
+            </span>
+          </label>
+        </div>
         {canGrantAdmin && (
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-3">
             <label className="flex items-center gap-2">

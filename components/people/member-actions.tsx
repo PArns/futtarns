@@ -23,6 +23,7 @@ export function MemberActions({
     assignsHosts: boolean;
     active: boolean;
     kind: string;
+    core: boolean;
   };
   isAdminViewer: boolean;
   canIssueLink: boolean;
@@ -66,6 +67,7 @@ export function MemberActions({
         )}
         {isAdminViewer && member.kind === 'member' && (
           <>
+            {toggle('Stammtruppe', member.core, { core: !member.core })}
             {toggle('Admin', member.isAdmin, { isAdmin: !member.isAdmin })}
             {toggle('Standard-Gastgeber', member.isDefaultHost, {
               isDefaultHost: !member.isDefaultHost,

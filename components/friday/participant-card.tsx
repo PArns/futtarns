@@ -1,4 +1,4 @@
-import { Check, Clock, CupSoda, House } from 'lucide-react';
+import { Check, Clock, CupSoda, House, ShoppingBag } from 'lucide-react';
 import { AnswerSelect } from '@/components/friday/answer-select';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { ItemRow } from '@/components/friday/item-row';
@@ -7,6 +7,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Pill } from '@/components/ui/pill';
+import { collecting } from '@/lib/balance';
 import { formatEuro } from '@/lib/format';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 import { cn } from '@/lib/utils';
@@ -18,7 +19,7 @@ const STATUS_BADGE = {
 } as const;
 
 function subline(participant: Participant, view: FridayView, nameOf: (id: number) => string) {
-  if (participant.member.kind === 'guest') {
+  if (participant.member.kind === 'guest' || !participant.member.core) {
     return `Gast${participant.addedById ? ` von ${nameOf(participant.addedById)}` : ''}`;
   }
   if (participant.attendance.reason === 'absent') return 'abwesend eingetragen';
@@ -38,22 +39,38 @@ function subline(participant: Participant, view: FridayView, nameOf: (id: number
 }
 
 /**
- * The host's money is the others': what is still to collect, and the drinks kitty, which
- * they buy the drinks from.
+ * The money of whoever collects it is the others': what is still to collect, and for the
+ * host the drinks kitty, which they buy the drinks from. Whoever fetches the food collects
+ * the food money.
  */
-function HostMoney({ view }: { view: FridayView }) {
-  const others = view.participants.filter((entry) => entry.member.id !== view.host?.id);
-  const toCollect = others.reduce((sum, entry) => sum + Math.max(entry.money.openCents, 0), 0);
-  const anyDue = others.some((entry) => entry.money.dueCents > 0);
+function PayeeMoney({
+  view,
+  memberId,
+  isHost,
+  isPicker,
+}: {
+  view: FridayView;
+  memberId: number;
+  isHost: boolean;
+  isPicker: boolean;
+}) {
+  const { openCents, anyDue } = collecting(view, memberId);
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Pill tone="primary">
-          <House /> Gastgeber
-        </Pill>
-        {toCollect > 0 ? (
+        {isHost && (
+          <Pill tone="primary">
+            <House /> Gastgeber
+          </Pill>
+        )}
+        {isPicker && (
+          <Pill tone="primary">
+            <ShoppingBag /> holt ab
+          </Pill>
+        )}
+        {openCents > 0 ? (
           <Pill tone="warning">
-            <Clock /> bekommt noch {formatEuro(toCollect)}
+            <Clock /> bekommt noch {formatEuro(openCents)}
           </Pill>
         ) : (
           anyDue && (
@@ -63,7 +80,7 @@ function HostMoney({ view }: { view: FridayView }) {
           )
         )}
       </div>
-      {view.drinksFeeCents > 0 && (
+      {isHost && view.drinksFeeCents > 0 && (
         <div className="border-primary/40 bg-primary/10 flex min-h-10 items-center gap-3 rounded-2xl border px-4 py-1.5">
           <CupSoda className="text-primary size-5 shrink-0" />
           <span className="flex-1 text-sm font-semibold">Getränkekasse</span>
@@ -96,16 +113,17 @@ export function ParticipantCard({
   nameOf: (id: number) => string;
 }) {
   const isHost = participant.member.id === view.host?.id;
+  const isPicker = view.pickup && participant.member.id === view.picker?.id;
   const silentOnFlat = view.mode === 'flat' && participant.attendance.reason === 'silent';
   const badge = silentOnFlat
     ? { label: 'Offen', variant: 'outline' as const }
     : STATUS_BADGE[participant.attendance.status];
   const editOthers = canEdit && !isViewer;
   const money = participant.money;
-  const showMoney = !isHost && (money.dueCents !== 0 || money.paidCents !== 0);
+  const showMoney = money.dueCents !== 0 || money.paidCents !== 0;
   const showDrinks =
     editOthers && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
-  const showHostMoney = isHost && !view.cancelled;
+  const showPayeeMoney = (isHost || isPicker) && !view.cancelled;
 
   return (
     <GlassCard
@@ -124,6 +142,9 @@ export function ParticipantCard({
               <span className="truncate font-bold">{participant.member.name}</span>
               {isHost && (
                 <House className="text-primary size-3.5 shrink-0" aria-label="Gastgeber" />
+              )}
+              {isPicker && (
+                <ShoppingBag className="text-primary size-3.5 shrink-0" aria-label="Holt ab" />
               )}
             </div>
             <div className="text-muted-foreground truncate text-xs">
@@ -148,15 +169,21 @@ export function ParticipantCard({
           </ul>
         )}
       </div>
-      {(showMoney || showDrinks || showHostMoney) && (
+      {(showMoney || showDrinks || showPayeeMoney) && (
         <div className="border-border/60 mt-3 space-y-2 border-t pt-3">
-          {showHostMoney && <HostMoney view={view} />}
+          {showPayeeMoney && (
+            <PayeeMoney
+              view={view}
+              memberId={participant.member.id}
+              isHost={isHost}
+              isPicker={isPicker}
+            />
+          )}
           {showMoney && (
             <MoneyStatus
               date={view.date}
               memberId={participant.member.id}
               money={money}
-              isHost={isHost}
               canManage={canManage && payable}
             />
           )}

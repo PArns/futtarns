@@ -2,6 +2,7 @@ import {
   CupSoda,
   HandCoins,
   Receipt,
+  ShoppingBag,
   Ticket,
   TriangleAlert,
   Truck,
@@ -17,10 +18,13 @@ import type { FridayView } from '@/lib/services/fridays';
 
 /**
  * Where someone stands, as a pill: red still owes, green has paid it all, blue gets money
- * back. The host collects, so their row says so instead.
+ * back. Whoever collects and owes nothing (the host, whoever fetches the food) gets their
+ * role instead.
  */
-function MoneyPill({ money, isHost }: { money: Money; isHost: boolean }) {
-  if (isHost) return <Badge className="text-muted-foreground">Gastgeber</Badge>;
+function MoneyPill({ money, role }: { money: Money; role: string | null }) {
+  if (role && money.dueCents === 0 && money.paidCents === 0) {
+    return <Badge className="text-muted-foreground">{role}</Badge>;
+  }
   const open = money.openCents;
   if (open > 0)
     return (
@@ -70,13 +74,27 @@ export function CostsSection({ view }: { view: FridayView }) {
                     label="Gerichte"
                     cents={estimate.subtotalCents}
                   />
-                  <AmountRow icon={Truck} label="Liefergebühr" cents={estimate.deliveryFeeCents} />
-                  <AmountRow
-                    icon={Receipt}
-                    label="Servicegebühr (Lieferando)"
-                    cents={estimate.serviceFeeCents}
-                  />
-                  <AmountRow icon={HandCoins} label="Trinkgeld" cents={estimate.tipCents} />
+                  {view.pickup ? (
+                    <AmountRow
+                      icon={ShoppingBag}
+                      label={`Abholen${view.picker ? ` (${view.picker.name})` : ''}`}
+                      cents={0}
+                    />
+                  ) : (
+                    <>
+                      <AmountRow
+                        icon={Truck}
+                        label="Liefergebühr"
+                        cents={estimate.deliveryFeeCents}
+                      />
+                      <AmountRow
+                        icon={Receipt}
+                        label="Servicegebühr (Lieferando)"
+                        cents={estimate.serviceFeeCents}
+                      />
+                      <AmountRow icon={HandCoins} label="Trinkgeld" cents={estimate.tipCents} />
+                    </>
+                  )}
                   {estimate.voucherCents > 0 && (
                     <AmountRow icon={Ticket} label="Gutschein" cents={-estimate.voucherCents} />
                   )}
@@ -94,7 +112,18 @@ export function CostsSection({ view }: { view: FridayView }) {
                       emphasis="strong"
                     />
                   )}
-                  {eaters > 0 && (
+                  {view.pickup && (
+                    <p className="text-muted-foreground pt-1 text-xs">
+                      Abgeholt kostet es nur die Gerichte: keine Liefer- oder Servicegebühr, kein
+                      Trinkgeld. {view.picker?.name ?? 'Wer abholt'} zahlt im Restaurant und bekommt
+                      das Geld fürs Essen
+                      {view.host && view.picker?.id !== view.host.id
+                        ? `, die Getränke gehen an ${view.host.name}`
+                        : ''}
+                      .
+                    </p>
+                  )}
+                  {!view.pickup && eaters > 0 && (
                     <p className="text-muted-foreground pt-1 text-xs">
                       {estimate.voucherCents > 0
                         ? 'Gebühren, Trinkgeld und Gutschein'
@@ -156,7 +185,12 @@ export function CostsSection({ view }: { view: FridayView }) {
             </thead>
             <tbody className="divide-border/50 divide-y">
               {rows.map((entry) => {
-                const isHost = entry.member.id === view.host?.id;
+                const role =
+                  entry.member.id === view.host?.id
+                    ? 'Gastgeber'
+                    : view.pickup && entry.member.id === view.picker?.id
+                      ? 'holt ab'
+                      : null;
                 return (
                   <tr key={entry.member.id}>
                     <td className="truncate py-2 pr-2 font-medium">{entry.member.name}</td>
@@ -167,7 +201,7 @@ export function CostsSection({ view }: { view: FridayView }) {
                       {entry.money.drinksCents ? formatEuro(entry.money.drinksCents) : '–'}
                     </td>
                     <td className="py-2 text-right">
-                      <MoneyPill money={entry.money} isHost={isHost} />
+                      <MoneyPill money={entry.money} role={role} />
                     </td>
                   </tr>
                 );

@@ -35,7 +35,7 @@ import { formatEuro } from '@/lib/format';
 import { getGroupContext } from '@/lib/session';
 import { hostsUsing, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
-import { getRestaurant, listDishes } from '@/lib/services/restaurants';
+import { getRestaurant, listDishes, restaurantHostIds } from '@/lib/services/restaurants';
 import { cn } from '@/lib/utils';
 
 async function load(id: string) {
@@ -56,10 +56,11 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
   const restaurant = await load(id);
   const { viewer, canManage } = await getGroupContext();
   const db = await getDb();
-  const [allDishes, myDefault, people] = await Promise.all([
+  const [allDishes, myDefault, people, deliversTo] = await Promise.all([
     listDishes(db, restaurant.id, canManage),
     getDefault(db, viewer.id, restaurant.id),
     listMembers(db),
+    restaurantHostIds(db, restaurant.id),
   ]);
   const hosts = hostsUsing(people, restaurant.id);
   const mineAsHost = viewer.defaultRestaurantId === restaurant.id;
@@ -241,7 +242,13 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
                 title="Daten und Gebühren"
               />
               <GlassCard variant="tile" className="space-y-5 p-5">
-                <RestaurantForm restaurant={restaurant} />
+                <RestaurantForm
+                  restaurant={restaurant}
+                  members={people.filter(
+                    (person) => person.kind === 'member' && person.active && person.core
+                  )}
+                  deliversTo={deliversTo}
+                />
                 <div className="border-border/50 border-t pt-4">
                   <RestaurantActions
                     id={restaurant.id}

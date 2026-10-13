@@ -28,6 +28,12 @@ const time = new Intl.DateTimeFormat('de-DE', {
   minute: '2-digit',
   timeZone: TIME_ZONE,
 });
+const weekdayTime = new Intl.DateTimeFormat('de-DE', {
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: TIME_ZONE,
+});
 
 const conjunction = new Intl.ListFormat('de-DE', { type: 'conjunction' });
 
@@ -74,4 +80,30 @@ export function centsToInput(cents: number | null): string {
 /** `16. Okt., 23. Okt. und 30. Okt.` */
 export function formatDayList(isos: IsoDate[]): string {
   return conjunction.format(isos.map(formatDayShort));
+}
+
+/** `Fr., 10:00`, Berlin time. */
+export function formatWeekdayTime(date: Date): string {
+  return weekdayTime.format(date);
+}
+
+/** Time left in the last hour, to the second: `12:05 Min`. */
+export function formatMinutesLeft(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.floor(ms / 1000) % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')} Min`;
+}
+
+/**
+ * How long until something: `in 4 Tagen`, `in 1 Tag 3 Std.`, `in 3 Std. 5 Min.`, and in the
+ * last hour to the second, `in 12:05 Min`.
+ */
+export function formatCountdown(ms: number): string {
+  if (ms < 3_600_000) return `in ${formatMinutesLeft(Math.max(ms, 0))}`;
+  const minutes = Math.floor(ms / 60_000);
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours} Std.${minutes % 60 ? ` ${minutes % 60} Min.` : ''}`;
+  const days = Math.floor(hours / 24);
+  const rest = days < 3 && hours % 24 ? ` ${hours % 24} Std.` : '';
+  return `in ${days} ${days === 1 ? 'Tag' : 'Tagen'}${rest}`;
 }
