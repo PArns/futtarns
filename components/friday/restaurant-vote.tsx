@@ -1,7 +1,9 @@
 'use client';
 
-import { Crown, ExternalLink, Vote as VoteIcon } from 'lucide-react';
-import { voteAction } from '@/app/actions';
+import { BookOpen, ChevronDown, Crown, ExternalLink, Vote as VoteIcon } from 'lucide-react';
+import { useState } from 'react';
+import { menuPreviewAction, voteAction } from '@/app/actions';
+import { MenuPreview, type MenuPreviewDish } from '@/components/friday/menu-preview';
 import { Avatar } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -41,6 +43,17 @@ export function RestaurantVote({
   const { pending, execute } = useAction();
   const most = Math.max(0, ...options.map((option) => option.voters.length));
   const open = now < closesAt;
+  // One menu open at a time, each fetched the first time it is opened.
+  const [shownMenu, setShownMenu] = useState<number | null>(null);
+  const [menus, setMenus] = useState<Record<number, MenuPreviewDish[] | 'failed'>>({});
+
+  async function toggleMenu(restaurantId: number) {
+    if (shownMenu === restaurantId) return setShownMenu(null);
+    setShownMenu(restaurantId);
+    if (menus[restaurantId] && menus[restaurantId] !== 'failed') return;
+    const dishes = await menuPreviewAction(restaurantId).catch(() => 'failed' as const);
+    setMenus((loaded) => ({ ...loaded, [restaurantId]: dishes }));
+  }
 
   return (
     <GlassCard variant="tile" className="space-y-3 p-4 sm:p-5">
@@ -57,72 +70,123 @@ export function RestaurantVote({
           const mine = option.id === myVote;
           const leading = most > 0 && option.voters.length === most;
           return (
-            <li key={option.id} className="flex items-center gap-3 py-3">
-              <span
-                className={cn(
-                  'flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-extrabold',
-                  mine ? 'border-primary bg-primary/15 text-primary' : 'border-border'
-                )}
-              >
-                {option.letter}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span className="font-semibold">{option.name}</span>
-                  {option.current && (
-                    <span className="text-warning inline-flex items-center gap-1 text-xs font-semibold">
-                      <Crown className="size-3.5" /> bisher
-                    </span>
+            <li key={option.id} className="py-3">
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    'flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-extrabold',
+                    mine ? 'border-primary bg-primary/15 text-primary' : 'border-border'
                   )}
-                </div>
-
-                <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                  {option.cuisine && <span>{option.cuisine}</span>}
-                  {option.voters.length > 0 && (
-                    <span
-                      className={cn(
-                        'inline-flex flex-wrap items-center gap-1',
-                        leading && 'text-foreground font-semibold'
-                      )}
-                    >
-                      {option.cuisine && <span aria-hidden>·</span>}
-                      {option.voters.length} {option.voters.length === 1 ? 'Stimme' : 'Stimmen'}:
-                      <span className="flex -space-x-1.5">
-                        {option.voters.slice(0, 5).map((voter) => (
-                          <Avatar
-                            key={voter.id}
-                            name={voter.name}
-                            id={voter.id}
-                            className="ring-background size-5 text-[9px] ring-2"
-                          />
-                        ))}
-                      </span>
-                      {option.voters.map((voter) => voter.name).join(', ')}
-                    </span>
-                  )}
-                </div>
-                <div className="text-muted-foreground mt-0.5 text-xs">{deliveryTerms(option)}</div>
-              </div>
-              {option.lieferandoUrl && (
-                <a
-                  href={option.lieferandoUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                  aria-label={`${option.name} bei Lieferando ansehen`}
                 >
-                  <ExternalLink />
-                </a>
+                  {option.letter}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-semibold">{option.name}</span>
+                    {option.current && (
+                      <span className="text-warning inline-flex items-center gap-1 text-xs font-semibold">
+                        <Crown className="size-3.5" /> bisher
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                    {option.cuisine && <span>{option.cuisine}</span>}
+                    {option.voters.length > 0 && (
+                      <span
+                        className={cn(
+                          'inline-flex flex-wrap items-center gap-1',
+                          leading && 'text-foreground font-semibold'
+                        )}
+                      >
+                        {option.cuisine && <span aria-hidden>·</span>}
+                        {option.voters.length} {option.voters.length === 1 ? 'Stimme' : 'Stimmen'}:
+                        <span className="flex -space-x-1.5">
+                          {option.voters.slice(0, 5).map((voter) => (
+                            <Avatar
+                              key={voter.id}
+                              name={voter.name}
+                              id={voter.id}
+                              className="ring-background size-5 text-[9px] ring-2"
+                            />
+                          ))}
+                        </span>
+                        {option.voters.map((voter) => voter.name).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-muted-foreground mt-0.5 text-xs">
+                    {deliveryTerms(option)}
+                  </div>
+                  {option.dishCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleMenu(option.id)}
+                      aria-expanded={shownMenu === option.id}
+                      aria-controls={`karte-${option.id}`}
+                      className="text-primary mt-1 inline-flex items-center gap-1 text-xs font-semibold hover:underline"
+                    >
+                      <BookOpen className="size-3.5" /> Karte ({option.dishCount}{' '}
+                      {option.dishCount === 1 ? 'Gericht' : 'Gerichte'})
+                      <ChevronDown
+                        className={cn(
+                          'size-3.5 transition-transform',
+                          shownMenu === option.id && 'rotate-180'
+                        )}
+                      />
+                    </button>
+                  ) : (
+                    <div className="text-muted-foreground mt-1 text-xs">Noch keine Karte hier</div>
+                  )}
+                </div>
+                {option.lieferandoUrl && (
+                  <a
+                    href={option.lieferandoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+                    aria-label={`${option.name} bei Lieferando ansehen`}
+                  >
+                    <ExternalLink />
+                  </a>
+                )}
+                <Button
+                  variant={mine ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={pending || !open}
+                  onClick={() => execute(() => voteAction(date, mine ? null : option.id))}
+                  aria-pressed={mine}
+                >
+                  <VoteIcon className="max-sm:hidden" /> {mine ? 'Meine Wahl' : 'Wählen'}
+                </Button>
+              </div>
+              {/* Stays mounted once opened, so closing slides it shut like the opening did. */}
+              {(shownMenu === option.id || menus[option.id]) && (
+                <div
+                  id={`karte-${option.id}`}
+                  inert={shownMenu !== option.id}
+                  className={cn(
+                    'grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none',
+                    shownMenu === option.id
+                      ? 'grid-rows-[1fr] opacity-100 starting:grid-rows-[0fr] starting:opacity-0'
+                      : 'grid-rows-[0fr] opacity-0'
+                  )}
+                >
+                  <div className="overflow-hidden">
+                    <div className="border-border/60 bg-background/40 mt-3 rounded-xl border p-3 sm:ml-11">
+                      {menus[option.id] === 'failed' ? (
+                        <p className="text-error text-sm">
+                          Die Karte ließ sich nicht laden. Versuch es gleich noch mal.
+                        </p>
+                      ) : menus[option.id] ? (
+                        <MenuPreview dishes={menus[option.id] as MenuPreviewDish[]} />
+                      ) : (
+                        <p className="text-muted-foreground text-sm">Karte wird geladen …</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
-              <Button
-                variant={mine ? 'default' : 'outline'}
-                size="sm"
-                disabled={pending || !open}
-                onClick={() => execute(() => voteAction(date, mine ? null : option.id))}
-                aria-pressed={mine}
-              >
-                <VoteIcon className="max-sm:hidden" /> {mine ? 'Meine Wahl' : 'Wählen'}
-              </Button>
             </li>
           );
         })}
