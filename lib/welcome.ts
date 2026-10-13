@@ -34,7 +34,7 @@ export function welcomeText({
     '',
     `2️⃣ ${bold('Standardgericht festlegen')}, pro Restaurant eins, dann musst du nicht jede Woche wählen.`,
     '',
-    `3️⃣ ${bold('Freitags um 10')} frage ich hier, ob du kommst. Antworte mit ${bold('1')}, ${bold('2')}, ${bold('3')} oder ${bold('wie immer')}.`,
+    `3️⃣ ${bold('Mittwochs')} frage ich hier, ob du kommst, freitags um 10 noch mal, wenn du nichts gesagt hast. Antworte mit ${bold('1')}, ${bold('2')}, ${bold('3')} oder ${bold('wie immer')}.`,
     '',
     `Bestellschluss ist freitags um ${bold(`${clock(order - DEADLINE_MINUTES_BEFORE)} Uhr`)}, danach kommt der Zahl-Link. Gegessen wird gegen ${clock(order + DELIVERY_MINUTES_AFTER_ORDER)}.`,
     `Mit ${bold('hilfe')} siehst du, was ich sonst noch kann.`,

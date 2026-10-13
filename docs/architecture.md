@@ -80,6 +80,7 @@ stale reminders afterwards.
 | When (Berlin)        | Who                                      | What                                                 |
 | -------------------- | ---------------------------------------- | ---------------------------------------------------- |
 | Mon 18:00, Wed 10:00 | a host who is away that day              | find a substitute or cancel                          |
+| Wed 12:00            | members who haven't answered             | whether they come, with reply options                |
 | Thu 18:00, Fri 09:00 | host, no restaurant yet                  | pick one                                             |
 | Fri 10:00 – 17:00    | members who haven't answered             | invitation with reply options and what to order      |
 | Fri 10:00            | said yes without an invitation, no order | order reminder naming their default                  |
@@ -100,6 +101,13 @@ Every payment message carries a „bezahlt“ link (`lib/pay-links.ts`): a signe
 Friday and one person, so it needs no login. Opening it only shows what is open; the button
 on the page books it, because chat apps open links for their previews. Once nothing is open,
 the reminders stop by themselves. Replying „bezahlt“ to the bot still works too.
+
+The host and admins see what is still to go out, to whom and when, with a countdown, in the
+Friday's „Chefsache“ (`previewReminders`, `upcomingMessages`). It runs `planReminders` at
+every moment a window opens, with the Friday locked from the deadline on, plus the
+scheduler's next pass for what is due right away, and leaves out keys already sent. Settle
+and payment reminders repeat daily, so it shows the next one of each. It is a forecast:
+whoever answers or orders in the meantime drops out of later reminders.
 
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
 without food for a „nix“ default) and „andere“ (who eats what this Friday).

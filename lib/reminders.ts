@@ -8,6 +8,8 @@ import type { FridayView, Participant } from '@/lib/services/fridays';
 
 export type Outgoing = { key: string; to: string; text: string };
 
+/** How often the scheduler runs (`instrumentation.ts`). */
+export const SCHEDULER_INTERVAL_MS = 60_000;
 const PAY_REMINDER_DAYS = 10;
 const SETTLE_REMINDER_DAYS = 3;
 /** Differences below this are not worth a message; they show on the page all the same. */
@@ -133,22 +135,37 @@ export function planReminders({
     return fallback ? `bekommst du deinen Standard (${bold(fallback)})` : 'gibt’s für dich nichts';
   };
 
+  const what = flat
+    ? `gibt's ${view.flatTitle ?? 'was Leckeres'} für ${formatEuro(view.flatPriceCents ?? 0)} pro Person`
+    : view.restaurant
+      ? `bestellen wir bei ${view.restaurant.name}`
+      : 'bestellen wir zusammen (Restaurant kommt noch)';
+  const rule = flat ? 'Dafür brauchen wir deine Zusage.' : 'Wer nichts sagt, ist dabei.';
+  const unanswered = reachable.filter(
+    (entry) => entry.attendance.reason === 'silent' && entry.member.id !== view.host?.id
+  );
+
+  // On Wednesday, once it is clear the Friday happens, a first question who comes; whoever
+  // still has not answered gets the invitation on Friday.
+  if (between(now, berlinAt(date, -2, 12), berlinAt(date, 0, 10))) {
+    for (const entry of unanswered) {
+      out.push({
+        key: `ask:${date}:${entry.member.id}`,
+        to: entry.member.phone!,
+        text: `Hi ${entry.member.name}! 👋\n${bold(`Am Freitag (${day}) ${what}`)}${place}.\n\n${ANSWER_HINT}\n\n${rule}\n${link}`,
+      });
+    }
+  }
+
   // The invitation goes out on the Friday morning. Without a restaurant by then it goes out
   // anyway, and a second message follows once one is chosen.
   if (between(now, berlinAt(date, 0, 10), berlinAt(date, 0, 17))) {
-    const what = flat
-      ? `gibt's ${view.flatTitle ?? 'was Leckeres'} für ${formatEuro(view.flatPriceCents ?? 0)} pro Person`
-      : view.restaurant
-        ? `bestellen wir bei ${view.restaurant.name}`
-        : 'bestellen wir zusammen (Restaurant kommt noch)';
-    const rule = flat ? 'Dafür brauchen wir deine Zusage.' : 'Wer nichts sagt, ist dabei.';
     // Silent members count as in, so the invitation also carries the order reminder.
     const orderHint = (memberId: number) =>
       !flat && view.restaurant
         ? `\nSuch dir bis ${bold(deadline)} was aus, sonst ${orderFallback(memberId)}.`
         : '';
-    for (const entry of reachable) {
-      if (entry.attendance.reason !== 'silent' || entry.member.id === view.host?.id) continue;
+    for (const entry of unanswered) {
       const id = entry.member.id;
       if (invited(id)) continue;
       out.push({
@@ -310,4 +327,98 @@ export function planReminders({
   }
 
   return out;
+}
+
+/**
+ * The moments ahead at which `planReminders` sends something new for this Friday: the
+ * scheduler's next pass (for whatever is due right away), each window that opens up to the
+ * deadline, and the next morning and evening after it. Settle and pay reminders repeat
+ * daily, so the overview shows the next one of each.
+ */
+function previewTimes(view: FridayView, now: Date): Date[] {
+  const date = view.date;
+  const afterDeadline = Array.from({ length: PAY_REMINDER_DAYS }, (_, day) => [
+    berlinAt(date, day + 1, 10),
+    berlinAt(date, day + 1, 18),
+  ])
+    .flat()
+    .filter((at) => at > now)
+    .slice(0, 2);
+  return [
+    new Date(now.getTime() + SCHEDULER_INTERVAL_MS),
+    berlinAt(date, -4, 18),
+    berlinAt(date, -2, 10),
+    berlinAt(date, -2, 12),
+    berlinAt(date, -1, 18),
+    berlinAt(date, 0, 9),
+    berlinAt(date, 0, 10),
+    berlinAt(date, 0, 18, 30),
+    view.deadline,
+    ...afterDeadline,
+  ]
+    .filter((at) => at > now)
+    .sort((a, b) => a.getTime() - b.getTime());
+}
+
+export type PlannedMessage = Outgoing & { at: Date };
+
+/**
+ * What this Friday will still send, to whom and when, as things stand now: `planReminders`
+ * run at each moment ahead, from the deadline on with the Friday locked as it will be then.
+ * Answers and orders until then change it.
+ */
+export function previewReminders(input: Omit<Input, 'now'>, now: Date): PlannedMessage[] {
+  const planned = new Map<string, PlannedMessage>();
+  const locked = { ...input.view, locked: true };
+  for (const at of previewTimes(input.view, now)) {
+    const view = at >= input.view.deadline && !input.view.cancelled ? locked : input.view;
+    for (const message of planReminders({ ...input, view, now: at })) {
+      if (!input.sent.has(message.key) && !planned.has(message.key)) {
+        planned.set(message.key, { ...message, at });
+      }
+    }
+  }
+  return [...planned.values()];
+}
+
+const MESSAGE_KINDS: Record<string, string> = {
+  cancel: 'Absage',
+  hostaway: 'Gastgeber ist weg, wer übernimmt?',
+  pick: 'Restaurant aussuchen',
+  ask: 'Kommst du?',
+  invite: 'Einladung',
+  'invite-open': 'Einladung',
+  restaurant: 'Restaurant steht fest',
+  order: 'Noch nichts ausgesucht',
+  lastcall: 'Letzte Chance',
+  due: 'Betrag und Zahl-Link',
+  sheet: 'Bestellliste',
+  settle: 'Was hat es gekostet?',
+  settled: 'Abrechnung',
+  pay: 'Zahl-Erinnerung',
+};
+
+export type MessagePreview = { at: Date; kind: string; recipients: string[] };
+
+/** Planned messages as one line per time and kind, with the recipients by name. */
+export function summarizePlanned(
+  planned: PlannedMessage[],
+  view: FridayView,
+  group: string | null
+): MessagePreview[] {
+  const nameOf = (to: string) =>
+    to === group
+      ? 'WhatsApp-Gruppe'
+      : (view.participants.find((entry) => entry.member.phone === to)?.member.name ??
+        (view.host?.phone === to ? view.host.name : '?'));
+  const lines = new Map<string, MessagePreview>();
+  for (const message of planned) {
+    const kind = MESSAGE_KINDS[message.key.split(':')[0]!] ?? message.key;
+    const id = `${message.at.getTime()}|${kind}`;
+    const line = lines.get(id) ?? { at: message.at, kind, recipients: [] };
+    const name = nameOf(message.to);
+    if (!line.recipients.includes(name)) line.recipients.push(name);
+    lines.set(id, line);
+  }
+  return [...lines.values()].sort((a, b) => a.at.getTime() - b.at.getTime());
 }

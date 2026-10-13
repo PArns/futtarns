@@ -42,27 +42,28 @@ export function ExtrasForm({
         execute(() => setExtrasAction(date, tip, drinks, voucher));
       }}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Label>
-          Trinkgeld (€)
+      <Label>
+        Trinkgeld (€)
+        <span className="flex flex-wrap items-center gap-1.5">
           <Input
             value={tip}
             onChange={(event) => setTip(event.target.value)}
             inputMode="decimal"
             placeholder={centsToInput(DEFAULT_TIP_CENTS)}
+            className="w-24"
           />
-          <span className="flex flex-wrap gap-1.5">
-            {TIP_CHOICES.map((cents) => (
-              <Chip
-                key={cents}
-                selected={shownTip === centsToInput(cents)}
-                onClick={() => setTip(centsToInput(cents))}
-              >
-                {centsToInput(cents)} €
-              </Chip>
-            ))}
-          </span>
-        </Label>
+          {TIP_CHOICES.map((cents) => (
+            <Chip
+              key={cents}
+              selected={shownTip === centsToInput(cents)}
+              onClick={() => setTip(centsToInput(cents))}
+            >
+              {centsToInput(cents)} €
+            </Chip>
+          ))}
+        </span>
+      </Label>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Label>
           Getränkepauschale (€)
           <Input
@@ -81,7 +82,6 @@ export function ExtrasForm({
               inputMode="decimal"
               placeholder="keiner"
             />
-            <Hint>Wird bei dieser Bestellung eingelöst und auf alle verteilt, die essen.</Hint>
           </Label>
         )}
       </div>
@@ -89,7 +89,11 @@ export function ExtrasForm({
         <Button type="submit" variant="outline" disabled={pending}>
           <Save /> Speichern
         </Button>
-        <Hint>Leer heißt: wie immer. 0 schaltet Trinkgeld oder Getränkepauschale ab.</Hint>
+        <Hint className="min-w-0 flex-1">
+          Leer heißt: wie immer. 0 schaltet Trinkgeld oder Getränkepauschale ab.
+          {showVoucher &&
+            ' Ein Gutschein gilt für diese Bestellung und wird auf alle verteilt, die essen.'}
+        </Hint>
       </div>
     </form>
   );

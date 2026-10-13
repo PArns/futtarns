@@ -40,7 +40,7 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
-import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
 import { moneyLines } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
@@ -48,6 +48,7 @@ import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/li
 import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
 import { listRestaurants } from '@/lib/services/restaurants';
+import { upcomingMessages } from '@/lib/services/scheduler';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -106,10 +107,11 @@ export async function FridayScreen({
   const me = view.participants.find((participant) => participant.member.id === viewer.id);
   const myDefault = view.restaurant ? await getDefault(db, viewer.id, view.restaurant.id) : null;
   const otherBalances = isCurrent ? await openBalancesFor(db, viewer.id, date, now) : [];
-  const [restaurants, members, defaultHost] = await Promise.all([
+  const [restaurants, members, defaultHost, messages] = await Promise.all([
     manage ? listRestaurants(db) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
+    manage ? upcomingMessages(db, view, now) : [],
   ]);
   const hostOptions = members
     .filter((member) => member.active)
@@ -538,6 +540,60 @@ export async function FridayScreen({
           </section>
         )}
 
+        {manage && (
+          <section id="chefsache" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={ChefHat}
+              kicker="Chefsache"
+              title="Für den Gastgeber"
+              hint="Nur du und die Admins sehen diesen Teil."
+            />
+            <HostSection
+              view={view}
+              closed={closed}
+              sheet={sheet}
+              hungry={hungry}
+              restaurants={restaurants.map(({ id, name }) => ({
+                id,
+                name,
+                isDefault: id === view.host?.defaultRestaurantId,
+              }))}
+              members={hostOptions}
+              defaultHostName={defaultHost?.name ?? null}
+              viewerIsHost={amHost}
+              messages={messages.map((message) => ({
+                at: message.at.getTime(),
+                when: formatWeekdayTime(message.at),
+                kind: message.kind,
+                recipients: message.recipients,
+              }))}
+              serverNow={now.getTime()}
+            />
+          </section>
+        )}
+
+        {swapHostOnly && !view.settled && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={House}
+              kicker="Vertretung"
+              title="Wer ist Gastgeber?"
+              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
+            />
+            <GlassCard variant="tile" className="max-w-md p-5">
+              <HostPicker
+                date={view.date}
+                hostId={hostId}
+                hostIsDefault={view.hostIsDefault}
+                defaultHostName={defaultHost?.name ?? null}
+                members={hostOptions}
+              />
+            </GlassCard>
+          </section>
+        )}
+
         {me && view.restaurant && canOrder && (
           <section id="karte" className="scroll-mt-16">
             <ChapterHeading
@@ -595,53 +651,6 @@ export async function FridayScreen({
                 <AddGuestForm date={date} />
               </div>
             )}
-          </section>
-        )}
-
-        {manage && (
-          <section id="chefsache" className="scroll-mt-16">
-            <ChapterHeading
-              number={++chapter}
-              icon={ChefHat}
-              kicker="Chefsache"
-              title="Für den Gastgeber"
-              hint="Nur du und die Admins sehen diesen Teil."
-            />
-            <HostSection
-              view={view}
-              closed={closed}
-              sheet={sheet}
-              hungry={hungry}
-              restaurants={restaurants.map(({ id, name }) => ({
-                id,
-                name,
-                isDefault: id === view.host?.defaultRestaurantId,
-              }))}
-              members={hostOptions}
-              defaultHostName={defaultHost?.name ?? null}
-              viewerIsHost={amHost}
-            />
-          </section>
-        )}
-
-        {swapHostOnly && !view.settled && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={House}
-              kicker="Vertretung"
-              title="Wer ist Gastgeber?"
-              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
-            />
-            <GlassCard variant="tile" className="max-w-md p-5">
-              <HostPicker
-                date={view.date}
-                hostId={hostId}
-                hostIsDefault={view.hostIsDefault}
-                defaultHostName={defaultHost?.name ?? null}
-                members={hostOptions}
-              />
-            </GlassCard>
           </section>
         )}
 
