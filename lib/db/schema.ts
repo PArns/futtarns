@@ -31,6 +31,9 @@ export const members = pgTable('members', {
   isDefaultHost: boolean('is_default_host').notNull().default(false),
   // The „Gastgeber“ role: may hand any single Friday to another host.
   assignsHosts: boolean('assigns_hosts').notNull().default(false),
+  // The „Stammtruppe“: asked every week and counted in when silent. A member outside it
+  // has a login and a vote, but only for the Fridays someone added them to.
+  core: boolean('core').notNull().default(true),
   paypalMe: text('paypal_me'),
   address: text('address'),
   // Where a Friday this member hosts orders from when nobody picks another restaurant.

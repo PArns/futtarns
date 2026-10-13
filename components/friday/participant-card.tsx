@@ -19,7 +19,7 @@ const STATUS_BADGE = {
 } as const;
 
 function subline(participant: Participant, view: FridayView, nameOf: (id: number) => string) {
-  if (participant.member.kind === 'guest') {
+  if (participant.member.kind === 'guest' || !participant.member.core) {
     return `Gast${participant.addedById ? ` von ${nameOf(participant.addedById)}` : ''}`;
   }
   if (participant.attendance.reason === 'absent') return 'abwesend eingetragen';

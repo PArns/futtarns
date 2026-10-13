@@ -244,7 +244,9 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
               <GlassCard variant="tile" className="space-y-5 p-5">
                 <RestaurantForm
                   restaurant={restaurant}
-                  members={people.filter((person) => person.kind === 'member' && person.active)}
+                  members={people.filter(
+                    (person) => person.kind === 'member' && person.active && person.core
+                  )}
                   deliversTo={deliversTo}
                 />
                 <div className="border-border/50 border-t pt-4">

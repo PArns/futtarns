@@ -81,6 +81,9 @@ export async function restaurantsForHost(db: Db, hostId: number | null): Promise
         lieferandoUrl: row.lieferandoUrl,
         delivers: hosts.length === 0 || hosts.some((area) => area.memberId === hostId),
         pickup: row.pickup,
+        minOrderCents: row.minOrderCents,
+        deliveryFeeCents: row.deliveryFeeCents,
+        freeDeliveryFromCents: row.freeDeliveryFromCents,
       };
     })
     .filter((option) => option.delivers || option.pickup);

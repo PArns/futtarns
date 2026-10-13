@@ -14,7 +14,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 
 | Table                     | Holds                                                                                                                                                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, PayPal.me, address, the restaurant they order from as host                                                                   |
+| `members`                 | people (kind `member`) and guests (kind `guest`, no login); phone in E.164, roles, the Stammtruppe flag (`core`), PayPal.me, address, the restaurant they order from as host                                    |
 | `sessions`, `login_codes` | browser sessions and the six-digit WhatsApp codes (both hashed)                                                                                                                                                 |
 | `absences`                | date ranges someone is away                                                                                                                                                                                     |
 | `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, pickup and who fetches the food, lock and settlement |
@@ -74,6 +74,18 @@ A Friday without a row is a normal Friday: the default host and that host's rest
   picker. The amounts are final at the deadline (`isBilled`), so there is no settle reminder
   and the payment reminders start the next evening; the host can still enter a different
   total. Once anyone has paid, pickup and picker stay as they are (`setPickup`).
+
+## Stammtruppe and guests
+
+Members carry a `core` flag, the Stammtruppe. Only they are asked every week, count as in
+when they say nothing, host and vote every Friday. A guest added with a phone number
+(`addGuestWithPhone`) becomes a member outside the Stammtruppe: they get an invitation by
+WhatsApp with a login link, log in with their number, order, pay and vote themselves, but
+only for the Fridays someone adds them to (an attendance row). On every other Friday they
+count as out and appear nowhere (`effectiveAttendance`, the people queries in
+`loadFriday` and `loadCalendar`), so they drop out by themselves the next week. The same
+number brings back the same member. A guest without a number stays a name on one Friday,
+whose bringer pays and orders for them. Admins switch the flag on the people page.
 
 ## Permissions (`lib/permissions.ts`)
 

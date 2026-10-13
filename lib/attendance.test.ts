@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { effectiveAttendance } from '@/lib/attendance';
 
-const member = { id: 1, kind: 'member' as const, active: true };
+const member = { id: 1, kind: 'member' as const, active: true, core: true };
 const away = [{ memberId: 1, fromDate: '2026-10-10', toDate: '2026-10-20' }];
 
 describe('effectiveAttendance', () => {
@@ -31,5 +31,14 @@ describe('effectiveAttendance', () => {
     const guest = { ...member, kind: 'guest' as const };
     expect(effectiveAttendance(guest, '2026-10-16', undefined, []).status).toBe('out');
     expect(effectiveAttendance(guest, '2026-10-16', 'in', []).status).toBe('in');
+  });
+
+  it('counts someone outside the Stammtruppe only on the Fridays they were added to', () => {
+    const visitor = { ...member, core: false };
+    expect(effectiveAttendance(visitor, '2026-10-23', undefined, [])).toEqual({
+      status: 'out',
+      reason: 'guest',
+    });
+    expect(effectiveAttendance(visitor, '2026-10-16', 'in', []).status).toBe('in');
   });
 });

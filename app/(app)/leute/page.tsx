@@ -43,8 +43,9 @@ function forActions({
   assignsHosts,
   active,
   kind,
+  core,
 }: Member) {
-  return { id, name, phone, isAdmin, isDefaultHost, assignsHosts, active, kind };
+  return { id, name, phone, isAdmin, isDefaultHost, assignsHosts, active, kind, core };
 }
 
 export default async function PeoplePage() {
@@ -133,7 +134,7 @@ export default async function PeoplePage() {
           <ChapterHeading
             icon={Users}
             kicker="Stammtisch"
-            title={`${people.filter((p) => p.active).length} in der Runde`}
+            title={`${people.filter((p) => p.active && p.core).length} in der Stammtruppe`}
             hint={
               viewer.isAdmin
                 ? 'Die Rolle „Gastgeber“ darf für einzelne Freitage einen anderen Gastgeber eintragen.'
@@ -171,6 +172,7 @@ export default async function PeoplePage() {
                       label={`Freitag: ${ANSWER_LABEL[answerKind(thisFriday.get(member.id)!)]}`}
                     />
                   )}
+                  {!member.core && <Badge variant="outline">Gast</Badge>}
                   {member.isAdmin && <Badge variant="soft">Admin</Badge>}
                   {member.isDefaultHost && <Badge variant="soft">Standard-Gastgeber</Badge>}
                   {member.assignsHosts && <Badge variant="soft">Gastgeber</Badge>}

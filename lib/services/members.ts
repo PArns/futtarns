@@ -91,6 +91,8 @@ export type NewMember = {
   isAdmin?: boolean;
   isDefaultHost?: boolean;
   assignsHosts?: boolean;
+  /** In the Stammtruppe (the default), or only there on the Fridays they are added to. */
+  core?: boolean;
 };
 
 /** Creates a member and returns the login token, which is shown once and never stored. */
@@ -113,6 +115,7 @@ export async function createMember(
         isAdmin: input.isAdmin ?? false,
         isDefaultHost: input.isDefaultHost ?? false,
         assignsHosts: input.assignsHosts ?? false,
+        core: input.core ?? true,
         loginTokenHash: hashToken(loginToken),
         loginTokenExpiresAt: linkExpiry(),
         calendarToken: generateToken(),
@@ -200,7 +203,13 @@ export async function updateProfile(db: Db, memberId: number, update: ProfileUpd
 export async function setRoles(
   db: Db,
   memberId: number,
-  roles: { isAdmin?: boolean; isDefaultHost?: boolean; assignsHosts?: boolean; active?: boolean }
+  roles: {
+    isAdmin?: boolean;
+    isDefaultHost?: boolean;
+    assignsHosts?: boolean;
+    active?: boolean;
+    core?: boolean;
+  }
 ) {
   await db.transaction(async (tx) => {
     if (roles.isDefaultHost) {
@@ -208,6 +217,22 @@ export async function setRoles(
     }
     await tx.update(members).set(roles).where(eq(members.id, memberId));
   });
+}
+
+/** Puts someone on a Friday as brought by `addedById`; whoever brought them first keeps them. */
+async function markAdded(db: Db, friday: IsoDate, memberId: number, addedById: number) {
+  await db
+    .insert(attendance)
+    .values({ fridayDate: friday, memberId, status: 'in', addedById })
+    .onConflictDoUpdate({
+      target: [attendance.fridayDate, attendance.memberId],
+      // Whoever brought the guest first keeps them; others can't take over their order.
+      set: {
+        status: 'in',
+        addedById: sql`coalesce(${attendance.addedById}, ${addedById})`,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 /**
@@ -235,20 +260,33 @@ export async function addGuest(
           .values({ name: trimmed, kind: 'guest', createdById: addedById })
           .returning()
       )[0]!;
-    await tx
-      .insert(attendance)
-      .values({ fridayDate: friday, memberId: guest.id, status: 'in', addedById })
-      .onConflictDoUpdate({
-        target: [attendance.fridayDate, attendance.memberId],
-        // Whoever brought the guest first keeps them; others can't take over their order.
-        set: {
-          status: 'in',
-          addedById: sql`coalesce(${attendance.addedById}, ${addedById})`,
-          updatedAt: new Date(),
-        },
-      });
+    await markAdded(tx, friday, guest.id, addedById);
     return guest;
   });
+}
+
+/**
+ * Adds a guest with a phone number to a Friday: a member outside the Stammtruppe, who can
+ * log in, order, pay and vote, but only for the Fridays someone adds them to. A known
+ * number brings back the member it belongs to. `loginToken` is set when the member is new.
+ */
+export async function addGuestWithPhone(
+  db: Db,
+  friday: IsoDate,
+  input: { name: string; phone: string },
+  addedById: number
+): Promise<{ member: Member; loginToken: string | null }> {
+  const name = input.name.trim();
+  if (!name) throw new ServiceError('Bitte einen Namen angeben');
+  const [known] = await db.select().from(members).where(eq(members.phone, input.phone));
+  if (known && !known.active) {
+    throw new ServiceError(`${known.name} ist deaktiviert, das kann ein Admin unter Leute ändern`);
+  }
+  const { member, loginToken } = known
+    ? { member: known, loginToken: null }
+    : await createMember(db, { name, phone: input.phone, core: false }, addedById);
+  await markAdded(db, friday, member.id, addedById);
+  return { member, loginToken };
 }
 
 export async function listAbsences(db: Db, memberId: number, from: IsoDate) {

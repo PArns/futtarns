@@ -211,6 +211,19 @@ export async function castVote(
   if (!votingAt(friday, now)) {
     throw new ServiceError('Die Restaurantwahl für diesen Freitag ist vorbei');
   }
+  // Outside the Stammtruppe, only those invited to this Friday have a say in it.
+  const [voter] = await db.select().from(members).where(eq(members.id, memberId));
+  if (!voter || voter.kind !== 'member' || !voter.active) {
+    throw new ServiceError('Abstimmen kann nur, wer dabei ist');
+  }
+  if (!voter.core) {
+    const [invited] = await db
+      .select()
+      .from(attendance)
+      .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+    if (!invited)
+      throw new ServiceError('Abstimmen kannst du an Freitagen, zu denen du eingeladen bist');
+  }
   const where = and(eq(restaurantVotes.fridayDate, date), eq(restaurantVotes.memberId, memberId));
   // The count looks for the Friday's row, so a vote makes sure there is one.
   await ensureFridayRow(db, date);
@@ -605,7 +618,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     .from(members)
     .where(
       or(
-        and(eq(members.kind, 'member'), eq(members.active, true)),
+        and(eq(members.kind, 'member'), eq(members.active, true), eq(members.core, true)),
         involvedIds.length ? inArray(members.id, involvedIds) : undefined
       )
     )
@@ -866,7 +879,7 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     const people = everyone
       .filter(
         (member) =>
-          (member.kind === 'member' && member.active) ||
+          (member.kind === 'member' && member.active && member.core) ||
           dayAnswers.some((entry) => entry.memberId === member.id)
       )
       .map((member) => {

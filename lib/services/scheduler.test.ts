@@ -10,7 +10,7 @@ import {
   settleFriday,
 } from '@/lib/services/fridays';
 import { handleIncoming } from '@/lib/services/incoming';
-import { addAbsence, createMember } from '@/lib/services/members';
+import { addAbsence, addGuestWithPhone, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
 import {
   createDish,
@@ -412,7 +412,9 @@ describe('the restaurant vote', () => {
     const ask = sent.find((message) => message.to === '+491703333333')!;
     expect(ask.text).toContain('*Freunde des Freitagszocks!*');
     expect(ask.text).toContain('*A* · Bella Napoli 👑');
-    expect(ask.text).toContain('*B* · Sakura Sushi\nhttps://www.lieferando.de/sakura');
+    expect(ask.text).toContain(
+      '*B* · Sakura Sushi\nkein Mindestbestellwert · Lieferung gratis\nhttps://www.lieferando.de/sakura'
+    );
     expect(ask.text).toContain('Und bist du überhaupt dabei?');
     // Anna already answered and the host is in anyway: they only get the ballot.
     const ballots = sent.filter((message) => !message.text.includes('überhaupt dabei'));
@@ -461,6 +463,47 @@ describe('the restaurant vote', () => {
     expect((await loadFriday(db, next, at('2026-10-29T23:01:00Z'))).restaurant?.id).toBe(
       restaurant.id
     );
+  });
+
+  it('lets a guest with a phone vote, but only on the Friday they were invited to', async () => {
+    const { anna, restaurant } = await voteSetup();
+    const { member: tim, loginToken } = await addGuestWithPhone(
+      db,
+      NEXT,
+      { name: 'Tim', phone: '+491705555555' },
+      anna.id
+    );
+    expect(tim.core).toBe(false);
+    expect(loginToken).not.toBeNull();
+
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    expect(sent.find((message) => message.to === '+491705555555')?.text).toContain(
+      'Zur Wahl stehen'
+    );
+    expect(await handleIncoming(db, '+491705555555', 'b', WEDNESDAY, send)).toContain(
+      'Stimme gezählt'
+    );
+    const view = await loadFriday(db, NEXT, WEDNESDAY);
+    expect(view.participants.find((entry) => entry.member.id === tim.id)?.attendance).toEqual({
+      status: 'in',
+      reason: 'answered',
+    });
+
+    // A week later Tim is not part of it until someone invites him again.
+    const later = at('2026-10-28T11:05:00Z');
+    const nextWeek = await loadFriday(db, '2026-10-30', later);
+    expect(nextWeek.participants.some((entry) => entry.member.id === tim.id)).toBe(false);
+    await expect(castVote(db, '2026-10-30', tim.id, restaurant.id, later)).rejects.toThrow(
+      'eingeladen'
+    );
+    // The same number brings back the same member, without a second invitation.
+    const again = await addGuestWithPhone(
+      db,
+      '2026-10-30',
+      { name: 'Timmy', phone: '+491705555555' },
+      anna.id
+    );
+    expect([again.member.id, again.loginToken]).toEqual([tim.id, null]);
   });
 
   it('ends when the host picks a restaurant, and only offers what reaches the host', async () => {

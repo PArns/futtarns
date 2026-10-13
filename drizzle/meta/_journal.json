@@ -50,6 +50,13 @@
       "when": 1791886037932,
       "tag": "0006_restaurant-vote",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791886487550,
+      "tag": "0007_stammtruppe",
+      "breakpoints": true
     }
   ]
 }

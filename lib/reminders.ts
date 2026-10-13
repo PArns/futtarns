@@ -5,7 +5,7 @@ import { bold } from '@/lib/messages';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
-import { voteLetter, votingAt, type VoteOption } from '@/lib/vote';
+import { deliveryTerms, voteLetter, votingAt, type VoteOption } from '@/lib/vote';
 
 export type Outgoing = { key: string; to: string; text: string };
 
@@ -69,7 +69,8 @@ function ballot(options: VoteOption[], current: { id: number; name: string } | n
   return [
     bold('Zur Wahl stehen:'),
     ...options.flatMap((option, index) => [
-      `${bold(voteLetter(index))} · ${option.name}${option.id === current?.id ? ' 👑' : ''}${option.delivers ? '' : ' (nur abholen)'}`,
+      `${bold(voteLetter(index))} · ${option.name}${option.id === current?.id ? ' 👑' : ''}`,
+      deliveryTerms(option),
       ...(option.lieferandoUrl ? [option.lieferandoUrl] : []),
     ]),
     '',

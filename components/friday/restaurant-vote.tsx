@@ -10,14 +10,10 @@ import { formatCountdown } from '@/lib/format';
 import { useAction } from '@/lib/hooks/use-action';
 import { useNow } from '@/lib/hooks/use-now';
 import { cn } from '@/lib/utils';
+import { deliveryTerms, type VoteOption } from '@/lib/vote';
 
-export type BallotOption = {
-  id: number;
+export type BallotOption = VoteOption & {
   letter: string;
-  name: string;
-  cuisine: string | null;
-  lieferandoUrl: string | null;
-  delivers: boolean;
   /** What the Friday orders from if the vote changes nothing. */
   current: boolean;
   voters: { id: number; name: string }[];
@@ -78,10 +74,8 @@ export function RestaurantVote({
                       <Crown className="size-3.5" /> bisher
                     </span>
                   )}
-                  {!option.delivers && (
-                    <span className="text-muted-foreground text-xs">nur abholen</span>
-                  )}
                 </div>
+
                 <div className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
                   {option.cuisine && <span>{option.cuisine}</span>}
                   {option.voters.length > 0 && (
@@ -107,6 +101,7 @@ export function RestaurantVote({
                     </span>
                   )}
                 </div>
+                <div className="text-muted-foreground mt-0.5 text-xs">{deliveryTerms(option)}</div>
               </div>
               {option.lieferandoUrl && (
                 <a

@@ -10,11 +10,11 @@ import { loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { attendance, members, type Member } from '@/lib/db/schema';
-import { formatDayList } from '@/lib/format';
+import { formatDayList, formatDayShort } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
-import { welcomeText } from '@/lib/welcome';
+import { guestWelcomeText, welcomeText } from '@/lib/welcome';
 import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
 
 // Validation messages reach the toast as they are, and the app speaks German.
@@ -53,6 +53,7 @@ import {
 import {
   addAbsence,
   addGuest,
+  addGuestWithPhone,
   consumeLoginToken,
   createMember,
   issueLoginToken,
@@ -283,7 +284,15 @@ export async function removeDefaultAction(restaurantId: number): Promise<ActionR
   });
 }
 
-export async function addGuestAction(date: string, name: string): Promise<ActionResult> {
+/**
+ * Adds a guest to a Friday. With a phone number the guest becomes a member outside the
+ * Stammtruppe, who gets an invitation by WhatsApp and can log in, order and vote.
+ */
+export async function addGuestAction(
+  date: string,
+  name: string,
+  phoneInput = ''
+): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     const data = z
@@ -292,6 +301,7 @@ export async function addGuestAction(date: string, name: string): Promise<Action
         name: z.string().trim().min(1, 'Bitte einen Namen angeben').max(60),
       })
       .parse({ date, name });
+    const phone = optionalPhone(phoneInput);
     const db = await getDb();
     const row = await getFridayRow(db, data.date);
     const hostId = await hostIdFor(db, data.date);
@@ -300,8 +310,41 @@ export async function addGuestAction(date: string, name: string): Promise<Action
     if (closed && !canManageFriday(viewer, hostId)) {
       throw new ServiceError('Bestellschluss ist vorbei – der Gastgeber kann noch Gäste eintragen');
     }
-    const guest = await addGuest(db, data.date, data.name, viewer.id);
-    return { ok: true, message: `${guest.name} ist dabei` };
+    if (!phone) {
+      const guest = await addGuest(db, data.date, data.name, viewer.id);
+      return { ok: true, message: `${guest.name} ist dabei` };
+    }
+    const { member, loginToken } = await addGuestWithPhone(
+      db,
+      data.date,
+      { name: data.name, phone },
+      viewer.id
+    );
+    if (loginToken && whatsappConfigured()) {
+      const [host] = hostId
+        ? await db.select({ name: members.name }).from(members).where(eq(members.id, hostId))
+        : [];
+      await sendWhatsApp(
+        phone,
+        guestWelcomeText({
+          name: member.name,
+          invitedBy: viewer.name,
+          day: formatDayShort(data.date),
+          host: host?.name ?? null,
+          link: loginLink(loginToken),
+        })
+      );
+    }
+    const known =
+      member.name.toLowerCase() !== data.name.toLowerCase()
+        ? `Die Nummer gehört ${member.name}, `
+        : '';
+    return {
+      ok: true,
+      message: loginToken
+        ? `${member.name} ist dabei und hat eine Einladung per WhatsApp bekommen`
+        : `${known}${member.name} ist dabei`,
+    };
   });
 }
 
@@ -600,10 +643,12 @@ export async function createMemberAction(
         phone: z.string().trim().min(1, 'Bitte die Handynummer angeben – damit meldet man sich an'),
         isAdmin: z.string().optional(),
         assignsHosts: z.string().optional(),
+        core: z.string().optional(),
       })
       .parse(formObject(form));
     const phone = normalizePhone(data.phone);
     if (!phone) throw new ServiceError('Das sieht nicht nach einer Handynummer aus');
+    const core = data.core === 'on';
     const { member, loginToken } = await createMember(
       db,
       {
@@ -611,6 +656,7 @@ export async function createMemberAction(
         phone,
         isAdmin: viewer.isAdmin && data.isAdmin === 'on',
         assignsHosts: viewer.isAdmin && data.assignsHosts === 'on',
+        core,
       },
       viewer.id
     ).catch((error: unknown) => {
@@ -621,7 +667,12 @@ export async function createMemberAction(
     if (whatsappConfigured()) {
       await sendWhatsApp(
         phone,
-        welcomeText({ name: member.name, invitedBy: viewer.name, link: loginLink(loginToken) })
+        welcomeText({
+          name: member.name,
+          invitedBy: viewer.name,
+          link: loginLink(loginToken),
+          core,
+        })
       );
     }
     return { ok: true, message: `${member.name} ist angelegt`, link: loginLink(loginToken) };
@@ -669,14 +720,26 @@ export async function issueLoginLinkAction(target: number): Promise<ActionResult
 
 export async function setRolesAction(
   target: number,
-  roles: { isAdmin?: boolean; isDefaultHost?: boolean; assignsHosts?: boolean; active?: boolean }
+  roles: {
+    isAdmin?: boolean;
+    isDefaultHost?: boolean;
+    assignsHosts?: boolean;
+    active?: boolean;
+    core?: boolean;
+  }
 ): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
     const id = memberId.parse(target);
     const changes = z
-      .object({ isAdmin: flag, isDefaultHost: flag, assignsHosts: flag, active: flag })
+      .object({
+        isAdmin: flag,
+        isDefaultHost: flag,
+        assignsHosts: flag,
+        active: flag,
+        core: flag,
+      })
       .partial()
       .parse(roles);
     if (id === viewer.id && (changes.isAdmin === false || changes.active === false)) {

@@ -1,5 +1,6 @@
 import { berlinAt, type IsoDate } from '@/lib/dates';
 import type { FridayMode } from '@/lib/db/schema';
+import { formatEuro } from '@/lib/format';
 
 /** A restaurant the group can vote for on a Friday, as seen from that Friday's host. */
 export type VoteOption = {
@@ -10,7 +11,31 @@ export type VoteOption = {
   /** It delivers to the host; otherwise someone has to fetch the food. */
   delivers: boolean;
   pickup: boolean;
+  minOrderCents: number;
+  deliveryFeeCents: number;
+  freeDeliveryFromCents: number | null;
 };
+
+/** What ordering there costs on top: `Mindestbestellwert 15,00 € · Lieferung 2,99 € (ab 60,00 € gratis)`. */
+export function deliveryTerms(
+  option: Pick<
+    VoteOption,
+    'delivers' | 'minOrderCents' | 'deliveryFeeCents' | 'freeDeliveryFromCents'
+  >
+): string {
+  if (!option.delivers) return 'nur abholen, ohne Liefergebühr';
+  const minimum = option.minOrderCents
+    ? `Mindestbestellwert ${formatEuro(option.minOrderCents)}`
+    : 'kein Mindestbestellwert';
+  const fee = option.deliveryFeeCents
+    ? `Lieferung ${formatEuro(option.deliveryFeeCents)}${
+        option.freeDeliveryFromCents !== null
+          ? ` (ab ${formatEuro(option.freeDeliveryFromCents)} gratis)`
+          : ''
+      }`
+    : 'Lieferung gratis';
+  return `${minimum} · ${fee}`;
+}
 
 export type Vote = { memberId: number; restaurantId: number };
 

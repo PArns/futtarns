@@ -125,7 +125,7 @@ export async function FridayScreen({
     manage ? upcomingMessages(db, view, now) : [],
   ]);
   const hostOptions = members
-    .filter((member) => member.active)
+    .filter((member) => member.active && member.core)
     .map(({ id, name }) => ({ id, name }));
 
   const takenBy: Record<number, string[]> = {};
@@ -151,6 +151,7 @@ export async function FridayScreen({
         participant.member.id === viewer.id ||
         (editable(participant) &&
           (participant.member.kind === 'guest' ||
+            !participant.member.core ||
             (manage && participant.attendance.status !== 'out')))
     )
     .map((participant) => ({
@@ -183,7 +184,9 @@ export async function FridayScreen({
     ...(silent.length ? [`${silent.length} ohne Antwort`] : []),
   ].join(' · ');
   const visibleParticipants = view.participants.filter(
-    (participant) => participant.member.kind === 'member' || participant.attendance.status !== 'out'
+    (participant) =>
+      (participant.member.kind === 'member' && participant.member.core) ||
+      participant.attendance.status !== 'out'
   );
   const attendancePeople = visibleParticipants.map((participant) => ({
     id: participant.member.id,
@@ -705,7 +708,7 @@ export async function FridayScreen({
               ))}
             </div>
             {(!closed || manage) && (
-              <div className="mt-4 max-w-md">
+              <div className="mt-4 max-w-2xl">
                 <AddGuestForm date={date} />
               </div>
             )}
