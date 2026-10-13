@@ -12,20 +12,26 @@ import { DEFAULT_TIP_CENTS } from '@/lib/pricing';
 
 const TIP_CHOICES = [150, 250, 350, 500];
 
-/** Tip and drinks fee for one Friday; empty fields mean the usual amounts. */
+/** Tip, drinks fee and voucher for one Friday; empty fields mean the usual amounts. */
 export function ExtrasForm({
   date,
   tipCents,
   drinksFeeCents,
   defaultDrinksFeeCents,
+  voucherCents,
+  showVoucher,
 }: {
   date: string;
   tipCents: number | null;
   drinksFeeCents: number | null;
   defaultDrinksFeeCents: number;
+  voucherCents: number | null;
+  /** Only a delivery Friday has an order a voucher can go on. */
+  showVoucher: boolean;
 }) {
   const [tip, setTip] = useState(centsToInput(tipCents));
   const [drinks, setDrinks] = useState(centsToInput(drinksFeeCents));
+  const [voucher, setVoucher] = useState(centsToInput(voucherCents));
   const { pending, execute } = useAction();
   const shownTip = tip || centsToInput(DEFAULT_TIP_CENTS);
   return (
@@ -33,10 +39,10 @@ export function ExtrasForm({
       className="space-y-3"
       onSubmit={(event) => {
         event.preventDefault();
-        execute(() => setExtrasAction(date, tip, drinks));
+        execute(() => setExtrasAction(date, tip, drinks, voucher));
       }}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Label>
           Trinkgeld (€)
           <Input
@@ -66,6 +72,18 @@ export function ExtrasForm({
             placeholder={centsToInput(defaultDrinksFeeCents)}
           />
         </Label>
+        {showVoucher && (
+          <Label>
+            Gutschein (€)
+            <Input
+              value={voucher}
+              onChange={(event) => setVoucher(event.target.value)}
+              inputMode="decimal"
+              placeholder="keiner"
+            />
+            <Hint>Wird bei dieser Bestellung eingelöst und auf alle verteilt, die essen.</Hint>
+          </Label>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" variant="outline" disabled={pending}>

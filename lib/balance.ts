@@ -73,12 +73,12 @@ export function shareLines(view: FridayView, entry: Participant): MoneyLine[] {
     if (view.settled || !view.estimate) {
       const shared = view.shares.reduce((sum, share) => sum + share.sharedCents, 0);
       lines.push({
-        label: `Anteil Gebühren und Trinkgeld ${of(shared)}`,
+        label: `Anteil ${view.voucherCents ? 'Gebühren, Trinkgeld und Gutschein' : 'Gebühren und Trinkgeld'} ${of(shared)}`,
         cents: entry.share.sharedCents,
       });
     } else {
       const fees = view.estimate;
-      const parts = feeParts(entry.share.sharedCents, fees);
+      const parts = feeParts(entry.share.sharedCents, fees, eaters);
       lines.push(
         {
           label: `Anteil Liefergebühr ${of(fees.deliveryFeeCents)}`,
@@ -88,7 +88,8 @@ export function shareLines(view: FridayView, entry: Participant): MoneyLine[] {
           label: `Anteil Servicegebühr Lieferando ${of(fees.serviceFeeCents)}`,
           cents: parts.serviceCents,
         },
-        { label: `Anteil Trinkgeld ${of(fees.tipCents)}`, cents: parts.tipCents }
+        { label: `Anteil Trinkgeld ${of(fees.tipCents)}`, cents: parts.tipCents },
+        { label: `Anteil Gutschein ${of(-fees.voucherCents)}`, cents: -parts.voucherCents }
       );
     }
   }

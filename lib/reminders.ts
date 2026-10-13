@@ -253,6 +253,10 @@ export function planReminders({
         ? `${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.\n${link}`
         : `${bold('Bestellschluss!')} Das geht an ${bold(view.restaurant?.name ?? 'das Restaurant')}:\n\n${
             sheet || 'Niemand hat etwas bestellt.'
+          }${
+            view.voucherCents
+              ? `\n\n${bold('Gutschein einlösen:')} ${formatEuro(view.voucherCents)}`
+              : ''
           }\n\nNach der Bestellung den Betrag hier eintragen:\n${link}`,
     });
   }

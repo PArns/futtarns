@@ -1,4 +1,4 @@
-import { Flame, Receipt, Settings2, ShoppingBag, Store } from 'lucide-react';
+import { Flame, Receipt, Settings2, ShoppingBag, Store, Ticket } from 'lucide-react';
 import { CopyButton } from '@/components/common/copy-button';
 import { ExtrasForm } from '@/components/friday/extras-form';
 import { FlatForm } from '@/components/friday/flat-form';
@@ -12,7 +12,7 @@ import { SettleForm } from '@/components/friday/settle-form';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
 import { DRINKS_FEE_CENTS } from '@/lib/balance';
-import { centsToInput } from '@/lib/format';
+import { centsToInput, formatEuro } from '@/lib/format';
 import type { OrderLine } from '@/lib/order-sheet';
 import { orderSheetText } from '@/lib/order-sheet';
 import type { FridayView, Participant } from '@/lib/services/fridays';
@@ -78,6 +78,15 @@ export function HostSection({
             </h3>
             {hasOrders && <CopyButton text={orderSheetText(sheet)} />}
           </div>
+          {view.voucherCents ? (
+            <Notice className="flex items-center gap-2">
+              <Ticket className="text-primary" />
+              <span>
+                Gutschein über <strong>{formatEuro(view.voucherCents)}</strong> beim Bestellen
+                einlösen.
+              </span>
+            </Notice>
+          ) : null}
           {hungry.length > 0 && (
             <Notice>
               <strong className="text-warning">Bekommen nichts, wenn sie nichts wählen:</strong>{' '}
@@ -155,6 +164,8 @@ export function HostSection({
                 tipCents={view.fixedTipCents}
                 drinksFeeCents={view.customDrinksFeeCents}
                 defaultDrinksFeeCents={DRINKS_FEE_CENTS}
+                voucherCents={view.voucherCents}
+                showVoucher={!flat}
               />
             )}
             <NoteEditor date={view.date} note={view.note} />

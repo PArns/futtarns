@@ -10,5 +10,8 @@ export default defineConfig({
     include: ['**/*.test.ts'],
     exclude: ['node_modules/**', '.next/**', 'bot/**'],
     testTimeout: 20_000,
+    // beforeEach starts an in-memory Postgres and runs every migration; on a busy machine
+    // that alone can pass vitest's 10 s default for hooks.
+    hookTimeout: 30_000,
   },
 });

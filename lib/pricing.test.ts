@@ -15,6 +15,7 @@ describe('estimateFees', () => {
       deliveryFeeCents: 299,
       serviceFeeCents: 99,
       tipCents: 250,
+      voucherCents: 0,
       sharedCents: 648,
       totalCents: 2148,
       missingForMinimumCents: 500,
@@ -74,20 +75,50 @@ describe('splitTotal', () => {
 });
 
 describe('feeParts', () => {
+  const fees = { deliveryFeeCents: 300, serviceFeeCents: 99, tipCents: 250, voucherCents: 0 };
+
   it('splits a share in proportion to the fees and adds up exactly', () => {
     // 3,00 € delivery, 0,99 € service fee, 2,50 € tip shared by five: 1,30 € each.
-    const parts = feeParts(130, { deliveryFeeCents: 300, serviceFeeCents: 99, tipCents: 250 });
-    expect(parts).toEqual({ deliveryCents: 60, serviceCents: 20, tipCents: 50 });
-    expect(parts.deliveryCents + parts.serviceCents + parts.tipCents).toBe(130);
-    const odd = feeParts(131, { deliveryFeeCents: 300, serviceFeeCents: 99, tipCents: 250 });
+    const parts = feeParts(130, fees, 5);
+    expect(parts).toEqual({ deliveryCents: 60, serviceCents: 20, tipCents: 50, voucherCents: 0 });
+    const odd = feeParts(131, fees, 5);
     expect(odd.deliveryCents + odd.serviceCents + odd.tipCents).toBe(131);
   });
 
+  it('takes the voucher out as its own part, and the parts still add up', () => {
+    // A 10 € voucher among five: 6,49 € fees minus 10 € is −3,51 €, about −0,70 € each.
+    const parts = feeParts(-70, { ...fees, voucherCents: 1000 }, 5);
+    expect(parts.voucherCents).toBe(200);
+    expect(parts.deliveryCents + parts.serviceCents + parts.tipCents - parts.voucherCents).toBe(
+      -70
+    );
+  });
+
   it('puts everything on the tip when there are no fees to weigh by', () => {
-    expect(feeParts(50, { deliveryFeeCents: 0, serviceFeeCents: 0, tipCents: 0 })).toEqual({
-      deliveryCents: 0,
-      serviceCents: 0,
-      tipCents: 50,
-    });
+    expect(
+      feeParts(50, { deliveryFeeCents: 0, serviceFeeCents: 0, tipCents: 0, voucherCents: 0 }, 2)
+    ).toEqual({ deliveryCents: 0, serviceCents: 0, tipCents: 50, voucherCents: 0 });
+  });
+});
+
+describe('a voucher', () => {
+  const restaurant = {
+    minOrderCents: 1500,
+    deliveryFeeCents: 300,
+    freeDeliveryFromCents: null,
+    serviceFeeCents: 99,
+  };
+
+  it('comes off the shared part of the bill', () => {
+    const estimate = estimateFees(3000, restaurant, 250, 1000);
+    expect(estimate.voucherCents).toBe(1000);
+    expect(estimate.sharedCents).toBe(649 - 1000);
+    expect(estimate.totalCents).toBe(3000 + 649 - 1000);
+    // The minimum order still counts the dishes, not what is left to pay.
+    expect(estimate.missingForMinimumCents).toBe(0);
+  });
+
+  it('never makes the order cost less than nothing', () => {
+    expect(estimateFees(500, restaurant, 250, 5000).totalCents).toBe(0);
   });
 });

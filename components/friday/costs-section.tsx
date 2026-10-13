@@ -1,4 +1,12 @@
-import { CupSoda, HandCoins, Receipt, TriangleAlert, Truck, UtensilsCrossed } from 'lucide-react';
+import {
+  CupSoda,
+  HandCoins,
+  Receipt,
+  Ticket,
+  TriangleAlert,
+  Truck,
+  UtensilsCrossed,
+} from 'lucide-react';
 import { AmountRow } from '@/components/ui/amount-row';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -69,6 +77,9 @@ export function CostsSection({ view }: { view: FridayView }) {
                     cents={estimate.serviceFeeCents}
                   />
                   <AmountRow icon={HandCoins} label="Trinkgeld" cents={estimate.tipCents} />
+                  {estimate.voucherCents > 0 && (
+                    <AmountRow icon={Ticket} label="Gutschein" cents={-estimate.voucherCents} />
+                  )}
                   <div className="border-border/60 border-t pt-2">
                     <AmountRow
                       label={view.finalTotalCents !== null ? 'Geschätzt' : 'Summe'}
@@ -85,9 +96,11 @@ export function CostsSection({ view }: { view: FridayView }) {
                   )}
                   {eaters > 0 && (
                     <p className="text-muted-foreground pt-1 text-xs">
-                      Gebühren und Trinkgeld teilen sich alle, die essen: etwa{' '}
-                      {formatEuro(feesEach)} pro Person. Die Servicegebühr ist die Systemgebühr von
-                      Lieferando, nicht unsere.
+                      {estimate.voucherCents > 0
+                        ? 'Gebühren, Trinkgeld und Gutschein'
+                        : 'Gebühren und Trinkgeld'}{' '}
+                      teilen sich alle, die essen: etwa {formatEuro(feesEach)} pro Person. Die
+                      Servicegebühr ist die Systemgebühr von Lieferando, nicht unsere.
                     </p>
                   )}
                 </>
