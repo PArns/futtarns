@@ -173,7 +173,9 @@ describe('reminders', () => {
     );
     expect(await payByLink(db, token!, at('2026-10-16T18:00:00Z'))).toBeGreaterThan(0);
     expect(await payByLink(db, token!, at('2026-10-16T18:01:00Z'))).toBe(0);
-    expect(await payByLink(db, `${token!.slice(0, -1)}x`, at('2026-10-16T18:01:00Z'))).toBeNull();
+    // Change the last character for sure: a random token ends in `x` one time in 64.
+    const forged = `${token!.slice(0, -1)}${token!.endsWith('x') ? 'y' : 'x'}`;
+    expect(await payByLink(db, forged, at('2026-10-16T18:01:00Z'))).toBeNull();
 
     sent = [];
     await runScheduler(db, at('2026-10-17T16:10:00Z'), send, noPause);
