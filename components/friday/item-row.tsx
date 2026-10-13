@@ -11,11 +11,18 @@ import { cn } from '@/lib/utils';
 export function ItemRow({ item, editable }: { item: OrderItem; editable: boolean }) {
   const { pending, execute } = useAction();
   const details = [
+    ...(item.category ? [item.category] : []),
     ...item.options.map((option) => option.choiceName),
     ...(item.note ? [`„${item.note}“`] : []),
   ];
   return (
-    <li className={cn('flex items-center gap-2 py-2', pending && 'opacity-60')}>
+    <li
+      className={cn(
+        // As tall with or without the +/- buttons, so the rows of neighbouring cards line up.
+        'flex min-h-12 items-center gap-2 py-2 max-sm:min-h-15',
+        pending && 'opacity-60'
+      )}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 text-sm font-semibold">
           {item.quantity > 1 && <span className="text-primary tabular-nums">{item.quantity}×</span>}

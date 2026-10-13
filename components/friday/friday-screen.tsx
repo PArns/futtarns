@@ -42,8 +42,9 @@ import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
+import { moneyLines } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
-import { loadFriday, openBalancesFor, type Participant } from '@/lib/services/fridays';
+import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
 import { listRestaurants } from '@/lib/services/restaurants';
@@ -99,6 +100,7 @@ export async function FridayScreen({
   // The „Gastgeber“ role swaps the host without running the Friday.
   const swapHostOnly = !manage && canSetHost(viewer, hostId);
   const closed = view.locked || isPastDeadline(date, now);
+  const payable = paymentOpen(view, now);
   const lockState = { locked: closed, settled: view.settled };
   const flat = view.mode === 'flat';
   const me = view.participants.find((participant) => participant.member.id === viewer.id);
@@ -371,7 +373,7 @@ export async function FridayScreen({
         )}
         {view.cancelled && me && (
           <div className="hero-item mt-5">
-            <MyMoney view={view} me={me} canEdit={false} />
+            <MyMoney view={view} me={me} canEdit={false} payable={payable} />
           </div>
         )}
       </PageHero>
@@ -397,7 +399,8 @@ export async function FridayScreen({
                     <PayBox
                       date={balance.fridayDate}
                       memberId={balance.member.id}
-                      money={balance.money}
+                      amountCents={balance.money.openCents}
+                      lines={moneyLines(balance.money)}
                       payeeName={balance.payee.name}
                       paypalMe={balance.payee.paypalMe}
                       label={forGuest ? `Noch offen für ${balance.member.name}` : 'Noch offen'}
@@ -461,18 +464,6 @@ export async function FridayScreen({
                       <ItemRow key={item.id} item={item} editable={editable(me)} />
                     ))}
                   </ul>
-                  {me.share && (
-                    <div className="border-border/60 mt-2 flex items-baseline justify-between gap-3 border-t pt-3 text-sm">
-                      <span className="text-muted-foreground">
-                        {view.settled
-                          ? 'Dein Essen'
-                          : 'Mit deinem Anteil an Gebühren und Trinkgeld'}
-                      </span>
-                      <span className="shrink-0 text-lg font-extrabold tabular-nums">
-                        {formatEuro(me.share.totalCents)}
-                      </span>
-                    </div>
-                  )}
                 </div>
               )}
               {!flat &&
@@ -523,7 +514,7 @@ export async function FridayScreen({
                   Sobald das Restaurant feststeht, kannst du hier aussuchen.
                 </p>
               )}
-              <MyMoney view={view} me={me} canEdit={editable(me)} />
+              <MyMoney view={view} me={me} canEdit={editable(me)} payable={payable} />
             </GlassCard>
           </section>
         )}
@@ -585,7 +576,7 @@ export async function FridayScreen({
             <div className="mb-4">
               <AttendancePills people={attendancePeople} />
             </div>
-            <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {visibleParticipants.map((participant) => (
                 <ParticipantCard
                   key={participant.member.id}
@@ -594,6 +585,7 @@ export async function FridayScreen({
                   isViewer={participant.member.id === viewer.id}
                   canEdit={editable(participant)}
                   canManage={manage}
+                  payable={payable}
                   nameOf={nameOf}
                 />
               ))}

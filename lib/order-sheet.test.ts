@@ -13,6 +13,7 @@ describe('buildOrderSheet', () => {
         {
           dishId: 1,
           name: 'Margherita',
+          category: 'Pizza',
           options: size('Groß'),
           note: null,
           quantity: 1,
@@ -22,6 +23,7 @@ describe('buildOrderSheet', () => {
         {
           dishId: 1,
           name: 'Margherita',
+          category: 'Pizza',
           options: size('Groß'),
           note: null,
           quantity: 2,
@@ -31,6 +33,7 @@ describe('buildOrderSheet', () => {
         {
           dishId: 1,
           name: 'Margherita',
+          category: 'Pizza',
           options: size('Klein'),
           note: null,
           quantity: 1,
@@ -40,6 +43,7 @@ describe('buildOrderSheet', () => {
         {
           dishId: 2,
           name: 'Salami',
+          category: 'Pizza',
           options: [],
           note: 'extra scharf',
           quantity: 1,
@@ -51,9 +55,39 @@ describe('buildOrderSheet', () => {
     );
     expect(orderSheetText(lines)).toBe(
       [
+        'Pizza:',
         '3× Margherita (Größe: Groß) – Anna, Ben',
         '1× Margherita (Größe: Klein) – Clara',
         '1× Salami (Notiz: extra scharf) – Clara',
+      ].join('\n')
+    );
+  });
+
+  it('groups by menu category, with uncategorised dishes last', () => {
+    const item = (name: string, category: string | null, memberId: number) => ({
+      dishId: null,
+      name,
+      category,
+      options: [],
+      note: null,
+      quantity: 1,
+      unitPriceCents: 500,
+      memberId,
+    });
+    const lines = buildOrderSheet(
+      [item('Cola', null, 1), item('Tiramisu', 'Desserts', 2), item('Salami', 'Pizza', 3)],
+      (id) => names[id]!
+    );
+    expect(orderSheetText(lines)).toBe(
+      [
+        'Desserts:',
+        '1× Tiramisu – Ben',
+        '',
+        'Pizza:',
+        '1× Salami – Clara',
+        '',
+        'Sonstiges:',
+        '1× Cola – Anna',
       ].join('\n')
     );
   });

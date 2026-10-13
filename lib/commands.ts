@@ -1,7 +1,10 @@
 import type { AttendanceStatus } from '@/lib/db/schema';
+import { bold } from '@/lib/messages';
 
 export type Command =
   | { kind: 'answer'; status: AttendanceStatus; confirmed: boolean }
+  | { kind: 'usual' }
+  | { kind: 'others' }
   | { kind: 'paid' }
   | { kind: 'login' }
   | { kind: 'status' }
@@ -21,6 +24,8 @@ const WORDS: [RegExp, Command][] = [
     /^(3|nein|ne|nö|raus|bin raus|ich bin raus|👎)$/,
     { kind: 'answer', status: 'out', confirmed: false },
   ],
+  [/^(wie immer|wieimmer|das übliche|das uebliche|standard)$/, { kind: 'usual' }],
+  [/^(andere|die anderen|wer isst was|was essen die anderen|bestellungen)$/, { kind: 'others' }],
   [/^(bezahlt|gezahlt|hab bezahlt|habe bezahlt|paid|überwiesen)$/, { kind: 'paid' }],
   [/^(login|code|link|anmelden|einloggen)$/, { kind: 'login' }],
   [/^(status|info|was gibts|was gibt es|\?)$/, { kind: 'status' }],
@@ -44,11 +49,14 @@ export function parseCommand(text: string): Command {
 }
 
 export const HELP_TEXT = [
-  'So kannst du mir antworten:',
-  '1 – bin dabei',
-  '2 – komme, esse aber nix',
-  '3 – bin raus',
-  'bezahlt – ich hab gezahlt',
-  'status – was gibt’s am Freitag?',
-  'code – Login-Code für die Webseite',
+  bold('So kannst du mir antworten:'),
+  '',
+  `${bold('1')} – bin dabei`,
+  `${bold('2')} – komme, esse aber nix`,
+  `${bold('3')} – bin raus`,
+  `${bold('wie immer')} – bin dabei, mit meinem Standardgericht`,
+  `${bold('andere')} – was essen die anderen?`,
+  `${bold('bezahlt')} – ich hab gezahlt`,
+  `${bold('status')} – was gibt’s am Freitag?`,
+  `${bold('code')} – Login-Code für die Webseite`,
 ].join('\n');

@@ -4,6 +4,8 @@ export type OrderLine = {
   key: string;
   count: number;
   name: string;
+  /** The menu category, so the host finds the dish in Lieferando's menu. */
+  category: string | null;
   options: string[];
   notes: string[];
   people: string[];
@@ -21,7 +23,7 @@ function optionLabels(item: Pick<OrderItem, 'options'>): string[] {
 export function buildOrderSheet(
   items: Pick<
     OrderItem,
-    'dishId' | 'name' | 'options' | 'note' | 'quantity' | 'unitPriceCents' | 'memberId'
+    'dishId' | 'name' | 'category' | 'options' | 'note' | 'quantity' | 'unitPriceCents' | 'memberId'
   >[],
   nameOf: (memberId: number) => string
 ): OrderLine[] {
@@ -33,6 +35,7 @@ export function buildOrderSheet(
       key,
       count: 0,
       name: item.name,
+      category: item.category,
       options,
       notes: item.note ? [item.note] : [],
       people: [],
@@ -43,14 +46,29 @@ export function buildOrderSheet(
     if (!line.people.includes(person)) line.people.push(person);
     lines.set(key, line);
   }
-  return [...lines.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  // Lines without a category go last, the way the menu lists them under „Sonstiges“.
+  return [...lines.values()].sort(
+    (a, b) =>
+      Number(a.category === null) - Number(b.category === null) ||
+      (a.category ?? '').localeCompare(b.category ?? '', 'de') ||
+      a.name.localeCompare(b.name, 'de')
+  );
 }
 
+/** The order list as text, one block per menu category. */
 export function orderSheetText(lines: OrderLine[]): string {
-  return lines
-    .map((line) => {
-      const details = [...line.options, ...line.notes.map((note) => `Notiz: ${note}`)];
-      return `${line.count}× ${line.name}${details.length ? ` (${details.join(', ')})` : ''} – ${line.people.join(', ')}`;
-    })
-    .join('\n');
+  const text: string[] = [];
+  let category: string | null | undefined;
+  for (const line of lines) {
+    if (line.category !== category && lines.some((other) => other.category)) {
+      if (text.length) text.push('');
+      text.push(`${line.category ?? 'Sonstiges'}:`);
+    }
+    category = line.category;
+    const details = [...line.options, ...line.notes.map((note) => `Notiz: ${note}`)];
+    text.push(
+      `${line.count}× ${line.name}${details.length ? ` (${details.join(', ')})` : ''} – ${line.people.join(', ')}`
+    );
+  }
+  return text.join('\n');
 }

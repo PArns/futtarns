@@ -20,7 +20,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, lock and settlement |
 | `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                        |
 | `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee) and menus; option groups are JSON on the dish; members can add dishes                                                |
-| `order_items`             | what someone ordered, with name, options and price copied in                                                                                                          |
+| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                |
 | `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                   |
 | `charges`                 | the final share per person after settlement                                                                                                                           |
 | `payments`                | the money ledger: what someone paid for a Friday (negative = paid back)                                                                                               |
@@ -74,24 +74,32 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 sends each key once. Every message has a window, so a container that was down does not send
 stale reminders afterwards.
 
-| When (Berlin)         | Who                                | What                                                       |
-| --------------------- | ---------------------------------- | ---------------------------------------------------------- |
-| Mon 18:00, Wed 10:00  | a host who is away that day        | find a substitute or cancel                                |
-| Thu 18:00, Fri 12:00  | host, no restaurant yet            | pick one                                                   |
-| Wed 12:00 – Fri 17:00 | members who haven't answered       | invitation with reply options (Thu 12:00 if no restaurant) |
-| Fri 17:00             | in, nothing ordered                | order reminder naming their default                        |
-| Fri 18:30             | in, nothing ordered, no default    | last call                                                  |
-| Fri 18:30             | open balance ≥ 50 cents            | pay up front                                               |
-| Fri 19:00             | host                               | the order list                                             |
-| Sat–Mon 10:00         | host, not settled                  | enter what Lieferando charged                              |
-| after settlement      | open balance ≥ 50 cents either way | amount to pay or to get back                               |
-| daily 18:00, 10 days  | open balance ≥ 50 cents            | payment reminder                                           |
-| cancelled Friday      | everyone                           | that it's off                                              |
+| When (Berlin)        | Who                                      | What                                                 |
+| -------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| Mon 18:00, Wed 10:00 | a host who is away that day              | find a substitute or cancel                          |
+| Thu 18:00, Fri 09:00 | host, no restaurant yet                  | pick one                                             |
+| Fri 10:00 – 17:00    | members who haven't answered             | invitation with reply options and what to order      |
+| Fri 10:00            | said yes without an invitation, no order | order reminder naming their default                  |
+| Fri 18:30            | in, nothing ordered, no default          | last call                                            |
+| Fri 19:00            | host                                     | the order list                                       |
+| Fri 19:00            | open balance ≥ 50 cents                  | what to pay, with the PayPal link: paying opens here |
+| Sat–Mon 10:00        | host, not settled                        | enter what Lieferando charged                        |
+| after settlement     | open balance ≥ 50 cents either way       | amount to pay or to get back                         |
+| daily 18:00, 10 days | open balance ≥ 50 cents                  | payment reminder                                     |
+| cancelled Friday     | everyone                                 | that it's off                                        |
+
+Paying opens at the deadline (`paymentOpen`): before it, orders and with them the shares still
+change. Until then the page shows the running amount without a pay button, and neither the
+page, the bot nor a pay link books a payment. Messages use WhatsApp's `*bold*` (`lib/messages.ts`)
+for the facts that matter, and the login code stands bold on a line of its own.
 
 Every payment message carries a „bezahlt“ link (`lib/pay-links.ts`): a signed token for one
 Friday and one person, so it needs no login. Opening it only shows what is open; the button
 on the page books it, because chat apps open links for their previews. Once nothing is open,
 the reminders stop by themselves. Replying „bezahlt“ to the bot still works too.
+
+Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
+without food for a „nix“ default) and „andere“ (who eats what this Friday).
 
 ## Pentecost
 

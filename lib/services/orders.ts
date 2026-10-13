@@ -9,7 +9,8 @@ import {
   orderItems,
   restaurants,
 } from '@/lib/db/schema';
-import { resolveSelection, unitPriceCents } from '@/lib/menu/options';
+import { resolveSelection, selectionOf, unitPriceCents } from '@/lib/menu/options';
+import { setAttendance } from '@/lib/services/fridays';
 import { getDefaultHost, ServiceError } from '@/lib/services/members';
 import { hostRestaurant } from '@/lib/services/restaurants';
 
@@ -67,6 +68,7 @@ export async function addItem(
       memberId,
       dishId: dish.id,
       name: dish.name,
+      category: dish.category,
       unitPriceCents: unitPriceCents(dish.priceCents, options),
       quantity,
       options,
@@ -154,4 +156,29 @@ export async function getDefault(db: Db, memberId: number, restaurantId: number)
       and(eq(memberDefaults.memberId, memberId), eq(memberDefaults.restaurantId, restaurantId))
     );
   return row ?? null;
+}
+
+/**
+ * „wie immer“: orders someone's default for this Friday's restaurant now instead of at the
+ * deadline. A „nix“ default means coming without food. Null when there is no default here.
+ */
+export async function orderUsual(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  restaurantId: number
+): Promise<{ dish: string } | { noFood: true } | null> {
+  const usual = await getDefault(db, memberId, restaurantId);
+  if (!usual) return null;
+  if (!usual.dish) {
+    await setAttendance(db, date, memberId, 'nofood');
+    return { noFood: true };
+  }
+  await addItem(db, date, memberId, {
+    dishId: usual.dish.id,
+    selection: selectionOf(usual.entry.options),
+    note: usual.entry.note,
+    quantity: 1,
+  });
+  return { dish: usual.dish.name };
 }

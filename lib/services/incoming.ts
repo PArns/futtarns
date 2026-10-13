@@ -5,9 +5,18 @@ import { currentFriday, isPastDeadline } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { members } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { bold, loginCodeText } from '@/lib/messages';
 import { requestLoginCode } from '@/lib/services/auth';
-import { loadFriday, openBalancesFor, recordPayment, setAttendance } from '@/lib/services/fridays';
+import {
+  loadFriday,
+  openBalancesFor,
+  paymentOpen,
+  recordPayment,
+  setAttendance,
+  type FridayView,
+} from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
+import { orderUsual } from '@/lib/services/orders';
 import { sendWhatsApp } from '@/lib/whatsapp';
 
 const ANSWER_REPLY = {
@@ -21,6 +30,32 @@ const STATUS_LINE = {
   nofood: 'Du kommst ohne Essen.',
   out: 'Du bist raus.',
 } as const;
+
+/** The order list for the bot's „andere“: who eats what, one line per person. */
+function othersText(view: FridayView): string {
+  const what =
+    view.mode === 'flat'
+      ? (view.flatTitle ?? 'Pauschale')
+      : (view.restaurant?.name ?? 'Restaurant noch offen');
+  const lines = view.participants
+    .filter((entry) => entry.attendance.status !== 'out')
+    .map((entry) => {
+      const items = entry.items.map((item) => {
+        const options = item.options.map((option) => option.choiceName).join(', ');
+        return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
+      });
+      const plate =
+        entry.attendance.status === 'nofood'
+          ? 'ohne Essen'
+          : items.length
+            ? items.join(', ')
+            : view.mode === 'flat'
+              ? 'dabei'
+              : 'noch nichts';
+      return `${bold(entry.member.name)}: ${plate}`;
+    });
+  return [bold(`Freitag (${formatDayShort(view.date)}): ${what}`), '', ...lines].join('\n');
+}
 
 /** Answers a WhatsApp command from a member; strangers and plain chat get no reply. */
 export async function handleIncoming(
@@ -45,30 +80,61 @@ export async function handleIncoming(
       const view = await loadFriday(db, date, now);
       if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
       if (view.locked || isPastDeadline(date, now)) {
-        return `Bestellschluss war um ${formatTime(view.deadline)}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
+        return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
       const mine = view.participants.find((entry) => entry.member.id === member.id);
       if (command.status !== 'in' && mine?.items.length && !command.confirmed) {
         const answer = command.status === 'out' ? '3' : '2';
-        return `Du hast schon ${mine.items.map((item) => item.name).join(', ')} bestellt. Wenn das weg soll, antworte mit „${answer} sicher“.`;
+        return `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt.\nWenn das weg soll, antworte mit ${bold(`${answer} sicher`)}.`;
       }
       await setAttendance(db, date, member.id, command.status);
       const order =
         command.status === 'in' && view.mode === 'delivery'
           ? view.restaurant
-            ? `\nJetzt noch bei ${view.restaurant.name} aussuchen und zahlen: ${link}`
-            : `\nDas Restaurant kommt noch, ich sag Bescheid.`
+            ? `\n\nJetzt noch bei ${bold(view.restaurant.name)} aussuchen, oder ${bold('wie immer')} schreiben:\n${link}`
+            : `\n\nDas Restaurant kommt noch, ich sag Bescheid.`
           : command.status === 'in' && view.mode === 'flat'
-            ? `\n${view.flatTitle ?? 'Pauschale'}: ${formatEuro(view.flatPriceCents ?? 0)}. Zahlen geht hier: ${link}`
+            ? `\n\n${bold(view.flatTitle ?? 'Pauschale')}: ${formatEuro(view.flatPriceCents ?? 0)} pro Person.\nBezahlt wird nach dem Anmeldeschluss:\n${link}`
             : '';
       return `${ANSWER_REPLY[command.status]}${order}`;
+    }
+
+    case 'usual': {
+      const view = await loadFriday(db, date, now);
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.locked || isPastDeadline(date, now)) {
+        return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
+      }
+      if (view.mode === 'flat') {
+        await setAttendance(db, date, member.id, 'in');
+        return `Alles klar, du bist dabei: ${bold(view.flatTitle ?? 'Pauschale')}.`;
+      }
+      if (!view.restaurant) return 'Das Restaurant steht noch nicht fest, ich sag Bescheid.';
+      const mine = view.participants.find((entry) => entry.member.id === member.id);
+      if (mine?.items.length) {
+        return `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt. Passt!`;
+      }
+      const usual = await orderUsual(db, date, member.id, view.restaurant.id);
+      if (!usual) {
+        return `Bei ${bold(view.restaurant.name)} hast du noch keinen Standard. Such dir was aus:\n${link}`;
+      }
+      return 'dish' in usual
+        ? `Alles klar: ${bold(usual.dish)} wie immer. Du bist dabei.`
+        : 'Alles klar, wie immer: du kommst, isst aber nichts mit.';
+    }
+
+    case 'others': {
+      const view = await loadFriday(db, date, now);
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      return `${othersText(view)}\n\n${link}`;
     }
 
     case 'paid': {
       const view = await loadFriday(db, date, now);
       const current = view.participants.find((entry) => entry.member.id === member.id);
+      const payable = paymentOpen(view, now);
       const open = [
-        ...(current && current.money.openCents > 0
+        ...(payable && current && current.money.openCents > 0
           ? [{ fridayDate: date, openCents: current.money.openCents }]
           : []),
         ...(await openBalancesFor(db, member.id, date, now))
@@ -78,7 +144,11 @@ export async function handleIncoming(
             openCents: balance.money.openCents,
           })),
       ];
-      if (open.length === 0) return 'Bei dir ist gerade nichts offen. Danke trotzdem!';
+      if (open.length === 0) {
+        return !payable && current && current.money.openCents > 0
+          ? `Bezahlt wird erst nach dem Bestellschluss um ${bold(formatTime(view.deadline))}, dann steht fest, was du zahlst. Ich schick dir den Betrag.`
+          : 'Bei dir ist gerade nichts offen. Danke trotzdem!';
+      }
       for (const entry of open) {
         await recordPayment(db, {
           date: entry.fridayDate,
@@ -88,7 +158,7 @@ export async function handleIncoming(
         });
       }
       const total = open.reduce((sum, entry) => sum + entry.openCents, 0);
-      return `Danke! ${formatEuro(total)} sind als bezahlt vermerkt.`;
+      return `Danke! ${bold(formatEuro(total))} sind als bezahlt vermerkt.`;
     }
 
     case 'login': {
@@ -100,7 +170,7 @@ export async function handleIncoming(
         const { code } = issued;
         await send(
           phone,
-          `Dein Code für freitach: ${code}\nOder direkt anmelden: ${appUrl()}/login?phone=${encodeURIComponent(phone)}&code=${code}`
+          loginCodeText(code, `${appUrl()}/login?phone=${encodeURIComponent(phone)}&code=${code}`)
         );
         return null;
       } catch (error) {
@@ -119,11 +189,11 @@ export async function handleIncoming(
           : (view.restaurant?.name ?? 'Restaurant noch offen');
       const status = me ? STATUS_LINE[me.attendance.status] : '';
       const items = me?.items.length
-        ? `\nBestellt: ${me.items.map((item) => item.name).join(', ')}`
+        ? `\nBestellt: ${bold(me.items.map((item) => item.name).join(', '))}`
         : '';
       const money =
-        me && me.money.openCents > 0 ? `\nOffen: ${formatEuro(me.money.openCents)}` : '';
-      return `Freitag (${formatDayShort(date)}) bei ${view.host?.name ?? '?'}: ${what}.\n${status}${items}${money}\n${link}`;
+        me && me.money.openCents > 0 ? `\nOffen: ${bold(formatEuro(me.money.openCents))}` : '';
+      return `${bold(`Freitag (${formatDayShort(date)})`)} bei ${view.host?.name ?? '?'}: ${bold(what)}\n${status}${items}${money}\n${link}`;
     }
 
     case 'help':
