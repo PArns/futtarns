@@ -47,7 +47,7 @@ import { buildOrderSheet } from '@/lib/order-sheet';
 import { debtLines, toPayee } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
-import { getDefaultHost, listMembers } from '@/lib/services/members';
+import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
 import { restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
@@ -118,12 +118,19 @@ export async function FridayScreen({
     ).values(),
   ];
   const voting = votingAt(view, now);
-  const [restaurants, members, defaultHost, messages] = await Promise.all([
+  const canBringGuests = !view.cancelled && (!closed || manage);
+  const [restaurants, members, defaultHost, messages, guests] = await Promise.all([
     manage || voting ? restaurantsForHost(db, hostId) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
     manage ? upcomingMessages(db, view, now) : [],
+    canBringGuests ? listGuests(db) : [],
   ]);
+  const knownGuests = guests.filter(
+    (guest) => !view.participants.some((entry) => entry.member.id === guest.id)
+  );
+  // A guest outside the Stammtruppe is on no Friday until they say yes or someone adds them.
+  const canJoin = !me && !view.cancelled && !closed && viewer.kind === 'member' && !viewer.core;
   const hostOptions = members
     .filter((member) => member.active && member.core)
     .map(({ id, name }) => ({ id, name }));
@@ -400,6 +407,21 @@ export async function FridayScreen({
               hasItems={me.items.length > 0}
             />
             <p className="text-muted-foreground text-xs">{answerHint}</p>
+          </div>
+        )}
+        {canJoin && (
+          <div className="hero-item mt-5 space-y-3">
+            <AnswerControl
+              date={date}
+              memberId={viewer.id}
+              status={null}
+              answered={false}
+              hasItems={false}
+            />
+            <p className="text-muted-foreground text-xs">
+              Als Gast fragen wir dich nicht jede Woche. Sag einfach zu, wenn du kommst; ändern geht
+              bis {formatTime(view.deadline)} Uhr.
+            </p>
           </div>
         )}
         {view.cancelled && me && (
@@ -707,9 +729,9 @@ export async function FridayScreen({
                 />
               ))}
             </div>
-            {(!closed || manage) && (
+            {canBringGuests && (
               <div className="mt-4 max-w-2xl">
-                <AddGuestForm date={date} />
+                <AddGuestForm date={date} known={knownGuests} />
               </div>
             )}
           </section>

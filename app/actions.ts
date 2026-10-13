@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
-import { loginLink } from '@/lib/auth-tokens';
+import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { attendance, members, type Member } from '@/lib/db/schema';
@@ -14,7 +14,7 @@ import { formatDayList, formatDayShort } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
-import { guestWelcomeText, welcomeText } from '@/lib/welcome';
+import { guestInviteText, guestWelcomeText, welcomeText } from '@/lib/welcome';
 import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/whatsapp';
 
 // Validation messages reach the toast as they are, and the app speaks German.
@@ -55,6 +55,7 @@ import {
   addGuest,
   addGuestWithPhone,
   consumeLoginToken,
+  inviteMember,
   createMember,
   issueLoginToken,
   removeAbsence,
@@ -285,8 +286,49 @@ export async function removeDefaultAction(restaurantId: number): Promise<ActionR
 }
 
 /**
+ * Who may bring guests to a Friday: anyone until the deadline, then only whoever runs it.
+ * Returns the host's name for the invitation.
+ */
+async function guestAccess(viewer: Member, date: IsoDate) {
+  const db = await getDb();
+  const row = await getFridayRow(db, date);
+  const hostId = await hostIdFor(db, date);
+  const closed = Boolean(row?.lockedAt) || isPastDeadline(date);
+  if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (closed && !canManageFriday(viewer, hostId)) {
+    throw new ServiceError('Bestellschluss ist vorbei – der Gastgeber kann noch Gäste eintragen');
+  }
+  const [host] = hostId
+    ? await db.select({ name: members.name }).from(members).where(eq(members.id, hostId))
+    : [];
+  return { db, hostName: host?.name ?? null };
+}
+
+/** Tells a guest with a number that they are on a Friday, unless they put themselves there. */
+async function sendGuestInvite(
+  member: Member,
+  viewer: Member,
+  date: IsoDate,
+  hostName: string | null
+) {
+  if (!member.phone || member.id === viewer.id || !whatsappConfigured()) return false;
+  await sendWhatsApp(
+    member.phone,
+    guestInviteText({
+      name: member.name,
+      invitedBy: viewer.name,
+      day: formatDayShort(date),
+      host: hostName,
+      link: `${appUrl()}/freitag/${date}`,
+    })
+  );
+  return true;
+}
+
+/**
  * Adds a guest to a Friday. With a phone number the guest becomes a member outside the
- * Stammtruppe, who gets an invitation by WhatsApp and can log in, order and vote.
+ * Stammtruppe, who gets an invitation by WhatsApp and can log in, order and vote; a known
+ * number brings back the member it belongs to.
  */
 export async function addGuestAction(
   date: string,
@@ -302,14 +344,7 @@ export async function addGuestAction(
       })
       .parse({ date, name });
     const phone = optionalPhone(phoneInput);
-    const db = await getDb();
-    const row = await getFridayRow(db, data.date);
-    const hostId = await hostIdFor(db, data.date);
-    const closed = Boolean(row?.lockedAt) || isPastDeadline(data.date);
-    if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
-    if (closed && !canManageFriday(viewer, hostId)) {
-      throw new ServiceError('Bestellschluss ist vorbei – der Gastgeber kann noch Gäste eintragen');
-    }
+    const { db, hostName } = await guestAccess(viewer, data.date);
     if (!phone) {
       const guest = await addGuest(db, data.date, data.name, viewer.id);
       return { ok: true, message: `${guest.name} ist dabei` };
@@ -320,30 +355,44 @@ export async function addGuestAction(
       { name: data.name, phone },
       viewer.id
     );
-    if (loginToken && whatsappConfigured()) {
-      const [host] = hostId
-        ? await db.select({ name: members.name }).from(members).where(eq(members.id, hostId))
-        : [];
-      await sendWhatsApp(
-        phone,
-        guestWelcomeText({
-          name: member.name,
-          invitedBy: viewer.name,
-          day: formatDayShort(data.date),
-          host: host?.name ?? null,
-          link: loginLink(loginToken),
-        })
-      );
+    if (loginToken) {
+      if (whatsappConfigured()) {
+        await sendWhatsApp(
+          phone,
+          guestWelcomeText({
+            name: member.name,
+            invitedBy: viewer.name,
+            day: formatDayShort(data.date),
+            host: hostName,
+            link: loginLink(loginToken),
+          })
+        );
+      }
+      return {
+        ok: true,
+        message: `${member.name} ist dabei und hat eine Einladung per WhatsApp bekommen`,
+      };
     }
+    await sendGuestInvite(member, viewer, data.date, hostName);
     const known =
       member.name.toLowerCase() !== data.name.toLowerCase()
         ? `Die Nummer gehört ${member.name}, `
         : '';
+    return { ok: true, message: `${known}${member.name} ist dabei` };
+  });
+}
+
+/** Invites a known guest to a Friday again, with a WhatsApp message to say so. */
+export async function inviteGuestAction(date: string, target: number): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { viewer } = await getGroupContext();
+    const { db, hostName } = await guestAccess(viewer, day);
+    const member = await inviteMember(db, day, memberId.parse(target), viewer.id);
+    const told = await sendGuestInvite(member, viewer, day, hostName);
     return {
       ok: true,
-      message: loginToken
-        ? `${member.name} ist dabei und hat eine Einladung per WhatsApp bekommen`
-        : `${known}${member.name} ist dabei`,
+      message: `${member.name} ist dabei${told ? ' und hat eine Nachricht bekommen' : ''}`,
     };
   });
 }
