@@ -229,6 +229,25 @@ export async function FridayScreen({
       })),
     ];
   };
+  /**
+   * Roughly what someone pays if a restaurant they ordered ahead from wins: their dishes
+   * there, an equal part of its fees and their drinks.
+   */
+  const aheadAmounts = (participant: Participant) =>
+    ordersOf(participant)
+      .filter((group) => group.ahead)
+      .map((group) => {
+        const estimate = view.ahead.find((entry) => entry.restaurant.id === group.restaurantId);
+        return {
+          name: group.name,
+          cents:
+            group.items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) +
+            (estimate && estimate.eaters > 0
+              ? Math.round(estimate.estimate.sharedCents / estimate.eaters)
+              : 0) +
+            (participant.member.id === hostId ? 0 : participant.money.drinksCents),
+        };
+      });
   const self: OrderTarget = { id: viewer.id, name: viewer.name, isSelf: true };
   const menus: MenuOption[] = [
     ...(me && view.restaurant && canOrder
@@ -380,6 +399,8 @@ export async function FridayScreen({
       ? [{ id: view.restaurant.id, name: view.restaurant.name, delivers: true }, ...restaurants]
       : restaurants;
 
+  const myAhead = me ? aheadAmounts(me) : [];
+
   // The order and amount at the bottom of a phone, for whoever eats or pays this Friday.
   const orderBar =
     me &&
@@ -398,17 +419,22 @@ export async function FridayScreen({
                   : myPreorders.length > 0
                     ? `Vorbestellt: ${myPreorders.map((item) => item.name).join(', ')}`
                     : 'Noch nichts ausgesucht',
-          // The host pays the restaurant and collects, so their own share is what counts.
-          amountCents: amHost ? (me.share?.totalCents ?? 0) : Math.abs(me.money.openCents),
-          amountLabel: amHost
-            ? 'dein Anteil'
-            : !payable
-              ? 'bis jetzt'
-              : me.money.openCents > 0
-                ? 'offen'
-                : me.money.openCents < 0
-                  ? 'bekommst du'
-                  : 'bezahlt',
+          ...(me.items.length === 0 && !me.projectedDefault && myAhead[0]
+            ? // With nothing from the current restaurant, what they ordered ahead says more.
+              { amountCents: myAhead[0].cents, amountLabel: `falls ${myAhead[0].name}` }
+            : {
+                // The host pays the restaurant and collects, so their own share is what counts.
+                amountCents: amHost ? (me.share?.totalCents ?? 0) : Math.abs(me.money.openCents),
+                amountLabel: amHost
+                  ? 'dein Anteil'
+                  : !payable
+                    ? 'bis jetzt'
+                    : me.money.openCents > 0
+                      ? 'offen'
+                      : me.money.openCents < 0
+                        ? 'bekommst du'
+                        : 'bezahlt',
+              }),
         }
       : null;
 
@@ -1019,6 +1045,7 @@ export async function FridayScreen({
                       payable={payable}
                       nameOf={nameOf}
                       orders={ordersOf(participant)}
+                      ahead={aheadAmounts(participant)}
                       titled={voting && restaurants.length > 1}
                     />
                   ))}
@@ -1050,7 +1077,20 @@ export async function FridayScreen({
                         : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
                 }
               />
-              <CostsSection view={view} payable={payable} />
+              <CostsSection
+                view={view}
+                payable={payable}
+                aheadOnly={view.participants
+                  .filter((entry) => !entry.share)
+                  .flatMap((entry) =>
+                    aheadAmounts(entry).map((amount) => ({
+                      memberId: entry.member.id,
+                      name: entry.member.name,
+                      restaurant: amount.name,
+                      cents: amount.cents,
+                    }))
+                  )}
+              />
             </section>
           )}
 

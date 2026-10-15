@@ -54,7 +54,16 @@ function MoneyPill({
 }
 
 /** What the Friday costs in total and what everyone pays and still owes. */
-export function CostsSection({ view, payable }: { view: FridayView; payable: boolean }) {
+export function CostsSection({
+  view,
+  payable,
+  aheadOnly = [],
+}: {
+  view: FridayView;
+  payable: boolean;
+  /** Who ordered only ahead, with roughly what that comes to if its restaurant wins. */
+  aheadOnly?: { memberId: number; name: string; restaurant: string; cents: number }[];
+}) {
   const flat = view.mode === 'flat';
   const estimate = view.estimate;
   const rows = view.participants.filter(
@@ -225,6 +234,18 @@ export function CostsSection({ view, payable }: { view: FridayView; payable: boo
               })}
             </tbody>
           </table>
+        )}
+        {aheadOnly.length > 0 && (
+          <ul className="text-muted-foreground border-border/50 mt-2 space-y-1 border-t pt-2 text-xs">
+            {aheadOnly.map((entry) => (
+              <li key={entry.memberId} className="flex justify-between gap-3">
+                <span>
+                  {entry.name}: nur vorbestellt, falls {entry.restaurant} gewinnt
+                </span>
+                <span className="tabular-nums">~{formatEuro(entry.cents)}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </GlassCard>
     </div>
