@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
 import {
   effectiveAttendance,
+  hostLast,
   type AttendancePerson,
   type EffectiveAttendance,
 } from '@/lib/attendance';
@@ -794,7 +795,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
 
   const locked = Boolean(row?.lockedAt);
   const cancelled = row?.cancelled ?? false;
-  const base = people.map((member) => {
+  const base = hostLast(people, hostId, (member) => member.id).map((member) => {
     const answer = answers.find((entry) => entry.memberId === member.id);
     const own = items.filter((item) => item.memberId === member.id);
     const fallback = defaults.find((entry) => entry.entry.memberId === member.id);
@@ -1081,7 +1082,7 @@ export async function loadCalendar(
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return {
-      people,
+      people: hostLast(people, host?.id ?? null, (person) => person.id),
       date,
       host,
       hostIsDefault: !row?.hostId,

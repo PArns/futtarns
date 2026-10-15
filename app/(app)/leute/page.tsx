@@ -71,7 +71,7 @@ export default async function PeoplePage() {
         </p>
       </PageHero>
 
-      <div className="mx-auto max-w-5xl space-y-12 px-4">
+      <div className="mx-auto max-w-7xl space-y-12 px-4">
         {viewer.isAdmin && (
           <section id="whatsapp">
             <ChapterHeading icon={MessageCircle} kicker="Der Bote" title="WhatsApp" />

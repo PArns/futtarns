@@ -390,10 +390,9 @@ export async function FridayScreen({
 
   const orderAside = !view.cancelled && Boolean(me);
 
-  // Numbered in reading order on a phone: the vote, the order, then the rest as they come.
+  // The chapters are numbered in reading order. „Deine Bestellung“ goes without a number:
+  // on a phone it follows the menu, on a desktop it rides along beside everything.
   let chapter = 0;
-  const ballotNumber = ballotShown ? ++chapter : 0;
-  const orderNumber = orderAside ? ++chapter : 0;
 
   return (
     <>
@@ -641,260 +640,130 @@ export async function FridayScreen({
       </PageHero>
 
       {/*
-        Phones: one column with the order between the vote and the menu; the left column
-        dissolves (`contents`) so its parts and the order line up by `order`. Desktop: the
-        order rides along in a column of its own.
+        Phones: one column, the vote and the menu, then the own order, then the rest; the two
+        halves of the left column dissolve (`contents`). Desktop: the halves stack on the
+        left and the order rides along in a column of its own.
       */}
       <div
         className={cn(
-          'mx-auto flex max-w-5xl flex-col gap-12 px-4',
+          'mx-auto flex max-w-7xl flex-col gap-12 px-4',
           orderBar && 'max-sm:pb-20',
-          orderAside && 'lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-10'
+          orderAside &&
+            'lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-x-10 lg:gap-y-12 xl:grid-cols-[minmax(0,1fr)_24rem]'
         )}
       >
-        <div className="contents lg:col-start-1 lg:row-start-1 lg:flex lg:min-w-0 lg:flex-col lg:gap-12">
-          <div className="order-first flex flex-col gap-12 empty:hidden">
-            {otherBalances.length > 0 && (
-              <GlassCard variant="tile" className="border-warning/40 space-y-4 p-4 sm:p-5">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Wallet className="text-warning size-4" /> Von früheren Freitagen
-                </div>
-                {balanceGroups.map((balances) => {
-                  const { fridayDate, member, money, title } = balances[0]!;
-                  const forGuest = member.id !== viewer.id;
-                  const owed = balances.filter((balance) => balance.debt.openCents > 0);
-                  const back = balances.filter((balance) => balance.debt.openCents < 0);
-                  return (
-                    <div key={`${fridayDate}-${member.id}`} className="space-y-2">
-                      <Link
-                        href={`/freitag/${fridayDate}`}
-                        className="hover:text-primary block text-sm"
-                      >
-                        {formatDayShort(fridayDate)} · {title}
-                        {forGuest && ` · für ${member.name}`}
-                      </Link>
-                      {owed.length > 0 && (
-                        <PayBox
-                          date={fridayDate}
-                          memberId={member.id}
-                          amountCents={owed.reduce(
-                            (sum, balance) => sum + balance.debt.openCents,
-                            0
-                          )}
-                          lines={debtLines(
-                            money,
-                            owed.map((balance) => balance.debt)
-                          )}
-                          payees={owed.map((balance) => toPayee(balance.payee, balance.debt))}
-                          label={forGuest ? `Noch offen für ${member.name}` : 'Noch offen'}
-                        />
-                      )}
-                      {back.map((balance) => (
-                        <p key={balance.debt.what} className="text-muted-foreground text-sm">
-                          {forGuest ? `${member.name} bekommt` : 'Du bekommst'}{' '}
-                          {formatEuro(-balance.debt.openCents)} von{' '}
-                          {balance.payee?.name ?? 'dem Gastgeber'} zurück.
-                        </p>
-                      ))}
-                    </div>
-                  );
-                })}
-              </GlassCard>
-            )}
-
-            {ballotShown && (
-              <section id="wahl" className="scroll-mt-16">
-                <ChapterHeading
-                  number={ballotNumber}
-                  icon={Vote}
-                  kicker="Restaurantwahl"
-                  title="Wo essen wir?"
-                  hint={
-                    view.restaurant
-                      ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.`
-                      : 'Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.'
-                  }
-                />
-                <RestaurantVote
-                  date={date}
-                  options={ballot}
-                  myVote={myVote}
-                  orderAs={canOrderAhead ? self : null}
-                  canVote={showVote}
-                  closesAt={voteClosesAt(date).getTime()}
-                  serverNow={now.getTime()}
-                />
-              </section>
-            )}
-          </div>
-          <>
-            {me && menus.length > 0 && (
-              <section id="karte" className="scroll-mt-16">
-                <ChapterHeading
-                  number={++chapter}
-                  icon={BookOpen}
-                  kicker="Die Karte"
-                  title={menus.map((menu) => menu.name).join(' oder ')}
-                  hint={
-                    closed
-                      ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
-                      : menus.length > 1
-                        ? 'Such bei beiden aus: Es bleibt nur, was du beim Gewinner der Wahl bestellt hast. Stehst du danach ohne Bestellung da, kriegst du Freitagmorgen per WhatsApp Bescheid.'
-                        : votedFor
-                          ? `Was du hier vorbestellst, zählt, wenn ${votedFor.name} die Wahl gewinnt.`
-                          : voting
-                            ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
-                            : 'Tippe auf ein Gericht, um es zu bestellen.'
-                  }
-                />
-                <MenuChoice date={date} menus={menus} takenBy={takenBy} />
-              </section>
-            )}
-
-            {canJoin && !flat && view.restaurant && view.dishes.length > 0 && (
-              <section id="karte" className="scroll-mt-16">
-                <ChapterHeading
-                  number={++chapter}
-                  icon={BookOpen}
-                  kicker="Die Karte"
-                  title={view.restaurant.name}
-                  hint="Zum Reinschauen: Sag oben zu, dann kannst du hier aussuchen."
-                />
-                <GlassCard variant="tile" className="p-4 sm:p-5">
-                  <MenuPreview dishes={view.dishes} />
-                </GlassCard>
-              </section>
-            )}
-
-            {!view.cancelled && (
-              <section>
-                <ChapterHeading
-                  number={++chapter}
-                  icon={Users}
-                  kicker="Die Bande"
-                  title="Wer ist dabei"
-                  hint={
-                    voteRuns
-                      ? `${attendanceSummary(attendancePeople, flat)} · Restaurantwahl läuft noch`
-                      : attendanceSummary(attendancePeople, flat)
-                  }
-                />
-                <GlassCard variant="tile" className="px-4 py-1 sm:px-5">
-                  <ul className="divide-border/50 divide-y">
-                    {visibleParticipants.map((participant) => (
-                      <ParticipantCard
-                        key={participant.member.id}
-                        participant={participant}
-                        view={view}
-                        isViewer={participant.member.id === viewer.id}
-                        canEdit={editable(participant)}
-                        canManage={manage}
-                        payable={payable}
-                        nameOf={nameOf}
-                        orders={ordersOf(participant)}
-                      />
-                    ))}
-                  </ul>
-                </GlassCard>
-                {canBringGuests && (
-                  <div className="mt-4 max-w-2xl">
-                    <AddGuestForm date={date} known={knownGuests} />
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* What everyone pays is for those taking part, not for a guest still deciding. */}
-            {!view.cancelled && (view.estimate || flat) && (me || manage) && (
-              <section>
-                <ChapterHeading
-                  number={++chapter}
-                  icon={Coins}
-                  kicker="Kassensturz"
-                  title="Wer zahlt was"
-                  hint={
-                    flat
-                      ? 'Alle, die dabei sind, zahlen denselben Betrag.'
-                      : view.settled
-                        ? 'Abgerechnet mit dem echten Betrag.'
-                        : voteRuns && view.restaurant
-                          ? `Geschätzt für ${view.restaurant.name}, solange die Wahl läuft. Gewinnt ein anderes Restaurant, rechnen wir mit dessen Karte neu.`
-                          : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
-                  }
-                />
-                <CostsSection view={view} payable={payable} />
-              </section>
-            )}
-
-            {manage && (
-              <section id="chefsache" className="scroll-mt-16">
-                <ChapterHeading
-                  number={++chapter}
-                  icon={ChefHat}
-                  kicker="Chefsache"
-                  title="Für den Gastgeber"
-                  hint="Nur du und die Admins sehen diesen Teil."
-                />
-                <HostSection
-                  view={view}
-                  closed={closed}
-                  sheet={sheet}
-                  hungry={hungry}
-                  restaurants={pickable.map(({ id, name, delivers }) => ({
-                    id,
-                    name: delivers ? name : `${name} (nur abholen)`,
-                    isDefault: id === view.host?.defaultRestaurantId,
-                  }))}
-                  voting={voting}
-                  members={hostOptions}
-                  defaultHostName={defaultHost?.name ?? null}
-                  viewerIsHost={amHost}
-                  messages={messages.map((message) => ({
-                    at: message.at.getTime(),
-                    when: formatWeekdayTime(message.at),
-                    kind: message.kind,
-                    recipients: message.recipients,
-                  }))}
-                  serverNow={now.getTime()}
-                />
-              </section>
-            )}
-
-            {swapHostOnly && !view.settled && (
-              <section id="vertretung" className="scroll-mt-16">
-                <ChapterHeading
-                  number={++chapter}
-                  icon={House}
-                  kicker="Vertretung"
-                  title="Wer ist Gastgeber?"
-                  hint="Mit der Rolle Vertretungen kannst du diesen Freitag jemand anderem geben."
-                />
-                <GlassCard variant="tile" className="max-w-md p-5">
-                  <HostPicker
-                    date={view.date}
-                    hostId={hostId}
-                    hostIsDefault={view.hostIsDefault}
-                    defaultHostName={defaultHost?.name ?? null}
-                    members={hostOptions}
-                  />
-                </GlassCard>
-              </section>
-            )}
-
-            {isCurrent && (
-              <div className="flex justify-center">
-                <Link href="/kalender" className={buttonVariants({ variant: 'outline' })}>
-                  <CalendarDays /> Die nächsten Freitage
-                </Link>
+        <div className="contents lg:col-start-1 lg:flex lg:min-w-0 lg:flex-col lg:gap-12 lg:empty:hidden">
+          {otherBalances.length > 0 && (
+            <GlassCard variant="tile" className="border-warning/40 space-y-4 p-4 sm:p-5">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Wallet className="text-warning size-4" /> Von früheren Freitagen
               </div>
-            )}
-          </>
+              {balanceGroups.map((balances) => {
+                const { fridayDate, member, money, title } = balances[0]!;
+                const forGuest = member.id !== viewer.id;
+                const owed = balances.filter((balance) => balance.debt.openCents > 0);
+                const back = balances.filter((balance) => balance.debt.openCents < 0);
+                return (
+                  <div key={`${fridayDate}-${member.id}`} className="space-y-2">
+                    <Link
+                      href={`/freitag/${fridayDate}`}
+                      className="hover:text-primary block text-sm"
+                    >
+                      {formatDayShort(fridayDate)} · {title}
+                      {forGuest && ` · für ${member.name}`}
+                    </Link>
+                    {owed.length > 0 && (
+                      <PayBox
+                        date={fridayDate}
+                        memberId={member.id}
+                        amountCents={owed.reduce((sum, balance) => sum + balance.debt.openCents, 0)}
+                        lines={debtLines(
+                          money,
+                          owed.map((balance) => balance.debt)
+                        )}
+                        payees={owed.map((balance) => toPayee(balance.payee, balance.debt))}
+                        label={forGuest ? `Noch offen für ${member.name}` : 'Noch offen'}
+                      />
+                    )}
+                    {back.map((balance) => (
+                      <p key={balance.debt.what} className="text-muted-foreground text-sm">
+                        {forGuest ? `${member.name} bekommt` : 'Du bekommst'}{' '}
+                        {formatEuro(-balance.debt.openCents)} von{' '}
+                        {balance.payee?.name ?? 'dem Gastgeber'} zurück.
+                      </p>
+                    ))}
+                  </div>
+                );
+              })}
+            </GlassCard>
+          )}
+
+          {ballotShown && (
+            <section id="wahl" className="scroll-mt-16">
+              <ChapterHeading
+                number={++chapter}
+                icon={Vote}
+                kicker="Restaurantwahl"
+                title="Wo essen wir?"
+                hint={
+                  view.restaurant
+                    ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.`
+                    : 'Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.'
+                }
+              />
+              <RestaurantVote
+                date={date}
+                options={ballot}
+                myVote={myVote}
+                orderAs={canOrderAhead ? self : null}
+                canVote={showVote}
+                closesAt={voteClosesAt(date).getTime()}
+                serverNow={now.getTime()}
+              />
+            </section>
+          )}
+          {me && menus.length > 0 && (
+            <section id="karte" className="scroll-mt-16">
+              <ChapterHeading
+                number={++chapter}
+                icon={BookOpen}
+                kicker="Die Karte"
+                title={menus.map((menu) => menu.name).join(' oder ')}
+                hint={
+                  closed
+                    ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
+                    : menus.length > 1
+                      ? 'Such bei beiden aus: Es bleibt nur, was du beim Gewinner der Wahl bestellt hast. Stehst du danach ohne Bestellung da, kriegst du Freitagmorgen per WhatsApp Bescheid.'
+                      : votedFor
+                        ? `Was du hier vorbestellst, zählt, wenn ${votedFor.name} die Wahl gewinnt.`
+                        : voting
+                          ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
+                          : 'Tippe auf ein Gericht, um es zu bestellen.'
+                }
+              />
+              <MenuChoice date={date} menus={menus} takenBy={takenBy} />
+            </section>
+          )}
+
+          {canJoin && !flat && view.restaurant && view.dishes.length > 0 && (
+            <section id="karte" className="scroll-mt-16">
+              <ChapterHeading
+                number={++chapter}
+                icon={BookOpen}
+                kicker="Die Karte"
+                title={view.restaurant.name}
+                hint="Zum Reinschauen: Sag oben zu, dann kannst du hier aussuchen."
+              />
+              <GlassCard variant="tile" className="p-4 sm:p-5">
+                <MenuPreview dishes={view.dishes} />
+              </GlassCard>
+            </section>
+          )}
         </div>
         {orderAside && me && (
-          <aside className="order-first lg:sticky lg:top-20 lg:order-none lg:col-start-2 lg:row-start-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
+          <aside className="lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100dvh-6rem)] lg:overflow-y-auto">
             <section id="bestellung" className="scroll-mt-16">
               <ChapterHeading
-                number={orderNumber}
                 compact
                 icon={flat ? Flame : UtensilsCrossed}
                 kicker={flat ? 'Grillzeit' : 'Hunger?'}
@@ -1058,6 +927,129 @@ export async function FridayScreen({
             </section>
           </aside>
         )}
+        <div className="contents lg:col-start-1 lg:flex lg:min-w-0 lg:flex-col lg:gap-12">
+          {!view.cancelled && (
+            <section>
+              <ChapterHeading
+                number={++chapter}
+                icon={Users}
+                kicker="Die Bande"
+                title="Wer ist dabei"
+                hint={
+                  voteRuns
+                    ? `${attendanceSummary(attendancePeople, flat)} · Restaurantwahl läuft noch`
+                    : attendanceSummary(attendancePeople, flat)
+                }
+              />
+              <GlassCard variant="tile" className="px-4 py-1 sm:px-5">
+                <ul className="divide-border/50 divide-y">
+                  {visibleParticipants.map((participant) => (
+                    <ParticipantCard
+                      key={participant.member.id}
+                      participant={participant}
+                      view={view}
+                      canEdit={editable(participant)}
+                      canManage={manage}
+                      payable={payable}
+                      nameOf={nameOf}
+                      orders={ordersOf(participant)}
+                    />
+                  ))}
+                </ul>
+              </GlassCard>
+              {canBringGuests && (
+                <div className="mt-4 max-w-2xl">
+                  <AddGuestForm date={date} known={knownGuests} />
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* What everyone pays is for those taking part, not for a guest still deciding. */}
+          {!view.cancelled && (view.estimate || flat) && (me || manage) && (
+            <section>
+              <ChapterHeading
+                number={++chapter}
+                icon={Coins}
+                kicker="Kassensturz"
+                title="Wer zahlt was"
+                hint={
+                  flat
+                    ? 'Alle, die dabei sind, zahlen denselben Betrag.'
+                    : view.settled
+                      ? 'Abgerechnet mit dem echten Betrag.'
+                      : voteRuns && view.restaurant
+                        ? `Geschätzt für ${view.restaurant.name}, solange die Wahl läuft. Gewinnt ein anderes Restaurant, rechnen wir mit dessen Karte neu.`
+                        : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
+                }
+              />
+              <CostsSection view={view} payable={payable} />
+            </section>
+          )}
+
+          {manage && (
+            <section id="chefsache" className="scroll-mt-16">
+              <ChapterHeading
+                number={++chapter}
+                icon={ChefHat}
+                kicker="Chefsache"
+                title="Für den Gastgeber"
+                hint="Nur du und die Admins sehen diesen Teil."
+              />
+              <HostSection
+                view={view}
+                closed={closed}
+                sheet={sheet}
+                hungry={hungry}
+                restaurants={pickable.map(({ id, name, delivers }) => ({
+                  id,
+                  name: delivers ? name : `${name} (nur abholen)`,
+                  isDefault: id === view.host?.defaultRestaurantId,
+                }))}
+                voting={voting}
+                members={hostOptions}
+                defaultHostName={defaultHost?.name ?? null}
+                viewerIsHost={amHost}
+                messages={messages.map((message) => ({
+                  at: message.at.getTime(),
+                  when: formatWeekdayTime(message.at),
+                  kind: message.kind,
+                  recipients: message.recipients,
+                }))}
+                serverNow={now.getTime()}
+              />
+            </section>
+          )}
+
+          {swapHostOnly && !view.settled && (
+            <section id="vertretung" className="scroll-mt-16">
+              <ChapterHeading
+                number={++chapter}
+                icon={House}
+                kicker="Vertretung"
+                title="Wer ist Gastgeber?"
+                hint="Mit der Rolle Vertretungen kannst du diesen Freitag jemand anderem geben."
+              />
+              <GlassCard variant="tile" className="max-w-md p-5">
+                <HostPicker
+                  date={view.date}
+                  hostId={hostId}
+                  hostIsDefault={view.hostIsDefault}
+                  defaultHostName={defaultHost?.name ?? null}
+                  members={hostOptions}
+                />
+              </GlassCard>
+            </section>
+          )}
+
+          {isCurrent && (
+            <div className="flex justify-center">
+              <Link href="/kalender" className={buttonVariants({ variant: 'outline' })}>
+                <CalendarDays /> Die nächsten Freitage
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
       {orderBar && <OrderBar {...orderBar} />}
     </>
