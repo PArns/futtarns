@@ -15,15 +15,20 @@ export function MoneyStatus({
   memberId,
   money,
   canManage,
+  payable = true,
 }: {
   date: string;
   memberId: number;
   money: Money;
   canManage: boolean;
+  /** Before paying opens the amount is only what it comes to so far. */
+  payable?: boolean;
 }) {
   const { pending, execute } = useAction();
   const status =
-    money.openCents > 0 ? (
+    money.openCents > 0 && !payable ? (
+      <Pill tone="muted">{formatEuro(money.openCents)} bis jetzt</Pill>
+    ) : money.openCents > 0 ? (
       <Pill tone="warning">
         <Clock /> {formatEuro(money.openCents)} offen
       </Pill>

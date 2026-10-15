@@ -51,6 +51,7 @@ import {
   setTip,
   setVoucher,
   settleFriday,
+  takeOverFriday,
 } from '@/lib/services/fridays';
 import {
   addAbsence,
@@ -463,10 +464,20 @@ export async function setHostAction(date: string, hostId: number | null): Promis
     const db = await getDb();
     if (!canSetHost(viewer, await hostIdFor(db, day))) {
       throw new ServiceError(
-        'Den Gastgeber tauschen dürfen nur Admins, der Gastgeber selbst und die Rolle „Gastgeber“'
+        'Den Gastgeber tauschen dürfen nur Admins, der Gastgeber selbst und die Rolle „Vertretungen“'
       );
     }
     await setHost(db, day, hostId === null ? null : memberId.parse(hostId));
+  });
+}
+
+/** The viewer steps in as host for a Friday whose host is away. */
+export async function takeOverAction(date: string): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { viewer } = await getGroupContext();
+    await takeOverFriday(await getDb(), day, viewer.id, new Date());
+    return { ok: true, message: 'Danke! Du bist jetzt Gastgeber' };
   });
 }
 

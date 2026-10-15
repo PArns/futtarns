@@ -5,7 +5,6 @@ import { MoneyStatus } from '@/components/friday/money-status';
 import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { GlassCard } from '@/components/ui/glass-card';
 import { Pill } from '@/components/ui/pill';
 import { collecting } from '@/lib/balance';
 import { formatEuro } from '@/lib/format';
@@ -39,6 +38,25 @@ function subline(participant: Participant, view: FridayView, nameOf: (id: number
 }
 
 /**
+ * What someone ordered as one line, by restaurant once they also ordered ahead:
+ * `Margherita (Rucola), Tiramisu · Smash Bros. Burger: Classic Smash`.
+ */
+function orderLine(groups: OrderGroup[]): string {
+  const titled = groups.some((group) => group.ahead);
+  return groups
+    .map((group) => {
+      const dishes = group.items
+        .map((item) => {
+          const options = item.options.map((option) => option.choiceName).join(', ');
+          return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
+        })
+        .join(', ');
+      return titled && group.ahead ? `falls ${group.name}: ${dishes}` : dishes;
+    })
+    .join(' · ');
+}
+
+/**
  * The money of whoever collects it is the others': what is still to collect, and for the
  * host the drinks kitty, which they buy the drinks from. Whoever fetches the food collects
  * the food money.
@@ -57,43 +75,41 @@ function PayeeMoney({
   const { openCents, anyDue } = collecting(view, memberId);
   return (
     <>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {isHost && (
-          <Pill tone="primary">
-            <House /> Gastgeber
+      {isHost && (
+        <Pill tone="primary">
+          <House /> Gastgeber
+        </Pill>
+      )}
+      {isPicker && (
+        <Pill tone="primary">
+          <ShoppingBag /> holt ab
+        </Pill>
+      )}
+      {openCents > 0 ? (
+        <Pill tone="warning">
+          <Clock /> bekommt noch {formatEuro(openCents)}
+        </Pill>
+      ) : (
+        anyDue && (
+          <Pill tone="success">
+            <Check /> alles eingesammelt
           </Pill>
-        )}
-        {isPicker && (
-          <Pill tone="primary">
-            <ShoppingBag /> holt ab
-          </Pill>
-        )}
-        {openCents > 0 ? (
-          <Pill tone="warning">
-            <Clock /> bekommt noch {formatEuro(openCents)}
-          </Pill>
-        ) : (
-          anyDue && (
-            <Pill tone="success">
-              <Check /> alles eingesammelt
-            </Pill>
-          )
-        )}
-      </div>
+        )
+      )}
       {isHost && view.drinksFeeCents > 0 && (
-        <div className="border-primary/40 bg-primary/10 flex min-h-10 items-center gap-3 rounded-2xl border px-4 py-1.5">
-          <CupSoda className="text-primary size-5 shrink-0" />
-          <span className="flex-1 text-sm font-semibold">Getränkekasse</span>
-          <span className="text-sm font-semibold tabular-nums">
-            {formatEuro(view.drinksTotalCents)}
-          </span>
-        </div>
+        <Pill tone="muted">
+          <CupSoda /> Getränkekasse {formatEuro(view.drinksTotalCents)}
+        </Pill>
       )}
     </>
   );
 }
 
-/** One person on the Friday: answer, what they ordered, where their money stands. */
+/**
+ * One person on the Friday as a compact row: answer, what they ordered, where their money
+ * stands. Whoever may change their order sees the dishes one by one to edit; everyone
+ * else gets them in a line.
+ */
 export function ParticipantCard({
   participant,
   view,
@@ -127,19 +143,18 @@ export function ParticipantCard({
   const showDrinks =
     editOthers && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
   const showPayeeMoney = (isHost || isPicker) && !view.cancelled;
+  const sub = subline(participant, view, nameOf);
 
   return (
-    <GlassCard
-      variant="tile"
+    <li
       className={cn(
-        // Cards in a row share its height; the money part sits at the bottom of each.
-        'flex h-full min-w-0 flex-col p-4',
+        'flex min-w-0 gap-3 py-3',
         participant.attendance.status === 'out' && !silentOnFlat && 'opacity-60'
       )}
     >
-      <div className="flex-1">
-        <div className="flex items-center gap-3">
-          <Avatar name={participant.member.name} id={participant.member.id} />
+      <Avatar name={participant.member.name} id={participant.member.id} className="mt-0.5" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="truncate font-bold">{participant.member.name}</span>
@@ -150,9 +165,14 @@ export function ParticipantCard({
                 <ShoppingBag className="text-primary size-3.5 shrink-0" aria-label="Holt ab" />
               )}
             </div>
-            <div className="text-muted-foreground truncate text-xs">
-              {subline(participant, view, nameOf)}
-            </div>
+            {!editOthers && orders.length > 0 ? (
+              <p className="text-sm">{orderLine(orders)}</p>
+            ) : (
+              sub && <p className="text-muted-foreground truncate text-xs">{sub}</p>
+            )}
+            {!editOthers && orders.length > 0 && sub && (
+              <p className="text-muted-foreground truncate text-xs">{sub}</p>
+            )}
           </div>
           {editOthers ? (
             <AnswerSelect
@@ -161,40 +181,43 @@ export function ParticipantCard({
               status={participant.attendance.status}
             />
           ) : (
-            <Badge variant={badge.variant}>{badge.label}</Badge>
+            <Badge variant={badge.variant} className="shrink-0">
+              {badge.label}
+            </Badge>
           )}
         </div>
-        <OrderedItems groups={orders} editable={editOthers} className="mt-2" />
+        {editOthers && <OrderedItems groups={orders} editable />}
+        {(showMoney || showDrinks || showPayeeMoney) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {showPayeeMoney && (
+              <PayeeMoney
+                view={view}
+                memberId={participant.member.id}
+                isHost={isHost}
+                isPicker={isPicker}
+              />
+            )}
+            {showMoney && (
+              <MoneyStatus
+                date={view.date}
+                memberId={participant.member.id}
+                money={money}
+                canManage={canManage && payable}
+                payable={payable}
+              />
+            )}
+            {showDrinks && (
+              <DrinksToggle
+                date={view.date}
+                memberId={participant.member.id}
+                feeCents={view.drinksFeeCents}
+                on={!participant.drinksOptOut}
+                size="mini"
+              />
+            )}
+          </div>
+        )}
       </div>
-      {(showMoney || showDrinks || showPayeeMoney) && (
-        <div className="border-border/60 mt-3 space-y-2 border-t pt-3">
-          {showPayeeMoney && (
-            <PayeeMoney
-              view={view}
-              memberId={participant.member.id}
-              isHost={isHost}
-              isPicker={isPicker}
-            />
-          )}
-          {showMoney && (
-            <MoneyStatus
-              date={view.date}
-              memberId={participant.member.id}
-              money={money}
-              canManage={canManage && payable}
-            />
-          )}
-          {showDrinks && (
-            <DrinksToggle
-              date={view.date}
-              memberId={participant.member.id}
-              feeCents={view.drinksFeeCents}
-              on={!participant.drinksOptOut}
-              compact
-            />
-          )}
-        </div>
-      )}
-    </GlassCard>
+    </li>
   );
 }

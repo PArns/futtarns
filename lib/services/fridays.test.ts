@@ -20,6 +20,7 @@ import {
   settleFriday,
   setTip,
   setVoucher,
+  takeOverFriday,
 } from '@/lib/services/fridays';
 import { addAbsence, addGuest, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
@@ -502,6 +503,17 @@ describe('a Friday', () => {
     // The host pays Lieferando, so owes nothing; their own share is shown on its own.
     expect(shareLines(view, entry(patrick.id))).toEqual([]);
     expect(sum(foodLines(view, entry(patrick.id)))).toBe(entry(patrick.id).share!.totalCents);
+  });
+
+  it('lets a member take over a Friday whose host is away, and only then', async () => {
+    const { patrick, anna } = await setup();
+    await expect(takeOverFriday(db, FRIDAY, anna.id, BEFORE)).rejects.toThrow('weg ist');
+    await addAbsence(db, patrick.id, FRIDAY, FRIDAY, 'Hochzeit');
+    await takeOverFriday(db, FRIDAY, anna.id, BEFORE);
+    expect((await loadFriday(db, FRIDAY, BEFORE)).host?.id).toBe(anna.id);
+    // Not after the deadline: then the order is due and the host was written down.
+    await setHost(db, FRIDAY, null);
+    await expect(takeOverFriday(db, FRIDAY, anna.id, AFTER)).rejects.toThrow('weg ist');
   });
 
   it('tips what the restaurant asks for, unless the host sets another amount', async () => {

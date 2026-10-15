@@ -46,6 +46,7 @@ import {
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
 import { estimateFees, splitTotal, type FeeEstimate, type MemberShare } from '@/lib/pricing';
+import { canTakeOver } from '@/lib/permissions';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
 import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/services/restaurants';
 import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
@@ -114,6 +115,29 @@ async function dropOrdersExcept(
 
 export async function setHost(db: Db, date: IsoDate, hostId: number | null) {
   await touch(db, date, { hostId });
+}
+
+/**
+ * A member steps in for a host who is away that day. Checked here against the database,
+ * not the page: the host must be away, the member around and in the Stammtruppe.
+ */
+export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
+  const row = await getFridayRow(db, date);
+  const hostId = row?.hostId ?? (await getDefaultHost(db))?.id ?? null;
+  const absent = await absencesOverlapping(db, date, date);
+  const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
+  const allowed =
+    viewer &&
+    canTakeOver(viewer, {
+      hostId,
+      hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
+      viewerAbsent: absent.some((absence) => absence.memberId === memberId),
+      locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
+      cancelled: row?.cancelled ?? false,
+    });
+  if (!allowed)
+    throw new ServiceError('Übernehmen geht nur, wenn der Gastgeber an dem Tag weg ist');
+  await setHost(db, date, memberId);
 }
 
 export async function setCancelled(

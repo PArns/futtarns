@@ -9,13 +9,40 @@ export function canManageFriday(viewer: Viewer, hostId: number | null): boolean 
 
 /**
  * Who may hand a Friday to another host: whoever runs it, and members with the
- * „Gastgeber“ role, who may do that for every Friday without running it.
+ * „Vertretungen“ role, who may do that for every Friday without running it.
  */
 export function canSetHost(
   viewer: Viewer & Pick<Member, 'assignsHosts'>,
   hostId: number | null
 ): boolean {
   return canManageFriday(viewer, hostId) || viewer.assignsHosts;
+}
+
+/**
+ * Whether someone may take a Friday over themselves because its host is away that day:
+ * any active member of the Stammtruppe who is not the host and not away too, while the
+ * Friday is still open.
+ */
+export function canTakeOver(
+  viewer: Pick<Member, 'id' | 'kind' | 'active' | 'core'>,
+  friday: {
+    hostId: number | null;
+    hostAbsent: boolean;
+    viewerAbsent: boolean;
+    locked: boolean;
+    cancelled: boolean;
+  }
+): boolean {
+  return (
+    friday.hostAbsent &&
+    !friday.viewerAbsent &&
+    !friday.locked &&
+    !friday.cancelled &&
+    viewer.id !== friday.hostId &&
+    viewer.kind === 'member' &&
+    viewer.active &&
+    viewer.core
+  );
 }
 
 /** Adding members and editing restaurants: admins and the host of the coming Friday. */

@@ -40,6 +40,7 @@ export function RestaurantVote({
   options,
   myVote,
   orderAs,
+  canVote = true,
   closesAt,
   serverNow,
 }: {
@@ -48,6 +49,8 @@ export function RestaurantVote({
   myVote: number | null;
   /** The viewer, while they can still order; otherwise the menus are only to look at. */
   orderAs: OrderTarget | null;
+  /** False for a guest who has not said yes yet: they can look, not vote. */
+  canVote?: boolean;
   closesAt: number;
   serverNow: number;
 }) {
@@ -103,7 +106,9 @@ export function RestaurantVote({
     <GlassCard variant="tile" className="space-y-3 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          Antworten geht auch per WhatsApp mit dem Buchstaben.
+          {canVote
+            ? 'Antworten geht auch per WhatsApp mit dem Buchstaben.'
+            : 'Sag oben zu, dann stimmst du mit ab.'}
           {orderAs &&
             ' Tippst du in einer Karte auf ein Gericht, bestellst du es. Bei einem anderen als dem bisherigen Restaurant ist das zugleich deine Stimme.'}
         </p>
@@ -217,7 +222,7 @@ export function RestaurantVote({
                 <Button
                   variant={mine ? 'default' : 'outline'}
                   size="sm"
-                  disabled={pending || !open}
+                  disabled={pending || !open || !canVote}
                   onClick={() => execute(() => voteAction(date, mine ? null : option.id))}
                   aria-pressed={mine}
                 >

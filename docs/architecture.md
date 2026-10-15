@@ -82,7 +82,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 Members carry a `core` flag, the Stammtruppe. Only they are asked every week, count as in
 when they say nothing, host and vote every Friday. Everyone else with a login is a guest:
 they stay in the members table, log in with their number, and take part in a Friday once
-they say yes themselves (the Friday page shows them the answer buttons, the bot takes a
+they say yes themselves (the Friday page shows them the answer buttons, and while they
+decide the ballot and the menu to look at, but not the others' money; the bot takes a
 `1`) or someone adds them (an attendance row). On every other Friday they count as out and
 appear nowhere (`effectiveAttendance`, the people queries in `loadFriday` and
 `loadCalendar`), and nobody messages them about it.
@@ -101,6 +102,8 @@ the flag on the people page, and new members get it by default.
   everyone's orders after the deadline, settlement and payments.
 - Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
+- When a Friday's host is away that day, anyone of the Stammtruppe who is around may take
+  it over themselves („Ich übernehme“, `canTakeOver`, `takeOverFriday`) until the deadline.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 
