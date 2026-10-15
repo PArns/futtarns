@@ -107,7 +107,7 @@ export function Menu({
           />
         </div>
         {(categories.length > 1 || takenCount > 0) && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             <Chip selected={category === ALL} onClick={() => setCategory(ALL)}>
               Alles
             </Chip>
@@ -146,11 +146,12 @@ export function Menu({
                     setOpenCount(openCount + 1);
                     setOpened({ dish, instance: openCount + 1 });
                   }}
-                  className="group bg-card/60 hover:border-primary/50 relative flex items-start gap-3 rounded-xl border p-3 text-left transition-colors"
+                  className="group bg-card/60 hover:border-primary/50 relative flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors sm:items-start sm:py-3"
                 >
+                  {/* Name and price share a line, so a phone shows twice the dishes. */}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="group-hover:text-primary truncate text-[15px] font-bold transition-colors">
+                    <div className="flex items-baseline gap-2">
+                      <span className="group-hover:text-primary min-w-0 truncate text-[15px] font-bold transition-colors">
                         {dish.name}
                       </span>
                       {dish.id === defaultDishId && (
@@ -158,18 +159,18 @@ export function Menu({
                           Standard
                         </span>
                       )}
+                      <span className="ml-auto shrink-0 text-sm font-semibold tabular-nums">
+                        {dish.optionGroups.length > 0 && (
+                          <span className="text-muted-foreground font-normal">ab </span>
+                        )}
+                        {formatEuro(dish.priceCents)}
+                      </span>
                     </div>
                     {dish.description && (
-                      <p className="text-muted-foreground mt-0.5 line-clamp-2 text-xs">
+                      <p className="text-muted-foreground mt-0.5 line-clamp-1 text-xs sm:line-clamp-2">
                         {dish.description}
                       </p>
                     )}
-                    <p className="mt-1.5 text-sm font-semibold tabular-nums">
-                      {dish.optionGroups.length > 0 && (
-                        <span className="text-muted-foreground font-normal">ab </span>
-                      )}
-                      {formatEuro(dish.priceCents)}
-                    </p>
                     {takenBy[dish.id] && (
                       <p className="text-primary mt-1 flex items-center gap-1 text-xs font-medium">
                         <Users className="size-3 shrink-0" />
@@ -177,7 +178,7 @@ export function Menu({
                       </p>
                     )}
                   </div>
-                  <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white">
+                  <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white sm:size-8">
                     <Plus className="size-4" />
                   </span>
                 </button>

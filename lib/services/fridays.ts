@@ -1051,7 +1051,7 @@ export async function loadCalendar(
           id: member.id,
           name: member.name,
           status: effective.status,
-          answered: effective.reason === 'answered',
+          answered: effective.reason === 'answered' || (mode === 'flat' && member.id === host?.id),
           waiting: effective.reason === 'silent' && effective.status === 'out',
         };
       })

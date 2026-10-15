@@ -191,9 +191,11 @@ export function CostsSection({ view, payable }: { view: FridayView; payable: boo
             <thead>
               <tr className="text-muted-foreground text-xs">
                 <th className="pb-2 text-left font-medium">Wer</th>
-                <th className="pb-2 pl-2 text-right font-medium">{flat ? 'Pauschale' : 'Essen'}</th>
-                <th className="pb-2 pl-2 text-right font-medium">Getränke</th>
-                <th className="pb-2 pl-2 text-right font-medium">
+                <th className="w-px pb-2 pl-2 text-right font-medium">
+                  {flat ? 'Pauschale' : 'Essen'}
+                </th>
+                <th className="w-px pb-2 pl-2 text-right font-medium">Getränke</th>
+                <th className="w-px pb-2 pl-2 text-right font-medium whitespace-nowrap">
                   {payable ? 'Offen' : 'Bis jetzt'}
                 </th>
               </tr>
@@ -208,7 +210,7 @@ export function CostsSection({ view, payable }: { view: FridayView; payable: boo
                       : null;
                 return (
                   <tr key={entry.member.id}>
-                    <td className="max-w-0 truncate py-2 font-medium">{entry.member.name}</td>
+                    <td className="py-2 font-medium break-words">{entry.member.name}</td>
                     <td className="py-2 pl-2 text-right whitespace-nowrap tabular-nums">
                       {entry.share ? formatEuro(entry.share.totalCents) : '–'}
                     </td>

@@ -42,6 +42,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
+import { Notice } from '@/components/ui/notice';
 import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
@@ -258,7 +259,9 @@ export async function FridayScreen({
     id: participant.member.id,
     name: participant.member.name,
     status: participant.attendance.status,
-    answered: participant.attendance.reason === 'answered',
+    // The host of a flat-price evening is there without saying so.
+    answered:
+      participant.attendance.reason === 'answered' || (flat && participant.member.id === hostId),
     waiting: participant.attendance.reason === 'silent' && participant.attendance.status === 'out',
   }));
   const sheet = buildOrderSheet(
@@ -284,7 +287,9 @@ export async function FridayScreen({
   const silentHint = !me
     ? ''
     : flat
-      ? `Für ${view.flatTitle ?? 'diesen Abend'} brauchen wir deine Zusage, sonst planen wir dich nicht ein.`
+      ? amHost
+        ? 'Als Gastgeber bist du sowieso dabei.'
+        : `Für ${view.flatTitle ?? 'diesen Abend'} brauchen wir deine Zusage, sonst planen wir dich nicht ein.`
       : myDefault && !myDefault.dish
         ? 'Ohne Antwort kommst du ohne Essen – dein Standard hier ist „nix“.'
         : myDefault?.dish
@@ -413,93 +418,40 @@ export async function FridayScreen({
             </span>
           )}
         </div>
-        {voteRuns && (
-          <div className="hero-item mt-4">
-            <VoteBanner
-              closesAt={voteClosesAt(date).getTime()}
-              serverNow={now.getTime()}
-              standing={standing}
-              canVote={showVote}
-            />
-          </div>
+        {view.hostAbsent && view.host && !view.cancelled && !view.settled && (
+          <Notice className="hero-item mt-4 flex items-start gap-2 text-sm">
+            <TriangleAlert className="text-warning mt-0.5" />
+            <span>
+              <strong className="text-warning block">
+                {amHost ? 'Du bist' : `${view.host.name} ist`} an dem Tag weg – wer macht den
+                Gastgeber?
+              </strong>
+              {manage || swapHostOnly ? (
+                <a
+                  href={manage ? '#chefsache' : '#vertretung'}
+                  className="text-primary font-semibold hover:underline"
+                >
+                  Vertretung eintragen
+                </a>
+              ) : (
+                <span className="text-muted-foreground">
+                  Sag {amHost ? 'einem Admin' : `${view.host.name} oder einem Admin`} Bescheid, wer
+                  übernimmt.
+                </span>
+              )}
+            </span>
+          </Notice>
         )}
-        {!view.cancelled && (
-          <div className="hero-item mt-2">
-            <TimeLine
-              serverNow={now.getTime()}
-              moments={[
-                {
-                  label: flat ? 'Anmeldeschluss' : 'Bestellschluss',
-                  at: view.deadline.getTime(),
-                  time: formatTime(view.deadline),
-                },
-                ...(flat
-                  ? []
-                  : [
-                      {
-                        label: 'Bestellung',
-                        at: view.orderTime.getTime(),
-                        time: formatTime(view.orderTime),
-                      },
-                      {
-                        label: 'Essen ~',
-                        at: deliveryTime(date).getTime(),
-                        time: formatTime(deliveryTime(date)),
-                      },
-                    ]),
-              ]}
-            />
-          </div>
-        )}
-
-        {!view.cancelled && (
-          <div className="hero-item mt-4">
-            <DeadlinePill
-              deadline={view.deadline.getTime()}
-              deadlineLabel={formatTime(view.deadline)}
-              serverNow={now.getTime()}
-              locked={closed}
-              settled={view.settled}
-              cancelled={view.cancelled}
-              flat={flat}
-            />
-          </div>
-        )}
-
-        {!view.cancelled && attendancePeople.length > 0 && (
-          <div className="hero-item mt-4">
-            <AttendancePills people={attendancePeople} flat={flat} />
-          </div>
-        )}
-
-        {view.cancelled && view.cancelReason && (
-          <p className="hero-item text-muted-foreground mt-3">{view.cancelReason}</p>
-        )}
-        {view.cancelled && (
-          <Link
-            href={`/freitag/${addWeeks(date, 1)}`}
-            className={buttonVariants({
-              variant: 'outline',
-              size: 'sm',
-              className: 'hero-item mt-4',
-            })}
-          >
-            Zum nächsten Freitag <ChevronRight />
-          </Link>
-        )}
-        {view.note && !view.cancelled && (
-          <p className="hero-item border-primary/30 bg-primary/10 mt-4 rounded-xl border px-4 py-3 text-sm">
-            {view.note}
-          </p>
-        )}
-
         {!view.cancelled && me && (
           <div className="hero-item mt-5 space-y-3">
             {/* Someone who is out has nothing to tick off; the answer below says so. */}
             {me.attendance.status !== 'out' && (
               <Steps
                 steps={[
-                  { label: 'Zusagen', done: me.attendance.reason === 'answered' },
+                  {
+                    label: 'Zusagen',
+                    done: me.attendance.reason === 'answered' || (flat && amHost),
+                  },
                   ...(flat
                     ? []
                     : [
@@ -540,6 +492,85 @@ export async function FridayScreen({
               bis {formatTime(view.deadline)} Uhr.
             </p>
           </div>
+        )}
+        {view.note && !view.cancelled && (
+          <div className="hero-item mt-4 flex items-start gap-2">
+            {view.host && (
+              <Avatar name={view.host.name} id={view.host.id} className="size-7 text-[10px]" />
+            )}
+            <p className="bg-muted/50 rounded-2xl rounded-tl-sm px-3.5 py-2 text-sm">{view.note}</p>
+          </div>
+        )}
+        {voteRuns && (
+          <div className="hero-item mt-4">
+            <VoteBanner
+              closesAt={voteClosesAt(date).getTime()}
+              serverNow={now.getTime()}
+              standing={standing}
+              canVote={showVote}
+            />
+          </div>
+        )}
+        {!view.cancelled && (
+          <div className="hero-item mt-4">
+            <TimeLine
+              serverNow={now.getTime()}
+              moments={[
+                {
+                  label: flat ? 'Anmeldeschluss' : 'Bestellschluss',
+                  at: view.deadline.getTime(),
+                  time: formatTime(view.deadline),
+                },
+                ...(flat
+                  ? []
+                  : [
+                      {
+                        label: `${view.host?.name ?? 'Gastgeber'} bestellt`,
+                        at: view.orderTime.getTime(),
+                        time: formatTime(view.orderTime),
+                      },
+                      {
+                        label: 'Essen gegen',
+                        at: deliveryTime(date).getTime(),
+                        time: formatTime(deliveryTime(date)),
+                      },
+                    ]),
+              ]}
+            />
+          </div>
+        )}
+        {!view.cancelled && (
+          <div className="hero-item mt-4 empty:hidden">
+            <DeadlinePill
+              deadline={view.deadline.getTime()}
+              deadlineLabel={formatTime(view.deadline)}
+              serverNow={now.getTime()}
+              locked={closed}
+              settled={view.settled}
+              cancelled={view.cancelled}
+              flat={flat}
+            />
+          </div>
+        )}
+        {!view.cancelled && attendancePeople.length > 0 && (
+          <div className="hero-item mt-4">
+            <AttendancePills people={attendancePeople} flat={flat} />
+          </div>
+        )}
+        {view.cancelled && view.cancelReason && (
+          <p className="hero-item text-muted-foreground mt-3">{view.cancelReason}</p>
+        )}
+        {view.cancelled && (
+          <Link
+            href={`/freitag/${addWeeks(date, 1)}`}
+            className={buttonVariants({
+              variant: 'outline',
+              size: 'sm',
+              className: 'hero-item mt-4',
+            })}
+          >
+            Zum nächsten Freitag <ChevronRight />
+          </Link>
         )}
         {view.cancelled && me && (
           <div className="hero-item mt-5">
@@ -770,86 +801,11 @@ export async function FridayScreen({
                       payees={[]}
                       label={`Gewinnt ${group.name} · ungefähr`}
                       payable={false}
+                      maybe
                       note={`Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}. Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
                     />
                   );
                 })}
-            </GlassCard>
-          </section>
-        )}
-
-        {!view.cancelled && (view.estimate || flat) && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={Coins}
-              kicker="Kassensturz"
-              title="Wer zahlt was"
-              hint={
-                flat
-                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
-                  : view.settled
-                    ? 'Abgerechnet mit dem echten Betrag.'
-                    : voteRuns && view.restaurant
-                      ? `Geschätzt für ${view.restaurant.name}, solange die Wahl läuft. Gewinnt ein anderes Restaurant, rechnen wir mit dessen Karte neu.`
-                      : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
-              }
-            />
-            <CostsSection view={view} payable={payable} />
-          </section>
-        )}
-
-        {manage && (
-          <section id="chefsache" className="scroll-mt-16">
-            <ChapterHeading
-              number={++chapter}
-              icon={ChefHat}
-              kicker="Chefsache"
-              title="Für den Gastgeber"
-              hint="Nur du und die Admins sehen diesen Teil."
-            />
-            <HostSection
-              view={view}
-              closed={closed}
-              sheet={sheet}
-              hungry={hungry}
-              restaurants={pickable.map(({ id, name, delivers }) => ({
-                id,
-                name: delivers ? name : `${name} (nur abholen)`,
-                isDefault: id === view.host?.defaultRestaurantId,
-              }))}
-              voting={voting}
-              members={hostOptions}
-              defaultHostName={defaultHost?.name ?? null}
-              viewerIsHost={amHost}
-              messages={messages.map((message) => ({
-                at: message.at.getTime(),
-                when: formatWeekdayTime(message.at),
-                kind: message.kind,
-                recipients: message.recipients,
-              }))}
-              serverNow={now.getTime()}
-            />
-          </section>
-        )}
-
-        {swapHostOnly && !view.settled && (
-          <section>
-            <ChapterHeading
-              number={++chapter}
-              icon={House}
-              kicker="Vertretung"
-              title="Wer ist Gastgeber?"
-              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
-            />
-            <GlassCard variant="tile" className="max-w-md p-5">
-              <HostPicker
-                date={view.date}
-                hostId={hostId}
-                hostIsDefault={view.hostIsDefault}
-                defaultHostName={defaultHost?.name ?? null}
-                members={hostOptions}
-              />
             </GlassCard>
           </section>
         )}
@@ -910,6 +866,82 @@ export async function FridayScreen({
                 <AddGuestForm date={date} known={knownGuests} />
               </div>
             )}
+          </section>
+        )}
+
+        {!view.cancelled && (view.estimate || flat) && (
+          <section>
+            <ChapterHeading
+              number={++chapter}
+              icon={Coins}
+              kicker="Kassensturz"
+              title="Wer zahlt was"
+              hint={
+                flat
+                  ? 'Alle, die dabei sind, zahlen denselben Betrag.'
+                  : view.settled
+                    ? 'Abgerechnet mit dem echten Betrag.'
+                    : voteRuns && view.restaurant
+                      ? `Geschätzt für ${view.restaurant.name}, solange die Wahl läuft. Gewinnt ein anderes Restaurant, rechnen wir mit dessen Karte neu.`
+                      : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
+              }
+            />
+            <CostsSection view={view} payable={payable} />
+          </section>
+        )}
+
+        {manage && (
+          <section id="chefsache" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={ChefHat}
+              kicker="Chefsache"
+              title="Für den Gastgeber"
+              hint="Nur du und die Admins sehen diesen Teil."
+            />
+            <HostSection
+              view={view}
+              closed={closed}
+              sheet={sheet}
+              hungry={hungry}
+              restaurants={pickable.map(({ id, name, delivers }) => ({
+                id,
+                name: delivers ? name : `${name} (nur abholen)`,
+                isDefault: id === view.host?.defaultRestaurantId,
+              }))}
+              voting={voting}
+              members={hostOptions}
+              defaultHostName={defaultHost?.name ?? null}
+              viewerIsHost={amHost}
+              messages={messages.map((message) => ({
+                at: message.at.getTime(),
+                when: formatWeekdayTime(message.at),
+                kind: message.kind,
+                recipients: message.recipients,
+              }))}
+              serverNow={now.getTime()}
+            />
+          </section>
+        )}
+
+        {swapHostOnly && !view.settled && (
+          <section id="vertretung" className="scroll-mt-16">
+            <ChapterHeading
+              number={++chapter}
+              icon={House}
+              kicker="Vertretung"
+              title="Wer ist Gastgeber?"
+              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
+            />
+            <GlassCard variant="tile" className="max-w-md p-5">
+              <HostPicker
+                date={view.date}
+                hostId={hostId}
+                hostIsDefault={view.hostIsDefault}
+                defaultHostName={defaultHost?.name ?? null}
+                members={hostOptions}
+              />
+            </GlassCard>
           </section>
         )}
 
