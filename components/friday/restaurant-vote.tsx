@@ -11,7 +11,7 @@ import {
 } from '@/components/friday/dish-dialog';
 import { MenuPreview } from '@/components/friday/menu-preview';
 import { Avatar } from '@/components/ui/avatar';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Pill } from '@/components/ui/pill';
 import { formatCountdown } from '@/lib/format';
@@ -175,38 +175,45 @@ export function RestaurantVote({
                       </span>
                     </div>
                   )}
-                  {option.dishCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleMenu(option.id)}
-                      aria-expanded={shownMenu === option.id}
-                      aria-controls={`karte-${option.id}`}
-                      className="text-primary mt-1 inline-flex items-center gap-1 text-xs font-semibold hover:underline"
-                    >
-                      <BookOpen className="size-3.5" /> Karte ({option.dishCount}{' '}
-                      {option.dishCount === 1 ? 'Gericht' : 'Gerichte'})
-                      <ChevronDown
-                        className={cn(
-                          'size-3.5 transition-transform',
-                          shownMenu === option.id && 'rotate-180'
-                        )}
-                      />
-                    </button>
-                  ) : (
-                    <div className="text-muted-foreground mt-1 text-xs">Noch keine Karte hier</div>
-                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold">
+                    {option.dishCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleMenu(option.id)}
+                        aria-expanded={shownMenu === option.id}
+                        aria-controls={`karte-${option.id}`}
+                        className="text-primary inline-flex items-center gap-1 whitespace-nowrap hover:underline"
+                      >
+                        <BookOpen className="size-3.5" />
+                        <span>
+                          Karte ({option.dishCount}{' '}
+                          {option.dishCount === 1 ? 'Gericht' : 'Gerichte'})
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'size-3.5 transition-transform',
+                            shownMenu === option.id && 'rotate-180'
+                          )}
+                        />
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground font-normal">
+                        Noch keine Karte hier
+                      </span>
+                    )}
+                    {option.lieferandoUrl && (
+                      <a
+                        href={option.lieferandoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 whitespace-nowrap"
+                        aria-label={`${option.name} bei Lieferando ansehen`}
+                      >
+                        <ExternalLink className="size-3.5" /> Lieferando
+                      </a>
+                    )}
+                  </div>
                 </div>
-                {option.lieferandoUrl && (
-                  <a
-                    href={option.lieferandoUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                    aria-label={`${option.name} bei Lieferando ansehen`}
-                  >
-                    <ExternalLink />
-                  </a>
-                )}
                 <Button
                   variant={mine ? 'default' : 'outline'}
                   size="sm"

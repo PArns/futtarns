@@ -24,7 +24,7 @@ export function VoteBanner({
   if (now >= closesAt) return null;
   const body = (
     <>
-      <span className="bg-primary/15 text-primary flex size-9 shrink-0 items-center justify-center rounded-full">
+      <span className="bg-primary/15 text-primary flex size-9 shrink-0 items-center justify-center rounded-full max-sm:hidden">
         <Vote className="size-4.5" />
       </span>
       <span className="min-w-0 flex-1">
@@ -32,12 +32,12 @@ export function VoteBanner({
           Restaurantwahl läuft · schließt {formatCountdown(closesAt - now)}
         </span>
         <span className="text-muted-foreground block">
-          {standing}. Fest steht das Restaurant erst nach der Wahl, Donnerstag um 23:59.
+          {standing}. Das Restaurant steht erst danach fest.
         </span>
       </span>
       {canVote && (
-        <span className="text-primary inline-flex shrink-0 items-center gap-0.5 font-semibold max-sm:hidden">
-          Abstimmen <ChevronRight className="size-4" />
+        <span className="text-primary inline-flex shrink-0 items-center gap-0.5 font-semibold">
+          <span className="max-sm:sr-only">Abstimmen</span> <ChevronRight className="size-5" />
         </span>
       )}
     </>

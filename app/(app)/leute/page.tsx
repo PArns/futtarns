@@ -29,6 +29,7 @@ const ANSWER_LABEL: Record<AnswerKind, string> = {
   yes: 'dabei',
   silent: 'keine Antwort',
   nofood: 'ohne Essen',
+  waiting: 'keine Antwort',
   out: 'raus',
 };
 

@@ -82,6 +82,7 @@ import {
   createRestaurant,
   deleteAllDishes,
   deleteRestaurant,
+  getRestaurant,
   listDishes,
   setHostRestaurant,
   setDishArchived,
@@ -247,17 +248,14 @@ export async function addItemAction(input: z.input<typeof dishChoice>): Promise<
     const { db } = await orderAccess(viewer, data.date, data.memberId);
     await addItem(db, data.date, data.memberId, data, { from: data.restaurantId, vote: data.vote });
     const ahead = (await currentRestaurantId(db, data.date)) !== data.restaurantId;
+    const done = ahead
+      ? `Vorbestellt bei ${(await getRestaurant(db, data.restaurantId))?.name ?? 'deiner Wahl'}`
+      : 'Bestellt';
     if (data.saveAsDefault && data.memberId === viewer.id) {
       await setDefaultDish(db, viewer.id, data.restaurantId, data);
-      return {
-        ok: true,
-        message: `${ahead ? 'Vorbestellt' : 'Bestellt'} und als dein Standard gemerkt`,
-      };
+      return { ok: true, message: `${done} und als dein Standard gemerkt` };
     }
-    return {
-      ok: true,
-      message: ahead ? 'Vorbestellt: zählt, wenn das Restaurant gewinnt' : 'Bestellt',
-    };
+    return { ok: true, message: ahead ? `${done} – zählt, wenn es gewinnt` : done };
   });
 }
 

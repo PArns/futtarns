@@ -775,7 +775,15 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     const own = items.filter((item) => item.memberId === member.id);
     const fallback = defaults.find((entry) => entry.entry.memberId === member.id);
     // A default of „nix“ means: when they say nothing, they come without eating.
-    const silentMeans = mode === 'flat' ? 'out' : fallback && !fallback.dish ? 'nofood' : 'in';
+    // A flat-price evening needs a yes, except from its host, who is there anyway.
+    const silentMeans =
+      mode === 'flat'
+        ? member.id === hostId
+          ? 'in'
+          : 'out'
+        : fallback && !fallback.dish
+          ? 'nofood'
+          : 'in';
     const attendance = effectiveAttendance(member, date, answer?.status, absent, silentMeans);
     // Until the lock, a silent member's default is what they will get, so the estimate
     // counts it; otherwise early payers would pay fees split among too few people.
@@ -1036,13 +1044,15 @@ export async function loadCalendar(
         const eatsNothing = nothingDefaults.some(
           (entry) => entry.memberId === member.id && entry.restaurantId === restaurantId
         );
-        const silentMeans = mode === 'flat' ? 'out' : eatsNothing ? 'nofood' : 'in';
+        const silentMeans =
+          mode === 'flat' ? (member.id === host?.id ? 'in' : 'out') : eatsNothing ? 'nofood' : 'in';
         const effective = effectiveAttendance(member, date, answer, absent, silentMeans);
         return {
           id: member.id,
           name: member.name,
           status: effective.status,
           answered: effective.reason === 'answered',
+          waiting: effective.reason === 'silent' && effective.status === 'out',
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));

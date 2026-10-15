@@ -189,7 +189,7 @@ export default async function CalendarPage() {
                       <p className="text-muted-foreground text-xs">{entry.cancelReason}</p>
                     )}
                     {!entry.cancelled && entry.people.length > 0 && (
-                      <AttendancePills people={entry.people} />
+                      <AttendancePills people={entry.people} flat={entry.mode === 'flat'} />
                     )}
                     {pickHost && (
                       <div className="border-border/50 mt-auto border-t pt-3">

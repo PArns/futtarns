@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Coins,
+  Crown,
   ExternalLink,
   Flame,
   House,
@@ -34,6 +35,7 @@ import { RestaurantVote } from '@/components/friday/restaurant-vote';
 import { TimeLine } from '@/components/friday/time-line';
 import { VoteBanner } from '@/components/friday/vote-banner';
 import { AttendancePills } from '@/components/common/attendance-pills';
+import { attendanceSummary } from '@/lib/attendance';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { PageHero } from '@/components/layout/page-hero';
 import { Avatar } from '@/components/ui/avatar';
@@ -247,19 +249,6 @@ export async function FridayScreen({
 
   const nameOf = (id: number) =>
     view.participants.find((p) => p.member.id === id)?.member.name ?? '?';
-  const silent = view.participants.filter(
-    (p) => p.member.kind === 'member' && p.attendance.reason === 'silent'
-  );
-  const counted = (status: 'in' | 'nofood' | 'out') =>
-    view.participants.filter(
-      (p) => p.attendance.status === status && !(flat && p.attendance.reason === 'silent')
-    ).length;
-  const countHint = [
-    `${counted('in')} ${flat ? 'dabei' : 'essen mit'}`,
-    `${counted('nofood')} ohne Essen`,
-    `${counted('out')} raus`,
-    ...(silent.length ? [`${silent.length} ohne Antwort`] : []),
-  ].join(' · ');
   const visibleParticipants = view.participants.filter(
     (participant) =>
       (participant.member.kind === 'member' && participant.member.core) ||
@@ -270,6 +259,7 @@ export async function FridayScreen({
     name: participant.member.name,
     status: participant.attendance.status,
     answered: participant.attendance.reason === 'answered',
+    waiting: participant.attendance.reason === 'silent' && participant.attendance.status === 'out',
   }));
   const sheet = buildOrderSheet(
     view.participants.flatMap((participant) => participant.items),
@@ -311,11 +301,10 @@ export async function FridayScreen({
         : closed
           ? `${flat ? 'Anmeldeschluss' : 'Bestellschluss'} ist vorbei. Änderungen nur noch über den Gastgeber.`
           : `Ändern geht bis ${formatTime(view.deadline)} Uhr.`;
-  const payDone =
-    amHost ||
-    (me
-      ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
-      : false);
+  // The host collects rather than pays, so their steps end before „Zahlen“.
+  const payDone = me
+    ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
+    : false;
 
   const voteRuns = voting && restaurants.length > 1;
   const showVote = voteRuns && Boolean(me);
@@ -377,7 +366,19 @@ export async function FridayScreen({
             </Link>
           </>
         }
-        title={title}
+        title={
+          voteRuns && view.restaurant ? (
+            <>
+              {title}{' '}
+              {/* Only what it stays at if nobody votes: the vote decides on Thursday night. */}
+              <span className="text-warning inline-flex items-center gap-1 align-middle text-sm font-semibold tracking-normal whitespace-nowrap">
+                <Crown className="size-4" /> bisher
+              </span>
+            </>
+          ) : (
+            title
+          )
+        }
       >
         <div className="hero-item mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           {manage && !view.cancelled && !view.settled && (
@@ -392,7 +393,7 @@ export async function FridayScreen({
               <Store /> {flat ? 'Restaurant oder Pauschale' : 'Restaurant wählen'}
             </a>
           )}
-          {view.host && (
+          {view.host && !view.cancelled && (
             <span className="inline-flex items-center gap-2">
               <Avatar name={view.host.name} id={view.host.id} className="size-6 text-[10px]" />
               <span>
@@ -451,26 +452,40 @@ export async function FridayScreen({
           </div>
         )}
 
-        <div className="hero-item mt-4">
-          <DeadlinePill
-            deadline={view.deadline.getTime()}
-            deadlineLabel={formatTime(view.deadline)}
-            serverNow={now.getTime()}
-            locked={closed}
-            settled={view.settled}
-            cancelled={view.cancelled}
-            flat={flat}
-          />
-        </div>
+        {!view.cancelled && (
+          <div className="hero-item mt-4">
+            <DeadlinePill
+              deadline={view.deadline.getTime()}
+              deadlineLabel={formatTime(view.deadline)}
+              serverNow={now.getTime()}
+              locked={closed}
+              settled={view.settled}
+              cancelled={view.cancelled}
+              flat={flat}
+            />
+          </div>
+        )}
 
         {!view.cancelled && attendancePeople.length > 0 && (
           <div className="hero-item mt-4">
-            <AttendancePills people={attendancePeople} />
+            <AttendancePills people={attendancePeople} flat={flat} />
           </div>
         )}
 
         {view.cancelled && view.cancelReason && (
           <p className="hero-item text-muted-foreground mt-3">{view.cancelReason}</p>
+        )}
+        {view.cancelled && (
+          <Link
+            href={`/freitag/${addWeeks(date, 1)}`}
+            className={buttonVariants({
+              variant: 'outline',
+              size: 'sm',
+              className: 'hero-item mt-4',
+            })}
+          >
+            Zum nächsten Freitag <ChevronRight />
+          </Link>
         )}
         {view.note && !view.cancelled && (
           <p className="hero-item border-primary/30 bg-primary/10 mt-4 rounded-xl border px-4 py-3 text-sm">
@@ -480,23 +495,26 @@ export async function FridayScreen({
 
         {!view.cancelled && me && (
           <div className="hero-item mt-5 space-y-3">
-            <Steps
-              steps={[
-                { label: 'Zusagen', done: me.attendance.reason === 'answered' },
-                ...(flat
-                  ? []
-                  : [
-                      {
-                        label: 'Aussuchen',
-                        done:
-                          me.items.length > 0 ||
-                          myPreorders.length > 0 ||
-                          me.attendance.status !== 'in',
-                      },
-                    ]),
-                { label: 'Zahlen', done: payDone },
-              ]}
-            />
+            {/* Someone who is out has nothing to tick off; the answer below says so. */}
+            {me.attendance.status !== 'out' && (
+              <Steps
+                steps={[
+                  { label: 'Zusagen', done: me.attendance.reason === 'answered' },
+                  ...(flat
+                    ? []
+                    : [
+                        {
+                          label: 'Aussuchen',
+                          done:
+                            me.items.length > 0 ||
+                            myPreorders.length > 0 ||
+                            me.attendance.status !== 'in',
+                        },
+                      ]),
+                  ...(amHost ? [] : [{ label: 'Zahlen', done: payDone }]),
+                ]}
+              />
+            )}
             <AnswerControl
               date={date}
               memberId={viewer.id}
@@ -685,15 +703,30 @@ export async function FridayScreen({
                 (me.attendance.status === 'out' ||
                   (me.attendance.status === 'nofood' && me.attendance.reason !== 'silent')) && (
                   <p className="text-muted-foreground text-sm">
-                    {me.attendance.status === 'out'
-                      ? 'Du bist diesmal raus. Kommst du doch, such dir unten einfach was aus.'
-                      : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir unten was aus.'}
+                    {me.attendance.reason === 'absent'
+                      ? 'Du bist an dem Tag als weg eingetragen. Kommst du doch, nimm das im Kalender raus.'
+                      : closed
+                        ? me.attendance.status === 'out'
+                          ? 'Du warst diesmal nicht dabei.'
+                          : 'Du warst diesmal ohne Essen dabei.'
+                        : me.attendance.status === 'out'
+                          ? 'Du bist diesmal raus. Kommst du doch, such dir unten einfach was aus.'
+                          : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir unten was aus.'}
                   </p>
                 )}
               {!flat && !view.restaurant && (
                 <p className="flex items-center gap-2 text-sm">
                   <Store className="text-primary size-4 shrink-0" />
                   Sobald das Restaurant feststeht, kannst du hier aussuchen.
+                </p>
+              )}
+              {flat && (
+                <p className="text-sm">
+                  {amHost
+                    ? `Du bist Gastgeber: Alle, die dabei sind, zahlen dir je ${formatEuro(view.flatPriceCents ?? 0)}.`
+                    : me.attendance.status === 'in' && me.attendance.reason === 'answered'
+                      ? `Du bist dabei und zahlst ${formatEuro(view.flatPriceCents ?? 0)} an ${view.host?.name ?? 'den Gastgeber'}.`
+                      : `Sag oben zu, dann bist du für ${formatEuro(view.flatPriceCents ?? 0)} dabei.`}
                 </p>
               )}
               <MyMoney
@@ -762,7 +795,7 @@ export async function FridayScreen({
                       : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
               }
             />
-            <CostsSection view={view} />
+            <CostsSection view={view} payable={payable} />
           </section>
         )}
 
@@ -851,11 +884,12 @@ export async function FridayScreen({
               icon={Users}
               kicker="Die Bande"
               title="Wer ist dabei"
-              hint={voteRuns ? `${countHint} · Restaurantwahl läuft noch` : countHint}
+              hint={
+                voteRuns
+                  ? `${attendanceSummary(attendancePeople, flat)} · Restaurantwahl läuft noch`
+                  : attendanceSummary(attendancePeople, flat)
+              }
             />
-            <div className="mb-4">
-              <AttendancePills people={attendancePeople} />
-            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {visibleParticipants.map((participant) => (
                 <ParticipantCard

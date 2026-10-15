@@ -12,6 +12,8 @@ export type AttendancePerson = {
   status: AttendanceStatus;
   /** False when the status is only what silence means (or an absence). */
   answered: boolean;
+  /** Silent on a Friday that needs a yes (a flat-price evening): not out, just no answer yet. */
+  waiting?: boolean;
 };
 
 /**
@@ -38,10 +40,32 @@ export function effectiveAttendance(
   return absent ? { status: 'out', reason: 'absent' } : { status: silentMeans, reason: 'silent' };
 }
 
-/** How a pill shows someone's answer: a yes, silence that counts as in, without food, or out. */
-export type AnswerKind = 'yes' | 'silent' | 'nofood' | 'out';
+/**
+ * How a pill shows someone's answer: a yes, silence that counts as in, without food, no
+ * answer yet where one is needed, or out.
+ */
+export type AnswerKind = 'yes' | 'silent' | 'nofood' | 'waiting' | 'out';
 
-export function answerKind(person: Pick<AttendancePerson, 'status' | 'answered'>): AnswerKind {
+/**
+ * Who comes, in one line, without the zeros: `6 essen mit (2 ohne Antwort) · 1 ohne Essen ·
+ * 1 raus`, or on a flat-price evening `3 dabei · 1 raus · 4 ohne Antwort`.
+ */
+export function attendanceSummary(people: AttendancePerson[], flat: boolean): string {
+  const count = (kind: AnswerKind) => people.filter((person) => answerKind(person) === kind).length;
+  const silentIn = count('silent');
+  const eating = count('yes') + silentIn;
+  return [
+    `${eating} ${flat ? 'dabei' : 'essen mit'}${silentIn ? ` (${silentIn} ohne Antwort)` : ''}`,
+    ...(count('nofood') ? [`${count('nofood')} ohne Essen`] : []),
+    ...(count('out') ? [`${count('out')} raus`] : []),
+    ...(count('waiting') ? [`${count('waiting')} ohne Antwort`] : []),
+  ].join(' · ');
+}
+
+export function answerKind(
+  person: Pick<AttendancePerson, 'status' | 'answered' | 'waiting'>
+): AnswerKind {
+  if (person.waiting) return 'waiting';
   if (person.status === 'out') return 'out';
   if (person.status === 'nofood') return 'nofood';
   return person.answered ? 'yes' : 'silent';
