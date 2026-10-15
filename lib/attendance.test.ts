@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveAttendance } from '@/lib/attendance';
+import { effectiveAttendance, hostLast } from '@/lib/attendance';
 
 const member = { id: 1, kind: 'member' as const, active: true, core: true };
 const away = [{ memberId: 1, fromDate: '2026-10-10', toDate: '2026-10-20' }];
@@ -40,5 +40,19 @@ describe('effectiveAttendance', () => {
       reason: 'guest',
     });
     expect(effectiveAttendance(visitor, '2026-10-16', 'in', []).status).toBe('in');
+  });
+});
+
+describe('hostLast', () => {
+  const people = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  const id = (person: { id: number }) => person.id;
+
+  it('moves the host to the end and keeps the others in order', () => {
+    expect(hostLast(people, 1, id).map(id)).toEqual([2, 3, 1]);
+  });
+
+  it('leaves the list alone without a host among them', () => {
+    expect(hostLast(people, null, id).map(id)).toEqual([1, 2, 3]);
+    expect(hostLast(people, 9, id).map(id)).toEqual([1, 2, 3]);
   });
 });

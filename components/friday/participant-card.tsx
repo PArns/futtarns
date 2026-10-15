@@ -38,25 +38,6 @@ function subline(participant: Participant, view: FridayView, nameOf: (id: number
 }
 
 /**
- * What someone ordered as one line, by restaurant once they also ordered ahead:
- * `Margherita (Rucola), Tiramisu · Smash Bros. Burger: Classic Smash`.
- */
-function orderLine(groups: OrderGroup[]): string {
-  const titled = groups.some((group) => group.ahead);
-  return groups
-    .map((group) => {
-      const dishes = group.items
-        .map((item) => {
-          const options = item.options.map((option) => option.choiceName).join(', ');
-          return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
-        })
-        .join(', ');
-      return titled && group.ahead ? `falls ${group.name}: ${dishes}` : dishes;
-    })
-    .join(' · ');
-}
-
-/**
  * The money of whoever collects it is the others': what is still to collect, and for the
  * host the drinks kitty, which they buy the drinks from. Whoever fetches the food collects
  * the food money.
@@ -107,13 +88,12 @@ function PayeeMoney({
 
 /**
  * One person on the Friday as a compact row: answer, what they ordered, where their money
- * stands. Whoever may change their order sees the dishes one by one to edit; everyone
- * else gets them in a line.
+ * stands. Every row looks the same, the viewer's own included; the answer switch and the
+ * buttons on the dishes show only where the viewer may change them.
  */
 export function ParticipantCard({
   participant,
   view,
-  isViewer,
   canEdit,
   canManage,
   payable,
@@ -122,7 +102,6 @@ export function ParticipantCard({
 }: {
   participant: Participant;
   view: FridayView;
-  isViewer: boolean;
   canEdit: boolean;
   canManage: boolean;
   /** Paying is open (from the deadline on), so the host may book payments. */
@@ -137,11 +116,10 @@ export function ParticipantCard({
   const badge = silentOnFlat
     ? { label: 'Offen', variant: 'outline' as const }
     : STATUS_BADGE[participant.attendance.status];
-  const editOthers = canEdit && !isViewer;
   const money = participant.money;
   const showMoney = money.dueCents !== 0 || money.paidCents !== 0;
   const showDrinks =
-    editOthers && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
+    canEdit && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
   const showPayeeMoney = (isHost || isPicker) && !view.cancelled;
   const sub = subline(participant, view, nameOf);
 
@@ -165,16 +143,9 @@ export function ParticipantCard({
                 <ShoppingBag className="text-primary size-3.5 shrink-0" aria-label="Holt ab" />
               )}
             </div>
-            {!editOthers && orders.length > 0 ? (
-              <p className="text-sm">{orderLine(orders)}</p>
-            ) : (
-              sub && <p className="text-muted-foreground truncate text-xs">{sub}</p>
-            )}
-            {!editOthers && orders.length > 0 && sub && (
-              <p className="text-muted-foreground truncate text-xs">{sub}</p>
-            )}
+            {sub && <p className="text-muted-foreground truncate text-xs">{sub}</p>}
           </div>
-          {editOthers ? (
+          {canEdit ? (
             <AnswerSelect
               date={view.date}
               memberId={participant.member.id}
@@ -186,7 +157,7 @@ export function ParticipantCard({
             </Badge>
           )}
         </div>
-        {editOthers && <OrderedItems groups={orders} editable />}
+        <OrderedItems groups={orders} editable={canEdit} />
         {(showMoney || showDrinks || showPayeeMoney) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {showPayeeMoney && (

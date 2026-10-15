@@ -13,7 +13,7 @@ export function Header({ canManage, serverNow }: { canManage: boolean; serverNow
         aria-hidden
         className="bg-background/80 pointer-events-none absolute inset-0 -z-10 backdrop-blur-md"
       />
-      <div className="mx-auto flex h-full w-full max-w-5xl items-center justify-between gap-2 px-4">
+      <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-between gap-2 px-4">
         <Link href="/" className="flex shrink-0 items-center" aria-label="freitach – Startseite">
           <BrandLockup className="max-[400px]:[&>span]:hidden" />
         </Link>

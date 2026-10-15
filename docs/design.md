@@ -10,6 +10,10 @@ freitach borrows park.fan's look without importing its code:
   (`hero-item`). The header's glass is a sibling layer, not the `<header>` itself.
 - **Page anatomy**: every page opens with `PageHero` on the brand gradient (sky gradient in
   light mode) and is split into sections with `ChapterHeading` (a faint number or icon,
-  kicker, title, hint).
+  kicker, title, hint). Numbers run in reading order; a section that sits beside the
+  others on a desktop (the Friday's „Deine Bestellung“) takes an icon instead.
+- **Width**: header, hero and page content share `max-w-7xl`, so their edges line up.
+- **People lists**: every row looks the same, the viewer's own included; controls show only
+  where the viewer may use them. The host closes every list (`hostLast`).
 - **Phones first**: 44 px touch targets below `sm`, dialogs as native `<dialog>`, no `:has()`.
 - **Mark**: `components/layout/brand.tsx`, park.fan's pin with a pizza slice.

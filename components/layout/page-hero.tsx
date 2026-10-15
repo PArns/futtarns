@@ -30,7 +30,7 @@ export function PageHero({
         <div className="sky-gradient dark:brand-gradient absolute inset-0" />
         <div className="to-background absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-b from-transparent" />
       </div>
-      <div className="glass-heavy mx-auto w-full max-w-5xl min-w-0 rounded-3xl border p-6 shadow-xl sm:p-8">
+      <div className="glass-heavy mx-auto w-full max-w-7xl min-w-0 rounded-3xl border p-6 shadow-xl sm:p-8">
         {(kicker || aside) && (
           <div className="hero-item mb-3 flex items-center justify-between gap-2">
             {kicker && (

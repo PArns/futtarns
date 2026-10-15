@@ -17,6 +17,17 @@ export type AttendancePerson = {
 };
 
 /**
+ * Everyone in their order, with the host moved to the end: the host runs the Friday rather
+ * than joining it, so every list of people closes with them.
+ */
+export function hostLast<T>(people: T[], hostId: number | null, idOf: (person: T) => number): T[] {
+  return [
+    ...people.filter((person) => idOf(person) !== hostId),
+    ...people.filter((person) => idOf(person) === hostId),
+  ];
+}
+
+/**
  * Whether someone counts for a Friday. On an ordering Friday members who say nothing are
  * in (they get their default dish at the deadline); a flat-price evening like a barbecue
  * needs a yes, because the host shops for it in advance. An absence entered in advance

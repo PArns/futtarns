@@ -66,7 +66,7 @@ export default async function CalendarPage() {
         )}
       </PageHero>
 
-      <div className="mx-auto max-w-5xl space-y-12 px-4">
+      <div className="mx-auto max-w-7xl space-y-12 px-4">
         <GlassCard id="pfingsten" variant="tile" className="scroll-mt-20 p-4 sm:p-5">
           <HollandCountdown serverNow={now} />
         </GlassCard>
