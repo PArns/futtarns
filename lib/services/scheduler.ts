@@ -10,9 +10,16 @@ import {
   type MessagePreview,
   type Outgoing,
 } from '@/lib/reminders';
-import { getFridayRow, loadFriday, lockDueFridays, type FridayView } from '@/lib/services/fridays';
+import {
+  getFridayRow,
+  loadFriday,
+  lockDueFridays,
+  projectVoteResult,
+  type FridayView,
+} from '@/lib/services/fridays';
 import { payLinkMaker } from '@/lib/services/pay-links';
-import { restaurantsForHost } from '@/lib/services/restaurants';
+import { getRestaurant, restaurantsForHost } from '@/lib/services/restaurants';
+import { voteWinner, votingAt } from '@/lib/vote';
 import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
 
 type Send = (to: string, text: string) => Promise<SendResult>;
@@ -103,6 +110,25 @@ export async function upcomingMessages(
   now: Date
 ): Promise<MessagePreview[]> {
   const group = process.env.WHATSAPP_GROUP || null;
+  const restaurants = await restaurantsForHost(db, view.host?.id ?? null);
+  // While the vote runs, what comes after it assumes the restaurant ahead now wins.
+  let afterVote: { view: FridayView; defaultDish: Map<number, string> } | undefined;
+  if (votingAt(view, now) && restaurants.length > 1) {
+    const votes = view.votes.filter((vote) =>
+      restaurants.some((option) => option.id === vote.restaurantId)
+    );
+    const winnerId = voteWinner(votes, view.restaurant?.id ?? null);
+    const winner =
+      winnerId === null
+        ? null
+        : winnerId === view.restaurant?.id
+          ? view.restaurant
+          : await getRestaurant(db, winnerId);
+    afterVote = {
+      view: projectVoteResult(view, winner),
+      defaultDish: await defaultDishNames(db, winnerId),
+    };
+  }
   const planned = previewReminders(
     {
       view,
@@ -112,9 +138,10 @@ export async function upcomingMessages(
       sent: await sentKeysFor(db, view.date),
       // Only who and when are shown, never the text.
       paidLink: () => '',
-      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
+      restaurants,
     },
-    now
+    now,
+    afterVote
   );
   return summarizePlanned(planned, view, group);
 }

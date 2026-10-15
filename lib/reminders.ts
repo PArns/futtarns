@@ -558,14 +558,29 @@ export type PlannedMessage = Outgoing & { at: Date };
  * run at each moment ahead, from the deadline on with the Friday locked as it will be then.
  * Answers and orders until then change it.
  */
-export function previewReminders(input: Omit<Input, 'now'>, now: Date): PlannedMessage[] {
+export function previewReminders(
+  input: Omit<Input, 'now'>,
+  now: Date,
+  /** The Friday as the running vote would leave it, for the times after it closes. */
+  afterVote?: Pick<Input, 'view' | 'defaultDish'>
+): PlannedMessage[] {
   const planned = new Map<string, PlannedMessage>();
   // What goes out at one moment counts as sent at the next, as it will for the scheduler.
   const sent = new Set(input.sent);
-  const locked = { ...input.view, locked: true };
+  const closes = voteClosesAt(input.view.date);
   for (const at of previewTimes(input.view, now)) {
-    const view = at >= input.view.deadline && !input.view.cancelled ? locked : input.view;
-    for (const message of planReminders({ ...input, sent, view, now: at })) {
+    const state = afterVote && at >= closes ? afterVote : input;
+    const view =
+      at >= state.view.deadline && !state.view.cancelled
+        ? { ...state.view, locked: true }
+        : state.view;
+    for (const message of planReminders({
+      ...input,
+      defaultDish: state.defaultDish,
+      sent,
+      view,
+      now: at,
+    })) {
       if (!sent.has(message.key) && !planned.has(message.key)) {
         planned.set(message.key, { ...message, at });
       }
