@@ -99,6 +99,7 @@ export function ParticipantCard({
   payable,
   nameOf,
   orders,
+  titled,
 }: {
   participant: Participant;
   view: FridayView;
@@ -109,6 +110,8 @@ export function ParticipantCard({
   nameOf: (id: number) => string;
   /** What they ordered, by restaurant once they also ordered ahead during the vote. */
   orders: OrderGroup[];
+  /** Name the restaurant over every order, as while the vote runs. */
+  titled: boolean;
 }) {
   const isHost = participant.member.id === view.host?.id;
   const isPicker = view.pickup && participant.member.id === view.picker?.id;
@@ -157,7 +160,7 @@ export function ParticipantCard({
             </Badge>
           )}
         </div>
-        <OrderedItems groups={orders} editable={canEdit} />
+        <OrderedItems groups={orders} editable={canEdit} titled={titled} />
         {(showMoney || showDrinks || showPayeeMoney) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {showPayeeMoney && (

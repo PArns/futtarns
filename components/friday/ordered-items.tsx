@@ -12,25 +12,28 @@ export type OrderGroup = {
 };
 
 /**
- * What someone ordered. Once they also ordered ahead during the vote, it is grouped by
- * restaurant under its name: the Friday's restaurant first, the one they vote for below.
+ * What someone ordered, grouped by restaurant: the Friday's restaurant first, the one they
+ * vote for below. The names show once someone ordered ahead, or always while the vote runs
+ * (`titled`), so a single order says where it is from.
  */
 export function OrderedItems({
   groups,
   editable,
+  titled = false,
   className,
 }: {
   groups: OrderGroup[];
   editable: boolean;
+  titled?: boolean;
   className?: string;
 }) {
   if (groups.length === 0) return null;
-  const titled = groups.some((group) => group.ahead);
+  const named = titled || groups.some((group) => group.ahead);
   return (
     <div className={cn('space-y-3', className)}>
       {groups.map((group) => (
         <div key={group.restaurantId}>
-          {titled && (
+          {named && (
             <p className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs">
               {group.ahead ? (
                 <Vote className="text-primary size-3.5 shrink-0" />
