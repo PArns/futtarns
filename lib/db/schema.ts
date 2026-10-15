@@ -73,6 +73,8 @@ export const restaurants = pgTable('restaurants', {
   freeDeliveryFromCents: integer('free_delivery_from_cents'),
   // Lieferando's service fee per order.
   serviceFeeCents: integer('service_fee_cents').notNull().default(99),
+  // The tip for its drivers, unless the host sets another amount for a Friday.
+  tipCents: integer('tip_cents').notNull().default(250),
   // Whether we can also fetch the food ourselves, at the menu prices and without the fees.
   pickup: boolean('pickup').notNull().default(false),
   notes: text('notes'),

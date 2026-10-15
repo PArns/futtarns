@@ -936,6 +936,7 @@ const restaurantForm = z.object({
   deliveryFee: z.string(),
   freeDeliveryFrom: z.string(),
   serviceFee: z.string(),
+  tip: z.string(),
   notes: optionalText,
   pickup: z.string().optional(),
 });
@@ -961,6 +962,7 @@ function restaurantInput(form: FormData) {
     deliveryFeeCents: euroField(data.deliveryFee, 'Liefergebühr')!,
     freeDeliveryFromCents: euroField(data.freeDeliveryFrom, 'Kostenlos ab', true),
     serviceFeeCents: euroField(data.serviceFee, 'Servicegebühr')!,
+    tipCents: euroField(data.tip, 'Trinkgeld')!,
     notes: data.notes,
     pickup: data.pickup === 'on',
   };

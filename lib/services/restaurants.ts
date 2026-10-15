@@ -25,6 +25,7 @@ export type RestaurantInput = Pick<
   | 'serviceFeeCents'
   | 'notes'
 > &
+  Partial<Pick<Restaurant, 'tipCents'>> &
   Partial<Pick<Restaurant, 'pickup'>>;
 
 export async function listRestaurants(db: Db, includeArchived = false) {

@@ -45,13 +45,7 @@ import {
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
-import {
-  DEFAULT_TIP_CENTS,
-  estimateFees,
-  splitTotal,
-  type FeeEstimate,
-  type MemberShare,
-} from '@/lib/pricing';
+import { estimateFees, splitTotal, type FeeEstimate, type MemberShare } from '@/lib/pricing';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
 import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/services/restaurants';
 import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
@@ -639,8 +633,11 @@ export type Participant = {
   money: Money;
 };
 
-/** A restaurant ordered ahead from, and roughly each eater's part of its fees if it won. */
-export type AheadEstimate = { restaurant: Restaurant; sharedCentsEach: number };
+/**
+ * A restaurant ordered ahead from, with its estimated fees if it won and how many would
+ * share them: those who eat now or ordered there.
+ */
+export type AheadEstimate = { restaurant: Restaurant; estimate: FeeEstimate; eaters: number };
 
 export type FridayView = {
   date: IsoDate;
@@ -676,7 +673,7 @@ export type FridayView = {
    * if that restaurant wins.
    */
   preorders: OrderItem[];
-  /** For each restaurant ordered ahead from, roughly what its fees would cost each eater. */
+  /** For each restaurant ordered ahead from, roughly what its fees would come to. */
   ahead: AheadEstimate[];
   /** True when no restaurant was picked and the default one applies. */
   restaurantIsDefault: boolean;
@@ -691,7 +688,7 @@ export type FridayView = {
   shares: MemberShare[];
   /** The drinks fee per person this Friday (0 when switched off). */
   drinksFeeCents: number;
-  /** What the host set for this Friday; null means the usual rule. */
+  /** What the host set for this Friday; null means the restaurant's tip. */
   fixedTipCents: number | null;
   customDrinksFeeCents: number | null;
   /** A voucher the host entered for this Friday's order, or null. */
@@ -839,7 +836,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     ? estimateFees(
         subtotal,
         restaurant,
-        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.tipCents ?? restaurant.tipCents,
         row?.voucherCents ?? 0,
         pickup
       )
@@ -873,7 +870,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       const estimate = estimateFees(
         list.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
         option,
-        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.tipCents ?? option.tipCents,
         row?.voucherCents ?? 0,
         !delivers && option.pickup
       );
@@ -881,7 +878,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
         ...shares.map((share) => share.memberId),
         ...list.map((item) => item.memberId),
       ]).size;
-      return { restaurant: option, sharedCentsEach: Math.ceil(estimate.sharedCents / eaters) };
+      return { restaurant: option, estimate, eaters };
     })
   );
 

@@ -1,5 +1,5 @@
 import { formatEuro } from '@/lib/format';
-import { feeParts } from '@/lib/pricing';
+import { feeParts, type FeeEstimate } from '@/lib/pricing';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 
 /** What each person pays into the drinks the host buys for everyone, unless they opt out. */
@@ -186,22 +186,27 @@ export function foodLines(view: FridayView, entry: Participant): MoneyLine[] {
         : 'Gebühren und Trinkgeld';
     lines.push({ label: `Anteil ${what} ${of(shared)}`, cents: entry.share.sharedCents });
   } else {
-    const fees = view.estimate;
-    const parts = feeParts(entry.share.sharedCents, fees, eaters);
-    lines.push(
-      {
-        label: `Anteil Liefergebühr ${of(fees.deliveryFeeCents)}`,
-        cents: parts.deliveryCents,
-      },
-      {
-        label: `Anteil Servicegebühr Lieferando ${of(fees.serviceFeeCents)}`,
-        cents: parts.serviceCents,
-      },
-      { label: `Anteil Trinkgeld ${of(fees.tipCents)}`, cents: parts.tipCents },
-      { label: `Anteil Gutschein ${of(-fees.voucherCents)}`, cents: -parts.voucherCents }
-    );
+    lines.push(...feeLines(entry.share.sharedCents, view.estimate, eaters));
   }
   return lines.filter((line) => line.cents !== 0);
+}
+
+/**
+ * One person's share of the estimated fees, a line per fee that says what it is a share
+ * of and how many split it: `Anteil Trinkgeld (2,50 € ÷ 4)`.
+ */
+export function feeLines(sharedCents: number, fees: FeeEstimate, eaters: number): MoneyLine[] {
+  const of = (cents: number) => `(${formatEuro(cents)} ÷ ${eaters})`;
+  const parts = feeParts(sharedCents, fees, eaters);
+  return [
+    { label: `Anteil Liefergebühr ${of(fees.deliveryFeeCents)}`, cents: parts.deliveryCents },
+    {
+      label: `Anteil Servicegebühr Lieferando ${of(fees.serviceFeeCents)}`,
+      cents: parts.serviceCents,
+    },
+    { label: `Anteil Trinkgeld ${of(fees.tipCents)}`, cents: parts.tipCents },
+    { label: `Anteil Gutschein ${of(-fees.voucherCents)}`, cents: -parts.voucherCents },
+  ].filter((line) => line.cents !== 0);
 }
 
 /** Why someone pays what they pay: their food unless they paid it themselves, the drinks, what they paid already. */

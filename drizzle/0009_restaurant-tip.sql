@@ -1,0 +1,1 @@
+ALTER TABLE "restaurants" ADD COLUMN "tip_cents" integer DEFAULT 250 NOT NULL;

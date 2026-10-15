@@ -92,6 +92,11 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           {restaurant.serviceFeeCents > 0 && (
             <span>Servicegebühr {formatEuro(restaurant.serviceFeeCents)}</span>
           )}
+          <span>
+            {restaurant.tipCents > 0
+              ? `Trinkgeld ${formatEuro(restaurant.tipCents)}`
+              : 'ohne Trinkgeld'}
+          </span>
         </div>
         {restaurant.notes && <p className="hero-item mt-3 text-sm">{restaurant.notes}</p>}
         {(restaurant.lieferandoUrl || (!mineAsHost && !restaurant.archived)) && (

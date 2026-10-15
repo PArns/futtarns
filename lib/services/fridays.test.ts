@@ -18,6 +18,7 @@ import {
   setHost,
   setRestaurant,
   settleFriday,
+  setTip,
   setVoucher,
 } from '@/lib/services/fridays';
 import { addAbsence, addGuest, createMember } from '@/lib/services/members';
@@ -32,6 +33,7 @@ import {
   listDishes,
   setHostRestaurant,
   setRestaurantArchived,
+  updateRestaurant,
 } from '@/lib/services/restaurants';
 import { foodLines, shareLines } from '@/lib/balance';
 import { createTestDb } from '@/test/db';
@@ -500,6 +502,20 @@ describe('a Friday', () => {
     // The host pays Lieferando, so owes nothing; their own share is shown on its own.
     expect(shareLines(view, entry(patrick.id))).toEqual([]);
     expect(sum(foodLines(view, entry(patrick.id)))).toBe(entry(patrick.id).share!.totalCents);
+  });
+
+  it('tips what the restaurant asks for, unless the host sets another amount', async () => {
+    const { anna, pizzeria, margherita } = await setup();
+    await updateRestaurant(db, pizzeria.id, { tipCents: 400 });
+    await addItem(db, FRIDAY, anna.id, {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+      quantity: 1,
+    });
+    expect((await loadFriday(db, FRIDAY, BEFORE)).estimate?.tipCents).toBe(400);
+    await setTip(db, FRIDAY, 100);
+    expect((await loadFriday(db, FRIDAY, BEFORE)).estimate?.tipCents).toBe(100);
   });
 
   it('takes a voucher off everyone who eats, as a line of its own', async () => {

@@ -45,7 +45,7 @@ import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
-import { debtLines, toPayee } from '@/lib/balance';
+import { debtLines, feeLines, toPayee } from '@/lib/balance';
 import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members';
@@ -706,22 +706,22 @@ export async function FridayScreen({
               {ordersOf(me)
                 .filter((group) => group.ahead)
                 .map((group) => {
-                  // What it would roughly come to if the restaurant they ordered ahead from wins.
-                  const sharedCents =
-                    view.ahead.find((entry) => entry.restaurant.id === group.restaurantId)
-                      ?.sharedCentsEach ?? 0;
+                  // What it would roughly come to if the restaurant they ordered ahead from
+                  // wins: their dishes there and an equal part of its fees, line by line.
+                  const ahead = view.ahead.find(
+                    (entry) => entry.restaurant.id === group.restaurantId
+                  );
                   const lines = [
                     ...group.items.map((item) => ({
                       label: `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}`,
                       cents: item.unitPriceCents * item.quantity,
                     })),
-                    ...(sharedCents > 0
-                      ? [
-                          {
-                            label: 'Anteil Lieferung, Gebühr und Trinkgeld, geschätzt',
-                            cents: sharedCents,
-                          },
-                        ]
+                    ...(ahead
+                      ? feeLines(
+                          Math.round(ahead.estimate.sharedCents / ahead.eaters),
+                          ahead.estimate,
+                          ahead.eaters
+                        )
                       : []),
                     ...(!amHost && me.money.drinksCents > 0
                       ? [{ label: 'Getränke', cents: me.money.drinksCents }]

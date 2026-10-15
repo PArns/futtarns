@@ -21,7 +21,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `restaurant_votes`        | who wants which restaurant for a Friday, one vote per member                                                                                                                                                    |
 | `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
 | `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
-| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                             |
+| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee, tip), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                        |
 | `order_items`             | what someone ordered and where from, with name, category, options and price copied in; only the Friday's restaurant counts                                                                                      |
 | `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                                                             |
 | `charges`                 | the final share per person after settlement                                                                                                                                                                     |
@@ -52,8 +52,9 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 
 ## Money
 
-- **Fees**: delivery, Lieferando's service fee and the tip (2,50 € unless the host sets
-  another amount) are split equally among everyone who eats, before and after settlement.
+- **Fees**: delivery, Lieferando's service fee and the tip (each restaurant's own, 2,50 €
+  unless set otherwise on the restaurant, and the host can set another amount for a Friday)
+  are split equally among everyone who eats, before and after settlement.
   Until the lock the estimate already counts the defaults of silent members.
 - **Voucher**: the host can enter a Lieferando voucher for a Friday's order. It comes off the
   shared part of the bill, so everyone who eats gets an equal share of it, shown as its own
