@@ -847,7 +847,13 @@ export async function FridayScreen({
                 }
               />
               <GlassCard variant="tile" className="mb-6 space-y-4 p-4 sm:p-5">
-                {!flat && <OrderedItems groups={ordersOf(me)} editable={editable(me)} />}
+                {!flat && (
+                  <OrderedItems
+                    groups={ordersOf(me)}
+                    editable={editable(me)}
+                    titled={voting && restaurants.length > 1}
+                  />
+                )}
                 {!flat &&
                   me.items.length === 0 &&
                   myDefault &&
@@ -990,6 +996,7 @@ export async function FridayScreen({
                       payable={payable}
                       nameOf={nameOf}
                       orders={ordersOf(participant)}
+                      titled={voting && restaurants.length > 1}
                     />
                   ))}
                 </ul>
