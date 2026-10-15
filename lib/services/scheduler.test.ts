@@ -815,6 +815,28 @@ describe('the restaurant vote', () => {
     expect(told('+491702222222')).toBe('');
   });
 
+  it('previews the messages after the vote as if the restaurant ahead now wins', async () => {
+    const { host, anna, ben, dish, sushi } = await voteSetup();
+    const maki = await sushiDish(sushi.id);
+    // Anna ordered ahead from sushi, which leads; Ben only has pizza.
+    await addItem(
+      db,
+      NEXT,
+      anna.id,
+      { dishId: maki.id, selection: {}, note: null, quantity: 1 },
+      { from: sushi.id, vote: true, now: WEDNESDAY }
+    );
+    await castVote(db, NEXT, host.id, sushi.id, WEDNESDAY);
+    await addItem(db, NEXT, ben.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+
+    const lines = await upcomingMessages(db, await loadFriday(db, NEXT, WEDNESDAY), WEDNESDAY);
+    const to = (kind: string) => lines.find((line) => line.kind === kind)?.recipients ?? [];
+    // Anna's sushi stays, so nobody reminds her to pick something; Ben's pizza goes.
+    expect(to('Noch nichts ausgesucht')).not.toContain('Anna');
+    expect(to('Ergebnis der Wahl')).toContain('Ben');
+    expect(to('Ergebnis der Wahl')).not.toContain('Anna');
+  });
+
   it('nudges whoever has not voted on Thursday evening, while they can still swing it', async () => {
     await voteSetup();
     // Before anything went out, the host's preview already shows Thursday's nudge.

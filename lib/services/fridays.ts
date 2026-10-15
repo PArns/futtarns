@@ -279,6 +279,43 @@ export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boole
   return switched;
 }
 
+/**
+ * The Friday as closing the vote would leave it if `winner` won: the winner's orders
+ * stay, all others go, and whoever that leaves without an order hears about it, by the
+ * same rule as `closeVote`. For the host's preview of the messages still to come.
+ */
+export function projectVoteResult(view: FridayView, winner: Restaurant | null): FridayView {
+  const winnerId = winner?.id ?? null;
+  const switched = winner !== null && winnerId !== (view.restaurant?.id ?? null);
+  const all = [...view.participants.flatMap((entry) => entry.items), ...view.preorders];
+  const kept = all.filter((item) => item.restaurantId === winnerId);
+  const concerned = new Set([
+    ...all.map((item) => item.memberId),
+    ...view.votes.filter((vote) => vote.restaurantId !== winnerId).map((vote) => vote.memberId),
+    ...(switched
+      ? view.participants
+          .filter(
+            (entry) => entry.attendance.reason === 'answered' && entry.attendance.status === 'in'
+          )
+          .map((entry) => entry.member.id)
+      : []),
+  ]);
+  return {
+    ...view,
+    restaurant: switched ? winner : view.restaurant,
+    voteClosed: true,
+    preorders: [],
+    ahead: [],
+    voteDroppedIds: [...concerned].filter(
+      (memberId) => !kept.some((item) => item.memberId === memberId)
+    ),
+    participants: view.participants.map((entry) => ({
+      ...entry,
+      items: kept.filter((item) => item.memberId === entry.member.id),
+    })),
+  };
+}
+
 /** Whether a Friday's group can vote at `now`; a Friday without a row is a normal one. */
 function voteOpenAt(row: Friday | null, date: IsoDate, now: Date): boolean {
   return votingAt(
