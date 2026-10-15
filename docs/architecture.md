@@ -176,6 +176,11 @@ most votes wins. Without votes, or when two share the lead, the current restaura
 host's usual one, or whatever the first order pinned) stays. A winner that does not deliver
 to the host makes the Friday a pickup Friday.
 
+A vote is a yes, like an order: whoever had not answered or was out is in once they vote,
+and gets their default at the winner unless they pick something else; coming without food
+stays (`castVote`). The money box then also shows the voted restaurant with that default,
+when nothing was ordered ahead there.
+
 While the vote runs, the Friday page says so at the top (`VoteBanner`: countdown and who
 leads), and so do the calendar and the bot's „status“. Ordering already works: from the
 current restaurant as usual, and ahead from the restaurant a member votes for (`addItem`

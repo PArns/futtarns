@@ -88,7 +88,7 @@ function ballot(options: VoteOption[], current: { id: number; name: string } | n
       current
         ? `Wählt keiner, bleibt's beim 👑 ${current.name}`
         : 'Wählt keiner, sucht der Gastgeber aus'
-    }. Abstimmen bis ${bold('Donnerstag um 23:59')}.`,
+    }. Abstimmen bis ${bold('Donnerstag um 23:59')}, wer abstimmt, ist dabei.`,
   ].join('\n');
 }
 
