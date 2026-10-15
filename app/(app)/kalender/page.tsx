@@ -1,4 +1,4 @@
-import { CalendarDays, CalendarPlus, Flame, House, Plane, TriangleAlert } from 'lucide-react';
+import { CalendarDays, CalendarPlus, Flame, House, Plane, TriangleAlert, Vote } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AttendancePills } from '@/components/common/attendance-pills';
@@ -32,7 +32,7 @@ export default async function CalendarPage() {
   const { viewer, currentFriday, now } = await getGroupContext();
   const db = await getDb();
   const [entries, members, defaultHost, myAbsences] = await Promise.all([
-    loadCalendar(db, currentFriday, WEEKS),
+    loadCalendar(db, currentFriday, WEEKS, new Date(now)),
     listMembers(db),
     getDefaultHost(db),
     listAbsences(db, viewer.id, todayIso()),
@@ -132,6 +132,12 @@ export default async function CalendarPage() {
                             <span className="inline-flex items-center gap-1">
                               <Flame className="text-primary size-3" />
                               {formatEuro(entry.flatPriceCents)} p. P.
+                            </span>
+                          )}
+                          {entry.voting && (
+                            <span className="text-primary inline-flex items-center gap-1 font-semibold">
+                              <Vote className="size-3" />
+                              Restaurantwahl läuft
                             </span>
                           )}
                         </div>

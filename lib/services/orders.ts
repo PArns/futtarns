@@ -10,7 +10,7 @@ import {
   restaurants,
 } from '@/lib/db/schema';
 import { resolveSelection, selectionOf, unitPriceCents } from '@/lib/menu/options';
-import { castVote, currentRestaurantId, openVoteOf, setAttendance } from '@/lib/services/fridays';
+import { castVote, currentRestaurantId, setAttendance, voteState } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
 
 export type DishChoice = {
@@ -39,7 +39,9 @@ async function dishWithOptions(db: Db, choice: DishChoice, restaurantId: number)
 /**
  * Adds a dish to someone's order for a Friday; ordering means they are coming. It comes
  * from the Friday's restaurant unless `from` names another: while the vote runs, a member
- * can order ahead from the restaurant they vote for, and `vote` casts that vote first.
+ * can order ahead from the restaurant they vote for, and `vote` (ordering from the ballot)
+ * casts that vote first. A dish from the current restaurant leaves a vote for another one
+ * alone, so a member can have both: what they want and a fallback.
  */
 export async function addItem(
   db: Db,
@@ -55,20 +57,29 @@ export async function addItem(
   const restaurantId = from ?? currentId;
   if (!restaurantId) throw new ServiceError('Für diesen Freitag steht noch kein Restaurant fest');
   const { dish, options } = await dishWithOptions(db, choice, restaurantId);
-  if (vote) await castVote(db, date, memberId, restaurantId, now);
+  const { open, votedFor } = await voteState(db, date, memberId, now);
   if (restaurantId !== currentId) {
-    if ((await openVoteOf(db, date, memberId, now)) !== restaurantId) {
+    // Ordering ahead: only from the restaurant this member votes for, while the vote runs.
+    if (!open || (!vote && votedFor !== restaurantId)) {
       throw new ServiceError(
         'Vorbestellen geht nur beim Restaurant, das du gewählt hast, solange die Wahl läuft'
       );
     }
-  } else if (!friday?.restaurantId) {
-    // The first order on the host's usual restaurant pins it to this Friday, so a new host
-    // or a changed default does not leave these orders pointing at the wrong menu.
-    await db
-      .insert(fridays)
-      .values({ date, restaurantId })
-      .onConflictDoUpdate({ target: fridays.date, set: { restaurantId } });
+    if (votedFor !== restaurantId) await castVote(db, date, memberId, restaurantId, now);
+  } else {
+    // A dish from the current restaurant is the fallback in case another one wins: from the
+    // ballot it is a vote only from whoever has not voted yet.
+    if (vote && open && votedFor === null) {
+      await castVote(db, date, memberId, restaurantId, now);
+    }
+    if (!friday?.restaurantId) {
+      // The first order on the host's usual restaurant pins it to this Friday, so a new host
+      // or a changed default does not leave these orders pointing at the wrong menu.
+      await db
+        .insert(fridays)
+        .values({ date, restaurantId })
+        .onConflictDoUpdate({ target: fridays.date, set: { restaurantId } });
+    }
   }
   const quantity = Math.min(Math.max(Math.round(choice.quantity), 1), 20);
 

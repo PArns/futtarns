@@ -3,7 +3,7 @@ import { appUrl } from '@/lib/auth-tokens';
 import { HELP_TEXT, parseCommand } from '@/lib/commands';
 import { currentFriday, isPastDeadline } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
-import { members } from '@/lib/db/schema';
+import { members, type OrderItem } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold, loginCodeText } from '@/lib/messages';
 import { requestLoginCode } from '@/lib/services/auth';
@@ -22,6 +22,17 @@ import { restaurantsForHost } from '@/lib/services/restaurants';
 import { optionForLetter, standings, voteLetter, votingAt } from '@/lib/vote';
 import { sendWhatsApp } from '@/lib/whatsapp';
 
+/** The vote while it runs, with the names of the restaurants on its ballot. */
+async function runningVote(db: Db, view: FridayView, now: Date) {
+  if (view.mode !== 'delivery') return null;
+  const options = await restaurantsForHost(db, view.host?.id ?? null);
+  if (!votingAt(view, now) || options.length < 2) return null;
+  return {
+    nameOf: (restaurantId: number) =>
+      options.find((option) => option.id === restaurantId)?.name ?? 'anderes Restaurant',
+  };
+}
+
 const ANSWER_REPLY = {
   in: 'Alles klar, du bist dabei.',
   nofood: 'Alles klar, du kommst, isst aber nichts mit.',
@@ -34,28 +45,50 @@ const STATUS_LINE = {
   out: 'Du bist raus.',
 } as const;
 
-/** The order list for the bot's „andere“: who eats what, one line per person. */
-function othersText(view: FridayView): string {
+/** One person's dishes in a line: `2× Margherita (Groß), Tiramisu`. */
+function dishesLine(items: OrderItem[]): string {
+  return items
+    .map((item) => {
+      const options = item.options.map((option) => option.choiceName).join(', ');
+      return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
+    })
+    .join(', ');
+}
+
+/**
+ * The order list for the bot's „andere“: who eats what, one line per person. While the
+ * vote runs, `ahead` names the restaurants people ordered ahead from.
+ */
+function othersText(view: FridayView, ahead: ((restaurantId: number) => string) | null): string {
   const what =
     view.mode === 'flat'
       ? (view.flatTitle ?? 'Pauschale')
-      : (view.restaurant?.name ?? 'Restaurant noch offen');
+      : view.restaurant
+        ? `${view.restaurant.name}${ahead ? ' (Wahl läuft noch)' : ''}`
+        : 'Restaurant noch offen';
   const lines = view.participants
     .filter((entry) => entry.attendance.status !== 'out')
     .map((entry) => {
-      const items = entry.items.map((item) => {
-        const options = item.options.map((option) => option.choiceName).join(', ');
-        return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
-      });
       const plate =
         entry.attendance.status === 'nofood'
           ? 'ohne Essen'
-          : items.length
-            ? items.join(', ')
+          : entry.items.length
+            ? dishesLine(entry.items)
             : view.mode === 'flat'
               ? 'dabei'
               : 'noch nichts';
-      return `${bold(entry.member.name)}: ${plate}`;
+      const preorders = ahead
+        ? [
+            ...Map.groupBy(
+              view.preorders.filter((item) => item.memberId === entry.member.id),
+              (item) => item.restaurantId
+            ),
+          ].map(
+            ([restaurantId, items]) =>
+              ` · falls ${ahead(restaurantId)} gewinnt: ${dishesLine(items)}`
+          )
+        : [];
+      return `${bold(entry.member.name)}: ${plate}${preorders.join('')}`;
     });
   return [bold(`Freitag (${formatDayShort(view.date)}): ${what}`), '', ...lines].join('\n');
 }
@@ -129,7 +162,8 @@ export async function handleIncoming(
     case 'others': {
       const view = await loadFriday(db, date, now);
       if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
-      return `${othersText(view)}\n\n${link}`;
+      const vote = await runningVote(db, view, now);
+      return `${othersText(view, vote && ((id) => vote.nameOf(id)))}\n\n${link}`;
     }
 
     case 'paid': {
@@ -193,9 +227,27 @@ export async function handleIncoming(
       const items = me?.items.length
         ? `\nBestellt: ${bold(me.items.map((item) => item.name).join(', '))}`
         : '';
+      const vote = await runningVote(db, view, now);
+      const myVote = view.votes.find((entry) => entry.memberId === member.id)?.restaurantId;
+      const ahead = vote
+        ? [
+            ...Map.groupBy(
+              view.preorders.filter((item) => item.memberId === member.id),
+              (item) => item.restaurantId
+            ),
+          ].map(
+            ([restaurantId, list]) =>
+              `\nVorbestellt bei ${vote.nameOf(restaurantId)}: ${bold(list.map((item) => item.name).join(', '))}`
+          )
+        : [];
+      const voting = vote
+        ? `\n🗳️ Die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}, ${
+            myVote ? `deine Stimme: ${bold(vote.nameOf(myVote))}` : 'deine Stimme fehlt noch'
+          }.`
+        : '';
       const money =
         me && me.money.openCents > 0 ? `\nOffen: ${bold(formatEuro(me.money.openCents))}` : '';
-      return `${bold(`Freitag (${formatDayShort(date)})`)} bei ${view.host?.name ?? '?'}: ${bold(what)}\n${status}${items}${money}\n${link}`;
+      return `${bold(`Freitag (${formatDayShort(date)})`)} bei ${view.host?.name ?? '?'}: ${bold(what)}${vote ? ' (Stand jetzt)' : ''}\n${status}${items}${ahead.join('')}${voting}${money}\n${link}`;
     }
 
     case 'vote': {
@@ -226,6 +278,11 @@ export async function handleIncoming(
       return [
         `🗳️ Stimme gezählt: ${bold(option.name)}!`,
         ...(dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
+        ...(option.id !== after.restaurant?.id
+          ? [
+              `Auf der Seite kannst du bei ${option.name} schon vorbestellen, das zählt, wenn es gewinnt.`,
+            ]
+          : []),
         '',
         bold('Stand:'),
         ...standings(options, after.votes, nameOf),

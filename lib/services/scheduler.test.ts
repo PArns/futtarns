@@ -495,6 +495,11 @@ describe('the restaurant vote', () => {
     sent = [];
     await runScheduler(db, at('2026-10-22T16:05:00Z'), send, noPause);
     expect(sent.filter((message) => message.text.includes('kein Restaurant fest'))).toEqual([]);
+    // Nobody voted yet, so Thursday evening reminds everyone of the ballot instead.
+    expect(sent.find((message) => message.to === '+491701111111')?.text).toContain(
+      'Noch keine Stimme, dann sucht der Gastgeber aus.'
+    );
+    sent = [];
     await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
     expect(sent.find((message) => message.to === '+491701111111')?.text).toContain(
       'kein Restaurant fest'
@@ -661,6 +666,123 @@ describe('the restaurant vote', () => {
     await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
     expect(sent.find((message) => message.to === '+491702222222')?.text).toContain(
       "*Das Volk hat gewählt:* Heute gibt's *Bella Napoli*!"
+    );
+  });
+
+  it('keeps the vote when a dish from the current restaurant is the fallback', async () => {
+    const { anna, ben, dish, restaurant, sushi } = await voteSetup();
+    const maki = await sushiDish(sushi.id);
+    const pizza = { dishId: dish.id, selection: {}, note: null, quantity: 1 };
+    await addItem(
+      db,
+      NEXT,
+      anna.id,
+      { dishId: maki.id, selection: {}, note: null, quantity: 1 },
+      { from: sushi.id, vote: true, now: WEDNESDAY }
+    );
+    // From the ballot, too: Anna keeps her vote and her sushi, and gets a pizza if it stays.
+    await addItem(db, NEXT, anna.id, pizza, { from: restaurant.id, vote: true, now: WEDNESDAY });
+    // Ben has not voted yet, so his pizza from the ballot is his vote.
+    await addItem(db, NEXT, ben.id, pizza, { from: restaurant.id, vote: true, now: WEDNESDAY });
+
+    const view = await loadFriday(db, NEXT, WEDNESDAY);
+    expect(view.votes.map((vote) => [vote.memberId, vote.restaurantId])).toEqual([
+      [anna.id, sushi.id],
+      [ben.id, restaurant.id],
+    ]);
+    expect(view.preorders.map((item) => item.name)).toEqual(['Maki Lachs']);
+    expect(
+      view.participants.find((entry) => entry.member.id === anna.id)!.items.map((i) => i.name)
+    ).toEqual(['Margherita']);
+  });
+
+  it('tells everyone the vote leaves without an order, at eight in the morning', async () => {
+    const { host, anna, ben, restaurant, sushi } = await voteSetup();
+    const carla = (await createMember(db, { name: 'Carla', phone: '+491704444444' }, null)).member;
+    // Ben said yes to Bella Napoli without ordering; Carla said nothing and voted for it.
+    await setAttendance(db, NEXT, ben.id, 'in');
+    await castVote(db, NEXT, ben.id, restaurant.id, WEDNESDAY);
+    await castVote(db, NEXT, carla.id, restaurant.id, WEDNESDAY);
+    for (const id of [anna.id, host.id, (await createMember(db, { name: 'Dora' }, null)).member.id])
+      await castVote(db, NEXT, id, sushi.id, WEDNESDAY);
+
+    expect((await loadFriday(db, NEXT, AFTER)).voteDroppedIds.sort()).toEqual(
+      [ben.id, carla.id].sort()
+    );
+    await runScheduler(db, at('2026-10-23T05:55:00Z'), send, noPause);
+    expect(sent.filter((message) => message.text.includes('Das Volk hat gewählt'))).toEqual([]);
+
+    await runScheduler(db, at('2026-10-23T06:05:00Z'), send, noPause);
+    const told = (phone: string) => sent.find((message) => message.to === phone)?.text ?? '';
+    expect(told('+491703333333')).toContain(
+      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* bei *Sakura Sushi* was aus"
+    );
+    // Carla has not answered yet, so the result asks her, instead of the invitation at ten.
+    expect(told('+491704444444')).toContain('Bist du dabei? Antworte mit');
+    expect(told('+491702222222')).toBe('');
+    sent = [];
+    await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
+    expect(told('+491704444444')).toBe('');
+    expect(told('+491702222222')).toContain('Es ist Freitag, Anna!');
+  });
+
+  it('nudges whoever has not voted on Thursday evening, while they can still swing it', async () => {
+    await voteSetup();
+    // Before anything went out, the host's preview already shows Thursday's nudge.
+    const early = at('2026-10-21T08:00:00Z');
+    expect(
+      (await upcomingMessages(db, await loadFriday(db, NEXT, early), early)).find(
+        (line) => line.kind === 'Erinnerung Restaurantwahl'
+      )
+    ).toMatchObject({ at: at('2026-10-22T16:00:00Z'), recipients: ['Anna', 'Ben', 'Patrick'] });
+
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    await handleIncoming(db, '+491702222222', 'b', WEDNESDAY, send);
+    sent = [];
+    await runScheduler(db, at('2026-10-22T15:55:00Z'), send, noPause);
+    expect(sent).toEqual([]);
+    await runScheduler(db, at('2026-10-22T16:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491703333333']);
+    expect(sent[0]!.text).toContain('*Deine Stimme kann’s noch drehen!*');
+    expect(sent[0]!.text).toContain('*Stand:*\nSakura Sushi 1 (Anna)');
+    expect(sent[0]!.text).toContain('*A* · Bella Napoli 👑\n*B* · Sakura Sushi');
+    sent = [];
+    await runScheduler(db, at('2026-10-22T19:05:00Z'), send, noPause);
+    expect(sent).toEqual([]);
+  });
+
+  it('does not nudge when the missing votes could not change the result', async () => {
+    const { host, anna, sushi } = await voteSetup();
+    await runScheduler(db, WEDNESDAY, send, noPause);
+    await castVote(db, NEXT, anna.id, sushi.id, WEDNESDAY);
+    await castVote(db, NEXT, host.id, sushi.id, WEDNESDAY);
+    sent = [];
+    // Two for Sakura Sushi; Ben alone could only bring Bella Napoli to one.
+    await runScheduler(db, at('2026-10-22T16:05:00Z'), send, noPause);
+    expect(sent).toEqual([]);
+  });
+
+  it('shows the running vote and what was ordered ahead in the bot replies', async () => {
+    const { anna, dish, sushi } = await voteSetup();
+    const maki = await sushiDish(sushi.id);
+    await addItem(db, NEXT, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+    expect(await handleIncoming(db, '+491702222222', 'b', WEDNESDAY, send)).toContain(
+      'Auf der Seite kannst du bei Sakura Sushi schon vorbestellen'
+    );
+    await addItem(
+      db,
+      NEXT,
+      anna.id,
+      { dishId: maki.id, selection: {}, note: null, quantity: 1 },
+      { from: sushi.id, now: WEDNESDAY }
+    );
+
+    const status = (await handleIncoming(db, '+491702222222', 'status', WEDNESDAY, send))!;
+    expect(status).toContain('*Bella Napoli* (Stand jetzt)');
+    expect(status).toContain('Vorbestellt bei Sakura Sushi: *Maki Lachs*');
+    expect(status).toContain('deine Stimme: *Sakura Sushi*');
+    expect(await handleIncoming(db, '+491702222222', 'andere', WEDNESDAY, send)).toContain(
+      '*Anna*: Margherita · falls Sakura Sushi gewinnt: Maki Lachs'
     );
   });
 

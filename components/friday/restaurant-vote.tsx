@@ -71,13 +71,19 @@ export function RestaurantVote({
   }
 
   function hintFor(option: BallotOption): string {
+    const voted = options.find((entry) => entry.id === myVote);
+    // A dish from the current restaurant is the fallback and leaves a vote elsewhere alone.
+    if (option.current) {
+      return !voted
+        ? `Damit wählst du auch ${option.name}.`
+        : voted.id === option.id
+          ? ''
+          : `Deine Stimme bleibt bei ${voted.name}. Das hier bekommst du, falls es bei ${option.name} bleibt.`;
+    }
     const lines = [
-      option.id === myVote ? '' : `Damit wählst du ${option.current ? 'auch ' : ''}${option.name}.`,
-      option.current
-        ? ''
-        : option.id === myVote
-          ? `Die Bestellung zählt, wenn ${option.name} die Wahl gewinnt.`
-          : 'Die Bestellung zählt, wenn es gewinnt.',
+      option.id === myVote
+        ? `Die Bestellung zählt, wenn ${option.name} die Wahl gewinnt.`
+        : `Damit wählst du ${option.name}. Die Bestellung zählt, wenn es gewinnt.`,
       aheadAt && aheadAt.id !== option.id
         ? `Deine Vorbestellung bei ${aheadAt.name} fliegt dann raus.`
         : '',
@@ -99,7 +105,7 @@ export function RestaurantVote({
         <p className="text-muted-foreground text-sm">
           Antworten geht auch per WhatsApp mit dem Buchstaben.
           {orderAs &&
-            ' Tippst du in einer Karte auf ein Gericht, bestellst du es und wählst das Restaurant gleich mit.'}
+            ' Tippst du in einer Karte auf ein Gericht, bestellst du es. Bei einem anderen als dem bisherigen Restaurant ist das zugleich deine Stimme.'}
         </p>
         <Pill tone={open ? 'primary' : 'muted'}>
           {open ? `Wahllokal schließt ${formatCountdown(closesAt - now)}` : 'Wahllokal geschlossen'}

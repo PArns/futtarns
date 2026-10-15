@@ -25,13 +25,14 @@ import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
 import { HostSection } from '@/components/friday/host-section';
 import { HostPicker } from '@/components/friday/host-tools';
-import { ItemRow } from '@/components/friday/item-row';
 import { MenuChoice, type MenuOption } from '@/components/friday/menu-choice';
 import { MyMoney } from '@/components/friday/my-money';
+import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
 import { RestaurantVote } from '@/components/friday/restaurant-vote';
 import { TimeLine } from '@/components/friday/time-line';
+import { VoteBanner } from '@/components/friday/vote-banner';
 import { AttendancePills } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { PageHero } from '@/components/layout/page-hero';
@@ -51,7 +52,7 @@ import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members'
 import { getDefault } from '@/lib/services/orders';
 import { listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
-import { voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
+import { tally, voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -187,12 +188,34 @@ export async function FridayScreen({
     ? await Promise.all([listDishes(db, votedFor.id), getDefault(db, viewer.id, votedFor.id)])
     : [[], null];
   const myPreorders = voting ? view.preorders.filter((item) => item.memberId === viewer.id) : [];
-  const preorderGroups = [...Map.groupBy(myPreorders, (item) => item.restaurantId)].map(
-    ([restaurantId, items]) => ({
-      name: restaurants.find((option) => option.id === restaurantId)?.name ?? 'anderes Restaurant',
-      items,
-    })
-  );
+  const restaurantName = (id: number) =>
+    id === view.restaurant?.id
+      ? view.restaurant.name
+      : (restaurants.find((option) => option.id === id)?.name ?? 'anderes Restaurant');
+  /** Someone's orders, by restaurant once they also ordered ahead during the vote. */
+  const ordersOf = (participant: Participant): OrderGroup[] => {
+    const ahead = voting
+      ? view.preorders.filter((item) => item.memberId === participant.member.id)
+      : [];
+    return [
+      ...(view.restaurant && participant.items.length > 0
+        ? [
+            {
+              restaurantId: view.restaurant.id,
+              name: view.restaurant.name,
+              ahead: false,
+              items: participant.items,
+            },
+          ]
+        : []),
+      ...[...Map.groupBy(ahead, (item) => item.restaurantId)].map(([restaurantId, items]) => ({
+        restaurantId,
+        name: restaurantName(restaurantId),
+        ahead: true,
+        items,
+      })),
+    ];
+  };
   const self: OrderTarget = { id: viewer.id, name: viewer.name, isSelf: true };
   const menus: MenuOption[] = [
     ...(me && view.restaurant && canOrder
@@ -294,7 +317,20 @@ export async function FridayScreen({
       ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
       : false);
 
-  const showVote = voting && restaurants.length > 1 && Boolean(me);
+  const voteRuns = voting && restaurants.length > 1;
+  const showVote = voteRuns && Boolean(me);
+  // Where the vote stands, for the banner at the top: who leads, or what a draw leaves.
+  const ranked = tally(restaurants, view.votes);
+  const leadVotes = ranked[0]?.voterIds.length ?? 0;
+  const otherwise = view.restaurant
+    ? `dann bleibt's bei ${view.restaurant.name}`
+    : 'dann sucht der Gastgeber aus';
+  const standing =
+    leadVotes === 0
+      ? `Noch keine Stimme – ${otherwise}`
+      : ranked[1]?.voterIds.length === leadVotes
+        ? `Gleichstand – ${otherwise}`
+        : `Vorne: ${ranked[0]!.option.name} mit ${leadVotes} ${leadVotes === 1 ? 'Stimme' : 'Stimmen'}`;
   const ballot = restaurants.map((option, index) => ({
     ...option,
     letter: voteLetter(index),
@@ -376,6 +412,16 @@ export async function FridayScreen({
             </span>
           )}
         </div>
+        {voteRuns && (
+          <div className="hero-item mt-4">
+            <VoteBanner
+              closesAt={voteClosesAt(date).getTime()}
+              serverNow={now.getTime()}
+              standing={standing}
+              canVote={showVote}
+            />
+          </div>
+        )}
         {!view.cancelled && (
           <div className="hero-item mt-2">
             <TimeLine
@@ -570,11 +616,15 @@ export async function FridayScreen({
                       ? 'Bestellschluss ist vorbei.'
                       : menus.length > 0 && (
                           <>
-                            Such dir{' '}
+                            {voteRuns ? 'Die Wahl läuft noch, aber du kannst schon ' : 'Such dir '}
                             <a href="#karte" className="text-primary font-semibold hover:underline">
                               auf der Karte
                             </a>{' '}
-                            was aus.
+                            {!voteRuns
+                              ? 'was aus.'
+                              : menus.length > 1
+                                ? 'aussuchen, bei beiden Restaurants.'
+                                : 'aussuchen.'}
                           </>
                         )
               }
@@ -593,28 +643,7 @@ export async function FridayScreen({
               }
             />
             <GlassCard variant="tile" className="mb-6 space-y-4 p-4 sm:p-5">
-              {!flat && me.items.length > 0 && (
-                <div>
-                  <ul className="divide-border/50 divide-y">
-                    {me.items.map((item) => (
-                      <ItemRow key={item.id} item={item} editable={editable(me)} />
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {preorderGroups.map((group) => (
-                <div key={group.name}>
-                  <p className="text-muted-foreground flex items-center gap-1.5 text-xs font-semibold">
-                    <Vote className="text-primary size-3.5" /> Vorbestellt bei {group.name} · zählt,
-                    wenn es die Wahl gewinnt
-                  </p>
-                  <ul className="divide-border/50 divide-y">
-                    {group.items.map((item) => (
-                      <ItemRow key={item.id} item={item} editable={editable(me)} />
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              {!flat && <OrderedItems groups={ordersOf(me)} editable={editable(me)} />}
               {!flat &&
                 me.items.length === 0 &&
                 myDefault &&
@@ -667,7 +696,51 @@ export async function FridayScreen({
                   Sobald das Restaurant feststeht, kannst du hier aussuchen.
                 </p>
               )}
-              <MyMoney view={view} me={me} canEdit={editable(me)} payable={payable} />
+              <MyMoney
+                view={view}
+                me={me}
+                canEdit={editable(me)}
+                payable={payable}
+                stays={myPreorders.length > 0 ? view.restaurant?.name : undefined}
+              />
+              {ordersOf(me)
+                .filter((group) => group.ahead)
+                .map((group) => {
+                  // What it would roughly come to if the restaurant they ordered ahead from wins.
+                  const sharedCents =
+                    view.ahead.find((entry) => entry.restaurant.id === group.restaurantId)
+                      ?.sharedCentsEach ?? 0;
+                  const lines = [
+                    ...group.items.map((item) => ({
+                      label: `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}`,
+                      cents: item.unitPriceCents * item.quantity,
+                    })),
+                    ...(sharedCents > 0
+                      ? [
+                          {
+                            label: 'Anteil Lieferung, Gebühr und Trinkgeld, geschätzt',
+                            cents: sharedCents,
+                          },
+                        ]
+                      : []),
+                    ...(!amHost && me.money.drinksCents > 0
+                      ? [{ label: 'Getränke', cents: me.money.drinksCents }]
+                      : []),
+                  ];
+                  return (
+                    <PayBox
+                      key={group.restaurantId}
+                      date={date}
+                      memberId={me.member.id}
+                      amountCents={lines.reduce((sum, line) => sum + line.cents, 0)}
+                      lines={lines}
+                      payees={[]}
+                      label={`Gewinnt ${group.name} · ungefähr`}
+                      payable={false}
+                      note={`Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}. Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
+                    />
+                  );
+                })}
             </GlassCard>
           </section>
         )}
@@ -684,7 +757,9 @@ export async function FridayScreen({
                   ? 'Alle, die dabei sind, zahlen denselben Betrag.'
                   : view.settled
                     ? 'Abgerechnet mit dem echten Betrag.'
-                    : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
+                    : voteRuns && view.restaurant
+                      ? `Geschätzt für ${view.restaurant.name}, solange die Wahl läuft. Gewinnt ein anderes Restaurant, rechnen wir mit dessen Karte neu.`
+                      : 'Geschätzt aus der Karte; nach der Bestellung wird mit dem echten Betrag abgerechnet.'
               }
             />
             <CostsSection view={view} />
@@ -776,7 +851,7 @@ export async function FridayScreen({
               icon={Users}
               kicker="Die Bande"
               title="Wer ist dabei"
-              hint={countHint}
+              hint={voteRuns ? `${countHint} · Restaurantwahl läuft noch` : countHint}
             />
             <div className="mb-4">
               <AttendancePills people={attendancePeople} />
@@ -792,6 +867,7 @@ export async function FridayScreen({
                   canManage={manage}
                   payable={payable}
                   nameOf={nameOf}
+                  orders={ordersOf(participant)}
                 />
               ))}
             </div>

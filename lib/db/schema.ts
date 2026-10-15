@@ -126,7 +126,8 @@ export const fridays = pgTable('fridays', {
   restaurantChosen: boolean('restaurant_chosen').notNull().default(false),
   // When the restaurant vote was counted (Thursday midnight), so it is counted once.
   voteClosedAt: timestamp('vote_closed_at', { withTimezone: true }),
-  // Whose orders the vote threw away, leaving them without any; they are asked to pick again.
+  // Whom the vote left without an order from the restaurant it decided on (their orders went,
+  // their pick lost, or the restaurant changed); they are asked in the morning to pick.
   voteDroppedIds: jsonb('vote_dropped_ids').$type<number[]>().notNull().default([]),
   note: text('note'),
   lockedAt: timestamp('locked_at', { withTimezone: true }),

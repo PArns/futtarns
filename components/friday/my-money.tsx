@@ -16,13 +16,17 @@ export function MyMoney({
   me,
   canEdit,
   payable,
+  stays,
 }: {
   view: FridayView;
   me: Participant;
   canEdit: boolean;
   /** Whether paying is open yet; it opens at the deadline. */
   payable: boolean;
+  /** While the vote runs and they ordered ahead elsewhere: the restaurant this amount is for. */
+  stays?: string;
 }) {
+  const forNow = (label: string) => (stays ? `${label}, bleibt's bei ${stays}` : label);
   const host = view.host;
   if (!host) return null;
   const isHost = host.id === me.member.id;
@@ -52,7 +56,7 @@ export function MyMoney({
           amountCents={me.share.totalCents}
           lines={foodLines(view, me)}
           payees={[]}
-          label="Dein Anteil"
+          label={forNow('Dein Anteil')}
           payable={false}
           note={
             view.pickup
@@ -74,7 +78,7 @@ export function MyMoney({
       )}
       {open > 0 && !payable ? (
         box({
-          label: 'Bis jetzt',
+          label: forNow('Bis jetzt'),
           payable: false,
           note: `Bezahlt wird nach dem Bestellschluss um ${formatTime(view.deadline)}, dann steht fest, was alle bestellt haben. Den Link bekommst du per WhatsApp.`,
         })

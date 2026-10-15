@@ -5,7 +5,15 @@ import { bold } from '@/lib/messages';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
-import { deliveryTerms, voteClosesAt, voteLetter, votingAt, type VoteOption } from '@/lib/vote';
+import {
+  couldSwing,
+  deliveryTerms,
+  standings,
+  voteClosesAt,
+  voteLetter,
+  votingAt,
+  type VoteOption,
+} from '@/lib/vote';
 
 export type Outgoing = { key: string; to: string; text: string };
 
@@ -79,11 +87,9 @@ function ballot(options: VoteOption[], current: { id: number; name: string } | n
         ? `Wählt keiner, bleibt's beim 👑 ${current.name}`
         : 'Wählt keiner, sucht der Gastgeber aus'
     }, sonst entscheidet die Mehrheit.`,
-    ...(current
-      ? [
-          `Hunger kennt keine Wahlperiode: Beim 👑 ${current.name} kannst du schon bestellen. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen Bescheid.`,
-        ]
-      : []),
+    `Hunger kennt keine Wahlperiode: ${
+      current ? `Beim 👑 ${current.name} kannst du schon bestellen, beim` : 'Beim'
+    } Restaurant deiner Wahl auf der Seite vorbestellen. Es bleibt, was du beim Gewinner bestellt hast; stehst du danach ohne da, kriegst du Freitagmorgen Bescheid.`,
   ].join('\n');
 }
 
@@ -199,8 +205,8 @@ export function planReminders({
   // On Wednesday, once it is clear the Friday happens, a first question who comes, and,
   // unless the host picked the restaurant, the vote on where to order. It ends with the
   // vote; whoever still has not answered gets the invitation on Friday.
+  const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
   if (between(now, berlinAt(date, -2, 12), voteClosesAt(date))) {
-    const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
     const hello = `${untilFriday(date, now)} ist wieder Freitag${place}`;
     const vote = `${hello}, und damit Zeit für die große Restaurantwahl! 🗳️\n\n${ballot(restaurants, view.restaurant)}`;
     for (const entry of unanswered) {
@@ -241,6 +247,47 @@ export function planReminders({
     }
   }
 
+  // Thursday evening, a nudge for whoever got the ballot, is coming and has not voted, as
+  // long as their votes could still change what the vote decides.
+  if (voting && between(now, berlinAt(date, -1, 18), voteClosesAt(date))) {
+    const missing = reachable.filter(
+      (entry) =>
+        entry.attendance.status !== 'out' &&
+        !hasVoted(entry.member.id) &&
+        (sent.has(`ask:${date}:${entry.member.id}`) || sent.has(`vote:${date}:${entry.member.id}`))
+    );
+    const optionIds = restaurants.map((option) => option.id);
+    if (couldSwing(view.votes, optionIds, view.restaurant?.id ?? null, missing.length)) {
+      const nameOf = (id: number) =>
+        view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
+      const stand = standings(restaurants, view.votes, nameOf);
+      const text = [
+        `🗳️ ${bold('Deine Stimme kann’s noch drehen!')}`,
+        `Heute um ${bold('23:59')} schließt das Wahllokal für Freitag, und von dir fehlt noch die Stimme.`,
+        '',
+        bold('Stand:'),
+        ...(stand.length
+          ? stand
+          : [
+              view.restaurant
+                ? `Noch keine Stimme, dann bleibt's beim 👑 ${view.restaurant.name}.`
+                : 'Noch keine Stimme, dann sucht der Gastgeber aus.',
+            ]),
+        '',
+        ...restaurants.map(
+          (option, index) =>
+            `${bold(voteLetter(index))} · ${option.name}${option.id === view.restaurant?.id ? ' 👑' : ''}`
+        ),
+        '',
+        'Antworte mit dem Buchstaben. Auf der Seite kannst du beim Restaurant deiner Wahl schon vorbestellen, das zählt, wenn es gewinnt.',
+        link,
+      ].join('\n');
+      for (const entry of missing) {
+        out.push({ key: `votenudge:${date}:${entry.member.id}`, to: entry.member.phone!, text });
+      }
+    }
+  }
+
   // The invitation goes out on the Friday morning. Without a restaurant by then it goes out
   // anyway, and a second message follows once one is chosen.
   if (between(now, berlinAt(date, 0, 10), berlinAt(date, 0, 17))) {
@@ -251,7 +298,8 @@ export function planReminders({
         : '';
     for (const entry of unanswered) {
       const id = entry.member.id;
-      if (invited(id)) continue;
+      // The vote's result at eight already asked them, with the restaurant it chose.
+      if (invited(id) || sent.has(`revote:${date}:${id}`)) continue;
       out.push({
         key: `${noRestaurant ? 'invite-open' : 'invite'}:${date}:${id}`,
         to: entry.member.phone!,
@@ -293,18 +341,23 @@ export function planReminders({
       }
     };
     const withoutOrder = reachable.filter(eatsWithoutOrder);
-    // The vote switched the restaurant overnight and threw these orders away; they hear about
-    // it in the morning, not at midnight.
-    if (between(now, berlinAt(date, 0, 9), view.deadline)) {
+    // The vote left these without an order from the restaurant it chose: their orders went,
+    // their pick lost, or they said yes to the one it replaced. They hear about it at eight
+    // in the morning, not at midnight; whoever has not answered yet is asked here, too.
+    if (between(now, berlinAt(date, 0, 8), view.deadline)) {
       for (const id of view.voteDroppedIds) {
         const entry = view.participants.find((participant) => participant.member.id === id);
         if (!entry || entry.items.length > 0 || entry.attendance.status !== 'in') continue;
         const { phone, prefix } = billTo(entry);
         if (!phone) continue;
+        const pick = `Such dir bis ${bold(deadline)} bei ${bold(restaurant.name)} was aus, sonst ${orderFallback(id)}.`;
+        const asks = unanswered.some((other) => other.member.id === id);
         out.push({
           key: `revote:${date}:${id}`,
           to: phone,
-          text: `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}!\nDie Bestellung von vorher ist damit leider weg. Such dir bis ${bold(deadline)} was Neues aus, sonst ${orderFallback(id)}.\n${link}`,
+          text: asks
+            ? `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}${place}!\n\n${ANSWER_HINT}\n\n${rule}\n${pick}\n${link}`
+            : `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}!\n${pick}\n${link}`,
         });
       }
     }
@@ -314,7 +367,7 @@ export function planReminders({
       entry.attendance.reason !== 'answered' ||
       (entry.answeredAt !== null && entry.answeredAt < at);
     // Friday morning, for whoever said yes without the invitation, which already asked them
-    // to pick something, or whom the vote already asked to pick again.
+    // to pick something, or the vote's result, which did too.
     const orderAt = berlinAt(date, 0, 10);
     if (between(now, orderAt, view.deadline)) {
       remind(
@@ -476,6 +529,7 @@ function previewTimes(view: FridayView, now: Date): Date[] {
     berlinAt(date, -2, 10),
     berlinAt(date, -2, 12),
     berlinAt(date, -1, 18),
+    berlinAt(date, 0, 8),
     berlinAt(date, 0, 9),
     berlinAt(date, 0, 10),
     berlinAt(date, 0, 18, 30),
@@ -495,14 +549,17 @@ export type PlannedMessage = Outgoing & { at: Date };
  */
 export function previewReminders(input: Omit<Input, 'now'>, now: Date): PlannedMessage[] {
   const planned = new Map<string, PlannedMessage>();
+  // What goes out at one moment counts as sent at the next, as it will for the scheduler.
+  const sent = new Set(input.sent);
   const locked = { ...input.view, locked: true };
   for (const at of previewTimes(input.view, now)) {
     const view = at >= input.view.deadline && !input.view.cancelled ? locked : input.view;
-    for (const message of planReminders({ ...input, view, now: at })) {
-      if (!input.sent.has(message.key) && !planned.has(message.key)) {
+    for (const message of planReminders({ ...input, sent, view, now: at })) {
+      if (!sent.has(message.key) && !planned.has(message.key)) {
         planned.set(message.key, { ...message, at });
       }
     }
+    for (const key of planned.keys()) sent.add(key);
   }
   return [...planned.values()];
 }
@@ -513,7 +570,8 @@ const MESSAGE_KINDS: Record<string, string> = {
   pick: 'Restaurant aussuchen',
   ask: 'Kommst du?',
   vote: 'Restaurantwahl',
-  revote: 'Neu aussuchen nach der Wahl',
+  votenudge: 'Erinnerung Restaurantwahl',
+  revote: 'Ergebnis der Wahl',
   invite: 'Einladung',
   'invite-open': 'Einladung',
   restaurant: 'Restaurant steht fest',
