@@ -57,6 +57,13 @@
       "when": 1791886487550,
       "tag": "0007_stammtruppe",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792075139134,
+      "tag": "0008_order-restaurant",
+      "breakpoints": true
     }
   ]
 }

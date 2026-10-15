@@ -31,6 +31,12 @@ type Props = {
   restaurantId: number;
   targets: OrderTarget[];
   initialTargetId: number;
+  /** The Friday does not order here yet: the order counts if the restaurant wins the vote. */
+  ahead?: boolean;
+  /** Ordered from the ballot, so it is the viewer's vote for this restaurant, too. */
+  vote?: boolean;
+  /** A line above the button on what ordering here means. */
+  hint?: string;
 };
 
 function initialSelection(groups: OptionGroup[]): Record<string, string[]> {
@@ -89,6 +95,9 @@ function DishForm({
   restaurantId,
   targets,
   initialTargetId,
+  ahead = false,
+  vote = false,
+  hint,
   close,
 }: Omit<Props, 'opened' | 'onClose'> & { dish: MenuDish; close: () => void }) {
   const [selection, setSelection] = useState(() => initialSelection(dish.optionGroups));
@@ -129,6 +138,8 @@ function DishForm({
         addItemAction({
           date: date!,
           memberId: targetId,
+          restaurantId,
+          vote,
           dishId: dish.id,
           selection,
           quantity,
@@ -249,7 +260,12 @@ function DishForm({
         )}
       </div>
 
-      <div className="border-border/50 flex items-center gap-3 border-t p-4">
+      {hint && (
+        <p className="border-border/50 text-muted-foreground border-t px-5 pt-3 text-xs">{hint}</p>
+      )}
+      <div
+        className={cn('flex items-center gap-3 p-4', hint ? 'pt-3' : 'border-border/50 border-t')}
+      >
         {mode === 'order' && (
           <div className="border-border flex items-center rounded-xl border">
             <Button
@@ -274,7 +290,7 @@ function DishForm({
           </div>
         )}
         <Button type="submit" size="xl" className="flex-1" disabled={pending}>
-          {mode === 'order' ? 'Bestellen' : 'Als Standard merken'}
+          {mode === 'default' ? 'Als Standard merken' : ahead ? 'Vorbestellen' : 'Bestellen'}
           <span className="tabular-nums opacity-90">
             · {formatEuro(unit * (mode === 'order' ? quantity : 1))}
           </span>

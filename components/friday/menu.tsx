@@ -33,6 +33,8 @@ export function Menu({
   initialTargetId,
   defaultDishId,
   takenBy = {},
+  ahead = false,
+  hint,
 }: {
   dishes: MenuDish[];
   mode: 'order' | 'default';
@@ -43,6 +45,10 @@ export function Menu({
   defaultDishId?: number | null;
   /** Who already picked a dish this Friday, by dish id. */
   takenBy?: Record<number, string[]>;
+  /** The Friday does not order here yet: orders count if the restaurant wins the vote. */
+  ahead?: boolean;
+  /** What ordering here means, shown in the dish dialog. */
+  hint?: string;
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(ALL);
@@ -196,6 +202,8 @@ export function Menu({
         restaurantId={restaurantId}
         targets={targets}
         initialTargetId={initialTargetId}
+        ahead={ahead}
+        hint={hint}
       />
     </div>
   );

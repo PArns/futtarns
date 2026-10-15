@@ -126,7 +126,7 @@ export const fridays = pgTable('fridays', {
   restaurantChosen: boolean('restaurant_chosen').notNull().default(false),
   // When the restaurant vote was counted (Thursday midnight), so it is counted once.
   voteClosedAt: timestamp('vote_closed_at', { withTimezone: true }),
-  // Whose orders the vote threw away by switching the restaurant; they are asked to pick again.
+  // Whose orders the vote threw away, leaving them without any; they are asked to pick again.
   voteDroppedIds: jsonb('vote_dropped_ids').$type<number[]>().notNull().default([]),
   note: text('note'),
   lockedAt: timestamp('locked_at', { withTimezone: true }),
@@ -187,6 +187,11 @@ export const orderItems = pgTable(
     memberId: integer('member_id')
       .notNull()
       .references(() => members.id, { onDelete: 'cascade' }),
+    // Where it is ordered from. Only the Friday's restaurant counts; during the vote a member
+    // can order ahead from the one they voted for, which stays if it wins.
+    restaurantId: integer('restaurant_id')
+      .notNull()
+      .references(() => restaurants.id, { onDelete: 'cascade' }),
     dishId: integer('dish_id').references(() => dishes.id, { onDelete: 'set null' }),
     // Name, category and price are copied so a later menu edit cannot change a placed order.
     name: text('name').notNull(),
