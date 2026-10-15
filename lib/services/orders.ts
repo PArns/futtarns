@@ -169,6 +169,16 @@ export async function listDefaults(db: Db, memberId: number) {
     .orderBy(asc(restaurants.name));
 }
 
+/** Who has a default dish (not „nix“) at a restaurant. */
+export async function membersWithDefault(db: Db, restaurantId: number): Promise<Set<number>> {
+  const rows = await db
+    .select({ memberId: memberDefaults.memberId })
+    .from(memberDefaults)
+    .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
+    .where(and(eq(memberDefaults.restaurantId, restaurantId), eq(dishes.archived, false)));
+  return new Set(rows.map((row) => row.memberId));
+}
+
 export async function getDefault(db: Db, memberId: number, restaurantId: number) {
   const [row] = await db
     .select({ entry: memberDefaults, dish: dishes })
