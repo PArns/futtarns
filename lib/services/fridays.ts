@@ -46,7 +46,14 @@ import {
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
-import { estimateFees, splitTotal, type FeeEstimate, type MemberShare } from '@/lib/pricing';
+import {
+  eaterCount,
+  estimateFees,
+  splitTotal,
+  withDefaults,
+  type FeeEstimate,
+  type MemberShare,
+} from '@/lib/pricing';
 import { canTakeOver } from '@/lib/permissions';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
 import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/services/restaurants';
@@ -835,20 +842,14 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     };
   });
 
-  const priced = [
-    ...items,
-    ...base.flatMap((entry) =>
+  const priced = withDefaults(
+    items,
+    base.flatMap((entry) =>
       entry.projectedDefault
-        ? [
-            {
-              memberId: entry.member.id,
-              unitPriceCents: entry.projectedDefault.unitPriceCents,
-              quantity: 1,
-            },
-          ]
+        ? [{ memberId: entry.member.id, unitPriceCents: entry.projectedDefault.unitPriceCents }]
         : []
-    ),
-  ];
+    )
+  );
   const subtotal = priced.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const area = restaurant ? await restaurantHostIds(db, restaurant.id) : [];
   const restaurantDelivers = area.length === 0 || (hostId !== null && area.includes(hostId));
@@ -890,28 +891,48 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       : splitTotal(priced, finalTotalCents ?? estimate?.totalCents ?? subtotal);
 
   // Each restaurant someone ordered ahead from, with roughly what its fees would come to if
-  // it won: on what was ordered ahead there, shared by as many as eat now or ordered there.
+  // it won. It is priced like the Friday's restaurant: what was ordered there, plus the
+  // default there of whoever comes and has nothing there, so both estimates split their fees
+  // among the people who would really eat.
   const aheadIds = [...new Set(preorders.map((item) => item.restaurantId))];
   const aheadRestaurants = aheadIds.length
     ? await db.select().from(restaurants).where(inArray(restaurants.id, aheadIds))
     : [];
+  const aheadDefaults = aheadIds.length
+    ? (
+        await db
+          .select({ entry: memberDefaults, dish: dishes })
+          .from(memberDefaults)
+          .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
+          .where(inArray(memberDefaults.restaurantId, aheadIds))
+      ).filter((entry) => !entry.dish.archived)
+    : [];
+  const hungry = new Set(
+    base
+      .filter((entry) => entry.member.kind === 'member' && entry.attendance.status === 'in')
+      .map((entry) => entry.member.id)
+  );
   const ahead = await Promise.all(
     aheadRestaurants.map(async (option): Promise<AheadEstimate> => {
-      const list = preorders.filter((item) => item.restaurantId === option.id);
+      const there = withDefaults(
+        preorders.filter((item) => item.restaurantId === option.id),
+        aheadDefaults
+          .filter(({ entry }) => entry.restaurantId === option.id && hungry.has(entry.memberId))
+          .map(({ entry, dish }) => ({
+            memberId: entry.memberId,
+            unitPriceCents: unitPriceCents(dish.priceCents, entry.options),
+          }))
+      );
       const optionArea = await restaurantHostIds(db, option.id);
       const delivers = optionArea.length === 0 || (hostId !== null && optionArea.includes(hostId));
       const estimate = estimateFees(
-        list.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
+        there.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
         option,
         row?.tipCents ?? option.tipCents,
         row?.voucherCents ?? 0,
         !delivers && option.pickup
       );
-      const eaters = new Set([
-        ...shares.map((share) => share.memberId),
-        ...list.map((item) => item.memberId),
-      ]).size;
-      return { restaurant: option, estimate, eaters };
+      return { restaurant: option, estimate, eaters: eaterCount(there) };
     })
   );
 

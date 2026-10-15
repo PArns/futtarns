@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimateFees, feeParts, splitTotal } from '@/lib/pricing';
+import { eaterCount, estimateFees, feeParts, splitTotal, withDefaults } from '@/lib/pricing';
 
 const restaurant = {
   minOrderCents: 2000,
@@ -146,5 +146,26 @@ describe('fetching the food', () => {
 
   it('still takes a voucher off', () => {
     expect(estimateFees(1000, restaurant, 250, 300, true).totalCents).toBe(700);
+  });
+});
+
+describe('withDefaults', () => {
+  const items = [
+    { memberId: 1, unitPriceCents: 900, quantity: 1 },
+    { memberId: 2, unitPriceCents: 0, quantity: 1 },
+  ];
+
+  it('adds the default of everyone who has nothing on the order yet', () => {
+    const order = withDefaults(items, [
+      { memberId: 1, unitPriceCents: 1200 },
+      { memberId: 3, unitPriceCents: 1100 },
+    ]);
+    expect(order).toEqual([...items, { memberId: 3, unitPriceCents: 1100, quantity: 1 }]);
+  });
+
+  it('counts as eaters only those whose part costs something, like the split', () => {
+    const order = withDefaults(items, [{ memberId: 3, unitPriceCents: 1100 }]);
+    expect(eaterCount(order)).toBe(splitTotal(order, 2500).length);
+    expect(eaterCount(order)).toBe(2);
   });
 });

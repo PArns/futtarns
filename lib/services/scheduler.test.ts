@@ -646,6 +646,29 @@ describe('the restaurant vote', () => {
     expect(sent.some((message) => message.text.includes('Das Volk hat gewählt'))).toBe(false);
   });
 
+  it('splits the fees of both outcomes among those who would really eat', async () => {
+    const { host, anna, ben, dish, sushi } = await voteSetup();
+    const maki = await sushiDish(sushi.id);
+    const pizza = { dishId: dish.id, selection: {}, note: null, quantity: 1 };
+    const roll = { dishId: maki.id, selection: {}, note: null, quantity: 1 };
+    // Pizza for the host and Ben if it stays; sushi for the host and Anna if it wins.
+    await addItem(db, NEXT, host.id, pizza);
+    await addItem(db, NEXT, ben.id, pizza);
+    await addItem(db, NEXT, host.id, roll, { from: sushi.id, vote: true, now: WEDNESDAY });
+    await addItem(db, NEXT, anna.id, roll, { from: sushi.id, vote: true, now: WEDNESDAY });
+
+    // Two eat either way: Ben's pizza would go with a win, Anna's sushi with a loss.
+    const view = await loadFriday(db, NEXT, WEDNESDAY);
+    expect([view.shares.length, view.ahead[0]?.eaters]).toEqual([2, 2]);
+    expect(view.ahead[0]?.estimate.subtotalCents).toBe(1400);
+
+    // With a default there, Ben would get that one if sushi won, so he shares its fees.
+    await setDefaultDish(db, ben.id, sushi.id, roll);
+    const withDefault = await loadFriday(db, NEXT, WEDNESDAY);
+    expect(withDefault.ahead[0]?.eaters).toBe(3);
+    expect(withDefault.ahead[0]?.estimate.subtotalCents).toBe(2100);
+  });
+
   it('drops what was ordered ahead when the vote changes or the restaurant stays', async () => {
     const { host, anna, ben, restaurant, sushi } = await voteSetup();
     const maki = await sushiDish(sushi.id);
