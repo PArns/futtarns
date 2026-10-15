@@ -73,6 +73,29 @@ export function estimateFees(
 }
 
 /**
+ * What gets ordered from a restaurant: the dishes picked there, plus the default there of
+ * everyone else who eats. The Friday's restaurant and each one ordered from ahead during
+ * the vote are priced by this one rule, so their fees are split the same way.
+ */
+export function withDefaults(
+  items: PricedItem[],
+  defaults: { memberId: number; unitPriceCents: number }[]
+): PricedItem[] {
+  const ordered = new Set(items.map((item) => item.memberId));
+  return [
+    ...items,
+    ...defaults
+      .filter((entry) => !ordered.has(entry.memberId))
+      .map((entry) => ({ ...entry, quantity: 1 })),
+  ];
+}
+
+/** How many share the fees of an order: everyone with something on it, as in `splitTotal`. */
+export function eaterCount(items: PricedItem[]): number {
+  return [...itemsPerMember(items).values()].filter((cents) => cents > 0).length;
+}
+
+/**
  * Splits a total across everyone who ordered: each pays their own items plus an equal
  * share of everything else (delivery, service fee, tip, or a discount when the rest is
  * negative). Leftover cents go to the first members in the given order, so the shares

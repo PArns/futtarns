@@ -187,8 +187,10 @@ the current one it is the fallback and votes only for whoever has not voted yet,
 someone can have both the dish they want and one in case their pick loses. The menu
 chapter then offers the current restaurant and the voted one side by side, and the money
 box shows both outcomes: the amount if it stays, and roughly what it comes to if the
-voted one wins (`ahead`). Changing or taking back the vote drops what was ordered ahead
-(`castVote`).
+voted one wins (`ahead`). Both are priced by the same rule (`withDefaults`): what was ordered
+from that restaurant plus the default there of everyone who comes and has nothing there, so
+each splits its fees among the people who would really eat if it were the one. Changing or
+taking back the vote drops what was ordered ahead (`castVote`).
 
 At midnight the winner's orders stay and all others go. Whom that leaves without an order
 from the winner (`voteDroppedIds`: their orders went, their pick lost, or they said yes to
