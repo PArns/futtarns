@@ -311,8 +311,10 @@ export async function FridayScreen({
     ? me.money.openCents <= 0 && (me.money.dueCents > 0 || me.attendance.status === 'out')
     : false;
 
-  const voteRuns = voting && restaurants.length > 1;
-  const showVote = voteRuns && Boolean(me);
+  // Voting stays open for later Fridays too, but only this week's needs the reminders that
+  // the restaurant is not settled yet.
+  const voteRuns = voting && restaurants.length > 1 && isCurrent;
+  const showVote = voting && restaurants.length > 1 && Boolean(me);
   // Where the vote stands, for the banner at the top: who leads, or what a draw leaves.
   const ranked = tally(restaurants, view.votes);
   const leadVotes = ranked[0]?.voterIds.length ?? 0;
