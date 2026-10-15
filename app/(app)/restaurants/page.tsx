@@ -38,7 +38,7 @@ export default async function RestaurantsPage() {
       <PageHero icon={Store} kicker="Futterquellen" title="Restaurants">
         <p className="hero-item text-muted-foreground mt-3 max-w-2xl">
           Unsere Läden mit Karte und Gebühren. Such dir pro Restaurant ein Standardgericht aus – das
-          bekommst du, wenn du freitags nichts wählst.
+          bekommst du, wenn du freitags nichts aussuchst.
         </p>
       </PageHero>
 
@@ -77,7 +77,7 @@ export default async function RestaurantsPage() {
                         </span>
                         {hosts && (
                           <span className="absolute top-2 right-3 max-w-[70%] truncate rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-[#1665e6] uppercase">
-                            Standard bei {hosts}
+                            Stammlokal von {hosts}
                           </span>
                         )}
                       </div>

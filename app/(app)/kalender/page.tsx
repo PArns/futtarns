@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
+import { answerKind } from '@/lib/attendance';
 import { calendarLink } from '@/lib/auth-tokens';
 import { todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -188,9 +189,17 @@ export default async function CalendarPage() {
                     {entry.cancelled && entry.cancelReason && (
                       <p className="text-muted-foreground text-xs">{entry.cancelReason}</p>
                     )}
-                    {!entry.cancelled && entry.people.length > 0 && (
-                      <AttendancePills people={entry.people} />
-                    )}
+                    {!entry.cancelled &&
+                      entry.people.length > 0 &&
+                      // Nobody answered or is away yet: one line instead of everyone's name.
+                      (entry.mode !== 'flat' &&
+                      entry.people.every((person) => answerKind(person) === 'silent') ? (
+                        <p className="text-muted-foreground text-xs">
+                          Alle {entry.people.length} dabei, keiner hat abgesagt.
+                        </p>
+                      ) : (
+                        <AttendancePills people={entry.people} flat={entry.mode === 'flat'} />
+                      ))}
                     {pickHost && (
                       <div className="border-border/50 mt-auto border-t pt-3">
                         <FridayControls
@@ -217,7 +226,7 @@ export default async function CalendarPage() {
             icon={Plane}
             kicker="Urlaubsmodus"
             title="Wann bist du weg?"
-            hint="An diesen Tagen giltst du als abgemeldet und bekommst kein Standardgericht."
+            hint="An diesen Tagen bist du automatisch raus und bekommst kein Standardgericht."
           />
           <GlassCard variant="tile" className="space-y-4 p-5">
             <AbsenceForm defaultFrom={currentFriday} />

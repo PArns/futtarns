@@ -63,7 +63,7 @@ export default async function ProfilePage() {
             icon={Sparkles}
             kicker="Das Übliche"
             title="Deine Standardgerichte"
-            hint="Das bekommst du, wenn du dabei bist und bis zum Bestellschluss nichts wählst. Festlegen kannst du es auf der Seite des Restaurants."
+            hint="Das bekommst du, wenn du dabei bist und bis zum Bestellschluss nichts aussuchst. Festlegen kannst du es auf der Seite des Restaurants."
           />
           <GlassCard variant="tile" className="p-5">
             {defaults.length === 0 ? (

@@ -8,7 +8,6 @@ import { Chip } from '@/components/ui/chip';
 import { Hint, Input, Label } from '@/components/ui/input';
 import { centsToInput } from '@/lib/format';
 import { useAction } from '@/lib/hooks/use-action';
-import { DEFAULT_TIP_CENTS } from '@/lib/pricing';
 
 const TIP_CHOICES = [150, 250, 350, 500];
 
@@ -16,6 +15,7 @@ const TIP_CHOICES = [150, 250, 350, 500];
 export function ExtrasForm({
   date,
   tipCents,
+  defaultTipCents,
   drinksFeeCents,
   defaultDrinksFeeCents,
   voucherCents,
@@ -24,6 +24,8 @@ export function ExtrasForm({
 }: {
   date: string;
   tipCents: number | null;
+  /** The restaurant's own tip, which applies while the field is empty. */
+  defaultTipCents: number;
   drinksFeeCents: number | null;
   defaultDrinksFeeCents: number;
   voucherCents: number | null;
@@ -36,7 +38,7 @@ export function ExtrasForm({
   const [drinks, setDrinks] = useState(centsToInput(drinksFeeCents));
   const [voucher, setVoucher] = useState(centsToInput(voucherCents));
   const { pending, execute } = useAction();
-  const shownTip = tip || centsToInput(DEFAULT_TIP_CENTS);
+  const shownTip = tip || centsToInput(defaultTipCents);
   return (
     <form
       className="space-y-3"
@@ -53,7 +55,7 @@ export function ExtrasForm({
               value={tip}
               onChange={(event) => setTip(event.target.value)}
               inputMode="decimal"
-              placeholder={centsToInput(DEFAULT_TIP_CENTS)}
+              placeholder={centsToInput(defaultTipCents)}
               className="w-24"
             />
             {TIP_CHOICES.map((cents) => (
@@ -96,7 +98,7 @@ export function ExtrasForm({
         </Button>
         <Hint className="min-w-0 flex-1">
           {showTip
-            ? 'Leer heißt: wie immer. 0 schaltet Trinkgeld oder Getränkepauschale ab.'
+            ? 'Leer heißt: wie immer, beim Trinkgeld das vom Restaurant. 0 schaltet Trinkgeld oder Getränkepauschale ab.'
             : 'Leer heißt: wie immer. 0 schaltet die Getränkepauschale ab.'}
           {showVoucher &&
             ' Ein Gutschein gilt für diese Bestellung und wird auf alle verteilt, die essen.'}

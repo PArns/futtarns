@@ -14,16 +14,39 @@ export function DrinksToggle({
   feeCents,
   on,
   disabled,
-  compact,
+  size = 'full',
 }: {
   date: string;
   memberId: number;
   feeCents: number;
   on: boolean;
   disabled?: boolean;
-  compact?: boolean;
+  /** `mini` is a small chip, for the host switching it for someone in the people list. */
+  size?: 'full' | 'compact' | 'mini';
 }) {
   const { pending, execute } = useAction();
+  const compact = size === 'compact';
+  if (size === 'mini') {
+    return (
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={`Getränke ${formatEuro(feeCents)}`}
+        disabled={disabled || pending}
+        onClick={() => execute(() => setDrinksAction(date, memberId, !on))}
+        className={cn(
+          'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs font-semibold tabular-nums transition-colors max-sm:h-8',
+          on
+            ? 'border-primary/40 bg-primary/10 text-primary'
+            : 'border-border text-muted-foreground line-through',
+          pending && 'opacity-60'
+        )}
+      >
+        <CupSoda className="size-3.5" /> {formatEuro(feeCents)}
+      </button>
+    );
+  }
   return (
     <button
       type="button"

@@ -29,6 +29,7 @@ const ANSWER_LABEL: Record<AnswerKind, string> = {
   yes: 'dabei',
   silent: 'keine Antwort',
   nofood: 'ohne Essen',
+  waiting: 'keine Antwort',
   out: 'raus',
 };
 
@@ -64,9 +65,9 @@ export default async function PeoplePage() {
     <>
       <PageHero icon={Users} kicker="Die Bande" title="Leute">
         <p className="hero-item text-muted-foreground mt-3 max-w-2xl">
-          Wer hier steht, meldet sich mit seiner Handynummer an und zählt freitags als dabei,
-          solange er nicht absagt. Gäste brauchen kein Konto, sie werden am Freitag direkt
-          eingetragen.
+          Wer hier steht, meldet sich mit seiner Handynummer an. Die Stammtruppe zählt jeden Freitag
+          als dabei, solange sie nicht absagt; Gäste mit Login kommen nur, wenn sie zusagen oder
+          eingeladen werden. Gäste ohne Login trägt man am Freitag direkt ein.
         </p>
       </PageHero>
 
@@ -137,7 +138,7 @@ export default async function PeoplePage() {
             title={`${people.filter((p) => p.active && p.core).length} in der Stammtruppe`}
             hint={
               viewer.isAdmin
-                ? 'Die Rolle „Gastgeber“ darf für einzelne Freitage einen anderen Gastgeber eintragen.'
+                ? 'Die Rolle „Vertretungen“ darf für einzelne Freitage eintragen, wer Gastgeber ist.'
                 : undefined
             }
           />
@@ -174,7 +175,7 @@ export default async function PeoplePage() {
                   )}
                   {!member.core && <Badge variant="outline">Gast</Badge>}
                   {member.isAdmin && <Badge variant="soft">Admin</Badge>}
-                  {member.isDefaultHost && <Badge variant="soft">Standard-Gastgeber</Badge>}
+                  {member.isDefaultHost && <Badge variant="soft">Fester Gastgeber</Badge>}
                   {member.assignsHosts && <Badge variant="soft">Gastgeber</Badge>}
                 </div>
                 {viewer.isAdmin && (

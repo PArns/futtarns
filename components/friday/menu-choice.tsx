@@ -4,7 +4,7 @@ import { Crown, Vote } from 'lucide-react';
 import { useState } from 'react';
 import type { MenuDish, OrderTarget } from '@/components/friday/dish-dialog';
 import { Menu } from '@/components/friday/menu';
-import { Chip } from '@/components/ui/chip';
+import { cn } from '@/lib/utils';
 
 export type MenuOption = {
   restaurantId: number;
@@ -44,24 +44,40 @@ export function MenuChoice({
   return (
     <div>
       {menus.length > 1 && (
-        <div role="group" aria-label="Karte wählen" className="mb-4 flex flex-wrap gap-1.5">
-          {menus.map((menu) => (
-            <Chip
-              key={menu.restaurantId}
-              selected={menu.restaurantId === shown.restaurantId}
-              onClick={() => setShownId(menu.restaurantId)}
-            >
-              {menu.ahead ? (
-                <Vote className="text-primary size-3.5" />
-              ) : (
-                <Crown className="text-warning size-3.5" />
-              )}
-              {menu.name}
-              <span className="text-muted-foreground font-normal">
-                {menu.ahead ? 'deine Wahl' : 'bisher'}
-              </span>
-            </Chip>
-          ))}
+        <div
+          role="group"
+          aria-label="Karte wählen"
+          className="bg-muted/40 mb-4 grid grid-cols-2 gap-1 rounded-2xl border p-1"
+        >
+          {menus.map((menu) => {
+            const selected = menu.restaurantId === shown.restaurantId;
+            return (
+              <button
+                key={menu.restaurantId}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setShownId(menu.restaurantId)}
+                className={cn(
+                  'flex min-w-0 flex-col items-center rounded-xl px-2 py-2 text-sm transition-colors',
+                  selected
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <span className="flex max-w-full items-center gap-1.5 font-semibold">
+                  {menu.ahead ? (
+                    <Vote className="text-primary size-3.5 shrink-0" />
+                  ) : (
+                    <Crown className="text-warning size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{menu.name}</span>
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  {menu.ahead ? 'deine Wahl' : 'bisher'}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       <Menu

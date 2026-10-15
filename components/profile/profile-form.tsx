@@ -44,7 +44,7 @@ export function ProfileForm({
         <Hint>Nur nötig, wenn du Gastgeber bist und das Geld bekommst.</Hint>
       </Label>
       <Label>
-        Dein Restaurant als Gastgeber
+        Dein Stammlokal als Gastgeber
         <Select name="defaultRestaurantId" defaultValue={defaultRestaurantId ?? ''}>
           <option value="">– keins, ich such jedes Mal aus –</option>
           {restaurants.map((restaurant) => (

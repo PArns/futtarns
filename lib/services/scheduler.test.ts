@@ -80,7 +80,7 @@ describe('reminders', () => {
     await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
     expect(sent.map((message) => message.to)).toEqual(['+491703333333']);
     expect(sent[0]!.text).toContain(
-      'Übermorgen ist wieder Freitag, bei Patrick: *Diesmal bestellen wir bei Bella Napoli*'
+      '*Übermorgen ist wieder Freitag, bei Patrick!* Diesmal bestellen wir bei Bella Napoli.'
     );
     expect(await runScheduler(db, at('2026-10-15T10:05:00Z'), send, noPause)).toBe(0);
     expect(await runScheduler(db, at('2026-10-16T07:55:00Z'), send, noPause)).toBe(0);
@@ -433,14 +433,16 @@ describe('the restaurant vote', () => {
 
     await runScheduler(db, WEDNESDAY, send, noPause);
     const ask = sent.find((message) => message.to === '+491703333333')!;
-    expect(ask.text).toContain('*Freunde des Freitagszocks!*');
-    expect(ask.text).toContain('*A* · Bella Napoli 👑');
-    expect(ask.text).toContain(
-      '*B* · Sakura Sushi\nkein Mindestbestellwert · Lieferung gratis\nhttps://www.lieferando.de/sakura'
+    // Who comes first, then a short ballot; menus and terms are behind the link.
+    expect(ask.text).toMatch(
+      /^🍕 \*Übermorgen ist wieder Freitag, bei Patrick!\*\nBist du dabei\?/
     );
-    expect(ask.text).toContain('Und bist du überhaupt dabei?');
+    expect(ask.text).toContain(
+      '*Wo bestellen wir am Freitag?* Antworte mit dem Buchstaben:\n*A* · Bella Napoli 👑\n*B* · Sakura Sushi\n'
+    );
+    expect(ask.text).toContain('Karten, Lieferkosten und Vorbestellen:');
     // Anna already answered and the host is in anyway: they only get the ballot.
-    const ballots = sent.filter((message) => !message.text.includes('überhaupt dabei'));
+    const ballots = sent.filter((message) => !message.text.includes('Bist du dabei?'));
     expect(ballots.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
 
     expect(await handleIncoming(db, '+491703333333', 'b', WEDNESDAY, send)).toContain(
@@ -479,7 +481,7 @@ describe('the restaurant vote', () => {
     await voteSetup();
     await runScheduler(db, WEDNESDAY, send, noPause);
     expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
-      'Zur Wahl stehen'
+      'Wo bestellen wir am Freitag?'
     );
     await handleIncoming(db, '+491703333333', '1', WEDNESDAY, send);
     sent = [];
@@ -551,7 +553,7 @@ describe('the restaurant vote', () => {
 
     await runScheduler(db, WEDNESDAY, send, noPause);
     expect(sent.find((message) => message.to === '+491705555555')?.text).toContain(
-      'Zur Wahl stehen'
+      'Wo bestellen wir am Freitag?'
     );
     expect(await handleIncoming(db, '+491705555555', 'b', WEDNESDAY, send)).toContain(
       'Stimme gezählt'
@@ -584,7 +586,9 @@ describe('the restaurant vote', () => {
     await setRestaurantHosts(db, sushi.id, [anna.id]);
     await runScheduler(db, WEDNESDAY, send, noPause);
     // Only one restaurant delivers to Patrick, so there is nothing to vote on.
-    expect(sent.some((message) => message.text.includes('Zur Wahl stehen'))).toBe(false);
+    expect(sent.some((message) => message.text.includes('Wo bestellen wir am Freitag?'))).toBe(
+      false
+    );
 
     await setRestaurantHosts(db, sushi.id, [host.id]);
     await setRestaurant(db, NEXT, restaurant.id);
@@ -715,7 +719,7 @@ describe('the restaurant vote', () => {
     await runScheduler(db, at('2026-10-23T06:05:00Z'), send, noPause);
     const told = (phone: string) => sent.find((message) => message.to === phone)?.text ?? '';
     expect(told('+491703333333')).toContain(
-      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* bei *Sakura Sushi* was aus"
+      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* dort was aus"
     );
     // Carla has not answered yet, so the result asks her, instead of the invitation at ten.
     expect(told('+491704444444')).toContain('Bist du dabei? Antworte mit');

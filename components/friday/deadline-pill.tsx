@@ -4,7 +4,10 @@ import { Pill, PillDot } from '@/components/ui/pill';
 import { formatMinutesLeft } from '@/lib/format';
 import { useNow } from '@/lib/hooks/use-now';
 
-/** Where ordering stands; in the last hour it counts down to the second. */
+/**
+ * Where ordering stands once it matters: in the last hour a countdown, then closed or
+ * settled. Before that the time line above already says until when.
+ */
 export function DeadlinePill({
   deadline,
   deadlineLabel,
@@ -46,12 +49,12 @@ export function DeadlinePill({
     );
   }
   const left = deadline - now;
+  if (left >= 3_600_000) return null;
   return (
     <Pill size="label" tone="success">
       <PillDot />
-      {left < 3_600_000
-        ? `Nur noch ${formatMinutesLeft(left)}`
-        : `${flat ? 'Anmeldung' : 'Bestellung'} offen bis ${deadlineLabel}`}
+      Nur noch {formatMinutesLeft(left)} bis {flat ? 'Anmeldeschluss' : 'Bestellschluss'} um{' '}
+      {deadlineLabel}
     </Pill>
   );
 }

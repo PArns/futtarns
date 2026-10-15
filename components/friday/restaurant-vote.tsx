@@ -11,7 +11,7 @@ import {
 } from '@/components/friday/dish-dialog';
 import { MenuPreview } from '@/components/friday/menu-preview';
 import { Avatar } from '@/components/ui/avatar';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Pill } from '@/components/ui/pill';
 import { formatCountdown } from '@/lib/format';
@@ -40,6 +40,7 @@ export function RestaurantVote({
   options,
   myVote,
   orderAs,
+  canVote = true,
   closesAt,
   serverNow,
 }: {
@@ -48,6 +49,8 @@ export function RestaurantVote({
   myVote: number | null;
   /** The viewer, while they can still order; otherwise the menus are only to look at. */
   orderAs: OrderTarget | null;
+  /** False for a guest who has not said yes yet: they can look, not vote. */
+  canVote?: boolean;
   closesAt: number;
   serverNow: number;
 }) {
@@ -103,7 +106,9 @@ export function RestaurantVote({
     <GlassCard variant="tile" className="space-y-3 p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          Antworten geht auch per WhatsApp mit dem Buchstaben.
+          {canVote
+            ? 'Antworten geht auch per WhatsApp mit dem Buchstaben.'
+            : 'Sag oben zu, dann stimmst du mit ab.'}
           {orderAs &&
             ' Tippst du in einer Karte auf ein Gericht, bestellst du es. Bei einem anderen als dem bisherigen Restaurant ist das zugleich deine Stimme.'}
         </p>
@@ -175,42 +180,49 @@ export function RestaurantVote({
                       </span>
                     </div>
                   )}
-                  {option.dishCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleMenu(option.id)}
-                      aria-expanded={shownMenu === option.id}
-                      aria-controls={`karte-${option.id}`}
-                      className="text-primary mt-1 inline-flex items-center gap-1 text-xs font-semibold hover:underline"
-                    >
-                      <BookOpen className="size-3.5" /> Karte ({option.dishCount}{' '}
-                      {option.dishCount === 1 ? 'Gericht' : 'Gerichte'})
-                      <ChevronDown
-                        className={cn(
-                          'size-3.5 transition-transform',
-                          shownMenu === option.id && 'rotate-180'
-                        )}
-                      />
-                    </button>
-                  ) : (
-                    <div className="text-muted-foreground mt-1 text-xs">Noch keine Karte hier</div>
-                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold">
+                    {option.dishCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleMenu(option.id)}
+                        aria-expanded={shownMenu === option.id}
+                        aria-controls={`karte-${option.id}`}
+                        className="text-primary inline-flex items-center gap-1 whitespace-nowrap hover:underline"
+                      >
+                        <BookOpen className="size-3.5" />
+                        <span>
+                          Karte ({option.dishCount}{' '}
+                          {option.dishCount === 1 ? 'Gericht' : 'Gerichte'})
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            'size-3.5 transition-transform',
+                            shownMenu === option.id && 'rotate-180'
+                          )}
+                        />
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground font-normal">
+                        Noch keine Karte hier
+                      </span>
+                    )}
+                    {option.lieferandoUrl && (
+                      <a
+                        href={option.lieferandoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 whitespace-nowrap"
+                        aria-label={`${option.name} bei Lieferando ansehen`}
+                      >
+                        <ExternalLink className="size-3.5" /> Lieferando
+                      </a>
+                    )}
+                  </div>
                 </div>
-                {option.lieferandoUrl && (
-                  <a
-                    href={option.lieferandoUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-                    aria-label={`${option.name} bei Lieferando ansehen`}
-                  >
-                    <ExternalLink />
-                  </a>
-                )}
                 <Button
                   variant={mine ? 'default' : 'outline'}
                   size="sm"
-                  disabled={pending || !open}
+                  disabled={pending || !open || !canVote}
                   onClick={() => execute(() => voteAction(date, mine ? null : option.id))}
                   aria-pressed={mine}
                 >

@@ -15,6 +15,7 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
 import { DRINKS_FEE_CENTS } from '@/lib/balance';
 import { centsToInput, formatEuro } from '@/lib/format';
+import { DEFAULT_TIP_CENTS } from '@/lib/pricing';
 import type { OrderLine } from '@/lib/order-sheet';
 import { orderSheetText } from '@/lib/order-sheet';
 import type { FridayView, Participant } from '@/lib/services/fridays';
@@ -97,7 +98,7 @@ export function HostSection({
         )}
 
         <GlassCard variant="tile" className="p-5">
-          <details open={view.cancelled}>
+          <details open={view.cancelled || view.hostAbsent}>
             <summary className="flex cursor-pointer list-none items-center gap-2 font-bold">
               <Settings2 className="text-primary size-4" /> Gastgeber, Trinkgeld, Getränke, Absage
             </summary>
@@ -113,6 +114,7 @@ export function HostSection({
                 <ExtrasForm
                   date={view.date}
                   tipCents={view.fixedTipCents}
+                  defaultTipCents={view.restaurant?.tipCents ?? DEFAULT_TIP_CENTS}
                   drinksFeeCents={view.customDrinksFeeCents}
                   defaultDrinksFeeCents={DRINKS_FEE_CENTS}
                   voucherCents={view.voucherCents}

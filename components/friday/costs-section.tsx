@@ -17,25 +17,36 @@ import type { Money } from '@/lib/balance';
 import type { FridayView } from '@/lib/services/fridays';
 
 /**
- * Where someone stands, as a pill: red still owes, green has paid it all, blue gets money
- * back. Whoever collects and owes nothing (the host, whoever fetches the food) gets their
- * role instead.
+ * Where someone stands: until paying opens just the amount so far; then amber still owes,
+ * green has paid it all, blue gets money back. Whoever collects and owes nothing (the host,
+ * whoever fetches the food) gets their role instead.
  */
-function MoneyPill({ money, role }: { money: Money; role: string | null }) {
+function MoneyPill({
+  money,
+  role,
+  payable,
+}: {
+  money: Money;
+  role: string | null;
+  payable: boolean;
+}) {
   if (role && money.dueCents === 0 && money.paidCents === 0) {
-    return <Badge className="text-muted-foreground">{role}</Badge>;
+    return <span className="text-muted-foreground text-xs">{role}</span>;
   }
   const open = money.openCents;
+  if (open > 0 && !payable) {
+    return <span className="font-semibold tabular-nums">{formatEuro(open)}</span>;
+  }
   if (open > 0)
     return (
-      <Badge variant="softError" className="tabular-nums">
-        {formatEuro(open)} offen
+      <Badge variant="softWarning" className="tabular-nums">
+        {formatEuro(open)}
       </Badge>
     );
   if (open < 0)
     return (
       <Badge variant="soft" className="tabular-nums">
-        {formatEuro(-open)} zurück
+        +{formatEuro(-open)}
       </Badge>
     );
   if (money.paidCents > 0) return <Badge variant="softSuccess">bezahlt</Badge>;
@@ -43,7 +54,7 @@ function MoneyPill({ money, role }: { money: Money; role: string | null }) {
 }
 
 /** What the Friday costs in total and what everyone pays and still owes. */
-export function CostsSection({ view }: { view: FridayView }) {
+export function CostsSection({ view, payable }: { view: FridayView; payable: boolean }) {
   const flat = view.mode === 'flat';
   const estimate = view.estimate;
   const rows = view.participants.filter(
@@ -128,8 +139,9 @@ export function CostsSection({ view }: { view: FridayView }) {
                       {estimate.voucherCents > 0
                         ? 'Gebühren, Trinkgeld und Gutschein'
                         : 'Gebühren und Trinkgeld'}{' '}
-                      teilen sich alle, die essen: etwa {formatEuro(feesEach)} pro Person. Die
-                      Servicegebühr ist die Systemgebühr von Lieferando, nicht unsere.
+                      teilen sich alle, die essen: {view.settled ? '' : 'etwa '}
+                      {formatEuro(feesEach)} pro Person. Die Servicegebühr ist die Systemgebühr von
+                      Lieferando, nicht unsere.
                     </p>
                   )}
                 </>
@@ -158,11 +170,12 @@ export function CostsSection({ view }: { view: FridayView }) {
               </div>
               <p className="text-muted-foreground mt-1 text-xs">
                 {formatEuro(view.drinksFeeCents)} pro Person, die kommt, freiwillig. Für Cola und
-                Co., geht an {view.host?.name ?? 'den Gastgeber'} und nicht an Lieferando.
+                Co., geht an {view.host?.name ?? 'den Gastgeber'}
+                {flat ? '.' : ' und nicht an Lieferando.'}
               </p>
               <p className="mt-1 text-xs font-medium">
                 {drinkers > 0
-                  ? `${drinkers} × ${formatEuro(view.drinksFeeCents)} bisher`
+                  ? `${drinkers} × ${formatEuro(view.drinksFeeCents)}${view.settled ? '' : ' bisher'}`
                   : 'Bisher zahlt noch keiner ein.'}
               </p>
             </div>
@@ -174,13 +187,17 @@ export function CostsSection({ view }: { view: FridayView }) {
         {rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">Noch ist niemand mit Essen dabei.</p>
         ) : (
-          <table className="w-full table-fixed text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="text-muted-foreground text-xs">
-                <th className="w-[34%] pb-2 text-left font-medium">Wer</th>
-                <th className="pb-2 text-right font-medium">{flat ? 'Pauschale' : 'Essen'}</th>
-                <th className="pb-2 text-right font-medium">Getränke</th>
-                <th className="pb-2 text-right font-medium">Offen</th>
+                <th className="pb-2 text-left font-medium">Wer</th>
+                <th className="w-px pb-2 pl-2 text-right font-medium">
+                  {flat ? 'Pauschale' : 'Essen'}
+                </th>
+                <th className="w-px pb-2 pl-2 text-right font-medium">Getränke</th>
+                <th className="w-px pb-2 pl-2 text-right font-medium whitespace-nowrap">
+                  {payable ? 'Offen' : 'Bis jetzt'}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-border/50 divide-y">
@@ -193,15 +210,15 @@ export function CostsSection({ view }: { view: FridayView }) {
                       : null;
                 return (
                   <tr key={entry.member.id}>
-                    <td className="truncate py-2 pr-2 font-medium">{entry.member.name}</td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2 font-medium break-words">{entry.member.name}</td>
+                    <td className="py-2 pl-2 text-right whitespace-nowrap tabular-nums">
                       {entry.share ? formatEuro(entry.share.totalCents) : '–'}
                     </td>
-                    <td className="text-muted-foreground py-2 text-right tabular-nums">
+                    <td className="text-muted-foreground py-2 pl-2 text-right whitespace-nowrap tabular-nums">
                       {entry.money.drinksCents ? formatEuro(entry.money.drinksCents) : '–'}
                     </td>
-                    <td className="py-2 text-right">
-                      <MoneyPill money={entry.money} role={role} />
+                    <td className="py-2 pl-2 text-right whitespace-nowrap">
+                      <MoneyPill money={entry.money} role={role} payable={payable} />
                     </td>
                   </tr>
                 );

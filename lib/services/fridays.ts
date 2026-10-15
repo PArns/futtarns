@@ -45,13 +45,8 @@ import {
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
-import {
-  DEFAULT_TIP_CENTS,
-  estimateFees,
-  splitTotal,
-  type FeeEstimate,
-  type MemberShare,
-} from '@/lib/pricing';
+import { estimateFees, splitTotal, type FeeEstimate, type MemberShare } from '@/lib/pricing';
+import { canTakeOver } from '@/lib/permissions';
 import { absencesOverlapping, getDefaultHost, ServiceError } from '@/lib/services/members';
 import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/services/restaurants';
 import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
@@ -120,6 +115,29 @@ async function dropOrdersExcept(
 
 export async function setHost(db: Db, date: IsoDate, hostId: number | null) {
   await touch(db, date, { hostId });
+}
+
+/**
+ * A member steps in for a host who is away that day. Checked here against the database,
+ * not the page: the host must be away, the member around and in the Stammtruppe.
+ */
+export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
+  const row = await getFridayRow(db, date);
+  const hostId = row?.hostId ?? (await getDefaultHost(db))?.id ?? null;
+  const absent = await absencesOverlapping(db, date, date);
+  const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
+  const allowed =
+    viewer &&
+    canTakeOver(viewer, {
+      hostId,
+      hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
+      viewerAbsent: absent.some((absence) => absence.memberId === memberId),
+      locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
+      cancelled: row?.cancelled ?? false,
+    });
+  if (!allowed)
+    throw new ServiceError('Übernehmen geht nur, wenn der Gastgeber an dem Tag weg ist');
+  await setHost(db, date, memberId);
 }
 
 export async function setCancelled(
@@ -639,8 +657,11 @@ export type Participant = {
   money: Money;
 };
 
-/** A restaurant ordered ahead from, and roughly each eater's part of its fees if it won. */
-export type AheadEstimate = { restaurant: Restaurant; sharedCentsEach: number };
+/**
+ * A restaurant ordered ahead from, with its estimated fees if it won and how many would
+ * share them: those who eat now or ordered there.
+ */
+export type AheadEstimate = { restaurant: Restaurant; estimate: FeeEstimate; eaters: number };
 
 export type FridayView = {
   date: IsoDate;
@@ -676,7 +697,7 @@ export type FridayView = {
    * if that restaurant wins.
    */
   preorders: OrderItem[];
-  /** For each restaurant ordered ahead from, roughly what its fees would cost each eater. */
+  /** For each restaurant ordered ahead from, roughly what its fees would come to. */
   ahead: AheadEstimate[];
   /** True when no restaurant was picked and the default one applies. */
   restaurantIsDefault: boolean;
@@ -691,7 +712,7 @@ export type FridayView = {
   shares: MemberShare[];
   /** The drinks fee per person this Friday (0 when switched off). */
   drinksFeeCents: number;
-  /** What the host set for this Friday; null means the usual rule. */
+  /** What the host set for this Friday; null means the restaurant's tip. */
   fixedTipCents: number | null;
   customDrinksFeeCents: number | null;
   /** A voucher the host entered for this Friday's order, or null. */
@@ -778,7 +799,15 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     const own = items.filter((item) => item.memberId === member.id);
     const fallback = defaults.find((entry) => entry.entry.memberId === member.id);
     // A default of „nix“ means: when they say nothing, they come without eating.
-    const silentMeans = mode === 'flat' ? 'out' : fallback && !fallback.dish ? 'nofood' : 'in';
+    // A flat-price evening needs a yes, except from its host, who is there anyway.
+    const silentMeans =
+      mode === 'flat'
+        ? member.id === hostId
+          ? 'in'
+          : 'out'
+        : fallback && !fallback.dish
+          ? 'nofood'
+          : 'in';
     const attendance = effectiveAttendance(member, date, answer?.status, absent, silentMeans);
     // Until the lock, a silent member's default is what they will get, so the estimate
     // counts it; otherwise early payers would pay fees split among too few people.
@@ -839,7 +868,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     ? estimateFees(
         subtotal,
         restaurant,
-        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.tipCents ?? restaurant.tipCents,
         row?.voucherCents ?? 0,
         pickup
       )
@@ -873,7 +902,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       const estimate = estimateFees(
         list.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
         option,
-        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.tipCents ?? option.tipCents,
         row?.voucherCents ?? 0,
         !delivers && option.pickup
       );
@@ -881,7 +910,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
         ...shares.map((share) => share.memberId),
         ...list.map((item) => item.memberId),
       ]).size;
-      return { restaurant: option, sharedCentsEach: Math.ceil(estimate.sharedCents / eaters) };
+      return { restaurant: option, estimate, eaters };
     })
   );
 
@@ -1039,13 +1068,15 @@ export async function loadCalendar(
         const eatsNothing = nothingDefaults.some(
           (entry) => entry.memberId === member.id && entry.restaurantId === restaurantId
         );
-        const silentMeans = mode === 'flat' ? 'out' : eatsNothing ? 'nofood' : 'in';
+        const silentMeans =
+          mode === 'flat' ? (member.id === host?.id ? 'in' : 'out') : eatsNothing ? 'nofood' : 'in';
         const effective = effectiveAttendance(member, date, answer, absent, silentMeans);
         return {
           id: member.id,
           name: member.name,
           status: effective.status,
-          answered: effective.reason === 'answered',
+          answered: effective.reason === 'answered' || (mode === 'flat' && member.id === host?.id),
+          waiting: effective.reason === 'silent' && effective.status === 'out',
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de'));

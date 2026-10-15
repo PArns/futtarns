@@ -57,7 +57,7 @@ export function RestaurantPicker({
         {restaurants.map((restaurant) => (
           <option key={restaurant.id} value={restaurant.id}>
             {restaurant.name}
-            {restaurant.isDefault ? ' (Standard)' : ''}
+            {restaurant.isDefault ? ' (Stammlokal)' : ''}
           </option>
         ))}
       </Select>

@@ -8,6 +8,7 @@ import { Hint, Input, Label, Textarea } from '@/components/ui/input';
 import type { ActionResult } from '@/lib/action-result';
 import type { Restaurant } from '@/lib/db/schema';
 import { centsToInput } from '@/lib/format';
+import { DEFAULT_TIP_CENTS } from '@/lib/pricing';
 
 /**
  * A restaurant's details and fees, and which hosts it delivers to: not every restaurant
@@ -88,6 +89,19 @@ export function RestaurantForm({
           placeholder="0,99"
         />
         <Hint>Was Lieferando pro Bestellung extra nimmt.</Hint>
+      </Label>
+      <Label>
+        Trinkgeld (€)
+        <Input
+          name="tip"
+          inputMode="decimal"
+          defaultValue={centsToInput(restaurant?.tipCents ?? DEFAULT_TIP_CENTS)}
+          placeholder={centsToInput(DEFAULT_TIP_CENTS)}
+        />
+        <Hint>
+          Für den Fahrer, geteilt durch alle, die essen. Der Gastgeber kann es pro Freitag ändern;
+          beim Abholen gibt es keins.
+        </Hint>
       </Label>
       <fieldset className="space-y-2 sm:col-span-2">
         <legend className="text-sm font-semibold">Liefert zu</legend>

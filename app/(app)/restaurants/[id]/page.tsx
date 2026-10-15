@@ -74,7 +74,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           restaurant.archived
             ? 'Nicht mehr im Angebot'
             : hosts
-              ? `Standard bei ${hosts} · ${restaurant.cuisine ?? 'Restaurant'}`
+              ? `Stammlokal von ${hosts} · ${restaurant.cuisine ?? 'Restaurant'}`
               : (restaurant.cuisine ?? 'Restaurant')
         }
         title={restaurant.name}
@@ -92,6 +92,11 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
           {restaurant.serviceFeeCents > 0 && (
             <span>Servicegebühr {formatEuro(restaurant.serviceFeeCents)}</span>
           )}
+          <span>
+            {restaurant.tipCents > 0
+              ? `Trinkgeld ${formatEuro(restaurant.tipCents)}`
+              : 'ohne Trinkgeld'}
+          </span>
         </div>
         {restaurant.notes && <p className="hero-item mt-3 text-sm">{restaurant.notes}</p>}
         {(restaurant.lieferandoUrl || (!mineAsHost && !restaurant.archived)) && (
@@ -120,7 +125,7 @@ export default async function RestaurantPage(props: PageProps<'/restaurants/[id]
             hint={
               myDefault && !myDefault.dish
                 ? 'Sagst du nichts, kommst du ohne Essen. Tippe ein Gericht an, wenn du doch einen Standard willst.'
-                : 'Das bekommst du, wenn du freitags dabei bist, aber bis zum Bestellschluss nichts wählst. Tippe ein Gericht an, um es als Standard zu merken.'
+                : 'Das bekommst du, wenn du freitags dabei bist, aber bis zum Bestellschluss nichts aussuchst. Tippe ein Gericht an, um es als Standard zu merken.'
             }
             action={
               <div className="flex gap-1">

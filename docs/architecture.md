@@ -21,7 +21,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `restaurant_votes`        | who wants which restaurant for a Friday, one vote per member                                                                                                                                                    |
 | `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
 | `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
-| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                             |
+| `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee, tip), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                        |
 | `order_items`             | what someone ordered and where from, with name, category, options and price copied in; only the Friday's restaurant counts                                                                                      |
 | `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                                                             |
 | `charges`                 | the final share per person after settlement                                                                                                                                                                     |
@@ -36,7 +36,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 
 1. **Open**: anyone answers and orders until 19:00 Berlin time (`lib/dates.ts`). Silent
    members count as in (`lib/attendance.ts`), or as coming without food when their default
-   is „nix“; absences count as out. On a flat-price Friday only a yes counts.
+   is „nix“; absences count as out. On a flat-price Friday only a yes counts, except for its host,
+   who is there anyway.
    Without a picked restaurant the Friday uses its host's (`hostRestaurant`); the first
    order pins it, so handing the Friday to a substitute keeps the menu.
 2. **Lock at 19:00** (`lockFriday`): the first page view or scheduler tick after the
@@ -52,8 +53,9 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 
 ## Money
 
-- **Fees**: delivery, Lieferando's service fee and the tip (2,50 € unless the host sets
-  another amount) are split equally among everyone who eats, before and after settlement.
+- **Fees**: delivery, Lieferando's service fee and the tip (each restaurant's own, 2,50 €
+  unless set otherwise on the restaurant, and the host can set another amount for a Friday)
+  are split equally among everyone who eats, before and after settlement.
   Until the lock the estimate already counts the defaults of silent members.
 - **Voucher**: the host can enter a Lieferando voucher for a Friday's order. It comes off the
   shared part of the bill, so everyone who eats gets an equal share of it, shown as its own
@@ -80,7 +82,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 Members carry a `core` flag, the Stammtruppe. Only they are asked every week, count as in
 when they say nothing, host and vote every Friday. Everyone else with a login is a guest:
 they stay in the members table, log in with their number, and take part in a Friday once
-they say yes themselves (the Friday page shows them the answer buttons, the bot takes a
+they say yes themselves (the Friday page shows them the answer buttons, and while they
+decide the ballot and the menu to look at, but not the others' money; the bot takes a
 `1`) or someone adds them (an attendance row). On every other Friday they count as out and
 appear nowhere (`effectiveAttendance`, the people queries in `loadFriday` and
 `loadCalendar`), and nobody messages them about it.
@@ -97,8 +100,10 @@ the flag on the people page, and new members get it by default.
 - Members change their own answer and order, and those of guests they brought, until 19:00.
 - The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
   everyone's orders after the deadline, settlement and payments.
-- Members with the „Gastgeber“ role (`assignsHosts`, given by an admin) may hand any single
+- Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
+- When a Friday's host is away that day, anyone of the Stammtruppe who is around may take
+  it over themselves („Ich übernehme“, `canTakeOver`, `takeOverFriday`) until the deadline.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 
@@ -160,7 +165,8 @@ until Thursday 23:59. The ballot lists the restaurants that can serve this Frida
 under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
 pickup, marked „nur abholen“. They are lettered in the order they were created, so a
 letter stays put while new restaurants join. Members vote on the Friday page or by
-replying with the letter to the Wednesday message, which carries every Lieferando link;
+replying with the letter to the Wednesday message, which asks who comes first and then
+lists the restaurants by letter, with one link to the page for menus and delivery terms;
 they can change or take back their vote until the end. The page and the bot's reply show
 who voted for what, and each restaurant's menu folds open on the page, fetched when first
 opened (`menuPreviewAction`).

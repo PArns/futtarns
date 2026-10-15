@@ -25,6 +25,7 @@ export function PayBox({
   label = 'Jetzt zahlen',
   payable = true,
   note,
+  maybe = false,
 }: {
   date: string;
   memberId: number;
@@ -35,18 +36,30 @@ export function PayBox({
   payable?: boolean;
   /** Shown instead of the pay buttons when paying is not open. */
   note?: string;
+  /** Only what it would come to, e.g. if another restaurant wins: drawn quieter. */
+  maybe?: boolean;
 }) {
   const { pending, execute } = useAction();
   const split = payees.length > 1;
   const withoutPaypal = payees.filter((payee) => !payee.paypalMe);
 
   return (
-    <div className="border-primary/40 bg-primary/10 space-y-4 rounded-2xl border p-4 sm:p-5">
+    <div
+      className={cn(
+        'space-y-4 rounded-2xl border p-4 sm:p-5',
+        maybe ? 'border-primary/30 border-dashed' : 'border-primary/40 bg-primary/10'
+      )}
+    >
       <div>
         <div className="text-primary text-[11px] font-bold tracking-[0.14em] uppercase">
           {label}
         </div>
-        <div className="text-3xl font-extrabold tracking-tight tabular-nums">
+        <div
+          className={cn(
+            'font-extrabold tracking-tight tabular-nums',
+            maybe ? 'text-2xl' : 'text-3xl'
+          )}
+        >
           {formatEuro(amountCents)}
         </div>
         {payees.map((payee) => (

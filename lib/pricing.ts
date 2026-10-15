@@ -37,7 +37,7 @@ type FeeRules = Pick<
   'minOrderCents' | 'deliveryFeeCents' | 'freeDeliveryFromCents' | 'serviceFeeCents'
 >;
 
-/** The tip for the driver unless the host sets another amount for a Friday. */
+/** A new restaurant's tip for the driver; each restaurant keeps its own, the host can override it per Friday. */
 export const DEFAULT_TIP_CENTS = 250;
 
 /**

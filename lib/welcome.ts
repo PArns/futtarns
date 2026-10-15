@@ -12,7 +12,7 @@ function clock(minutesOfDay: number): string {
 
 const order = ORDER_HOUR * 60 + ORDER_MINUTE;
 const BOT_NOTE =
-  '🤖 Kurz vorweg: Das hier ist eine automatische Nachricht. freitach ist unser Bot fürs Freitagsessen und schreibt über diese Nummer. Auf normale Nachrichten antwortet er nicht, nur auf die Befehle unten.';
+  '🤖 Das ist eine automatische Nachricht vom freitach-Bot. Auf normale Nachrichten antworte ich nicht, nur auf die Befehle unten.';
 const DEADLINE_LINE = `Bestellschluss ist freitags um ${bold(`${clock(order - DEADLINE_MINUTES_BEFORE)} Uhr`)}, danach kommt der Zahl-Link. Gegessen wird gegen ${clock(order + DELIVERY_MINUTES_AFTER_ORDER)}.`;
 const HELP_LINE = `Mit ${bold('hilfe')} siehst du, was ich sonst noch kann.`;
 
@@ -42,10 +42,10 @@ export function welcomeText({
     link,
     'Später reicht dafür deine Handynummer.',
     '',
-    `2️⃣ ${bold('Standardgericht festlegen')}, pro Restaurant eins, dann musst du nicht jede Woche wählen.`,
+    `2️⃣ ${bold('Standardgericht festlegen')} (auf der Seite des Restaurants, pro Restaurant eins), dann musst du nicht jede Woche aussuchen.`,
     '',
     core
-      ? `3️⃣ ${bold('Mittwochs')} frage ich hier, ob du kommst und wo wir bestellen, freitags um 10 noch mal, wenn du nichts gesagt hast. Antworte mit ${bold('1')}, ${bold('2')}, ${bold('3')} oder ${bold('wie immer')}.`
+      ? `3️⃣ ${bold('Wichtig:')} Sagst du nichts, bist du dabei und bekommst dein Standardgericht. ${bold('Mittwochs')} frage ich hier, ob du kommst und wo wir bestellen, freitags um 10 noch mal, wenn du nichts gesagt hast. Antworte mit ${bold('1')}, ${bold('2')}, ${bold('3')} oder ${bold('wie immer')}.`
       : `3️⃣ Du bist als ${bold('Gast')} dabei: Ich frag dich nicht jede Woche. Hast du Lust, sag auf der Seite zu oder schick mir ${bold('1')} für den nächsten Freitag.`,
     '',
     DEADLINE_LINE,

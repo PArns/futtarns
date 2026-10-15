@@ -1,6 +1,6 @@
 'use client';
 
-import { Minus, Plus, X } from 'lucide-react';
+import { Check, Minus, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { addItemAction, saveDefaultAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
@@ -203,13 +203,31 @@ function DishForm({
                       onClick={() => toggle(group, choice.id)}
                       aria-pressed={active}
                       className={cn(
-                        'flex min-h-11 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40',
+                        'flex min-h-11 items-center gap-2.5 rounded-xl border px-3 py-2 text-left text-sm transition-colors disabled:opacity-40',
                         active
                           ? 'border-primary/60 bg-primary/15 font-semibold'
                           : 'border-border hover:border-primary/40'
                       )}
                     >
-                      <span>{choice.name}</span>
+                      {/* A circle where one is picked, a box where several can be. */}
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'flex size-4 shrink-0 items-center justify-center border',
+                          group.max === 1 ? 'rounded-full' : 'rounded-[4px]',
+                          active
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-muted-foreground/60'
+                        )}
+                      >
+                        {active &&
+                          (group.max === 1 ? (
+                            <span className="size-1.5 rounded-full bg-white" />
+                          ) : (
+                            <Check className="size-3" strokeWidth={3} />
+                          ))}
+                      </span>
+                      <span className="min-w-0 flex-1">{choice.name}</span>
                       {choice.priceCents !== 0 && (
                         <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
                           {choice.priceCents > 0 ? '+' : ''}
@@ -264,7 +282,10 @@ function DishForm({
         <p className="border-border/50 text-muted-foreground border-t px-5 pt-3 text-xs">{hint}</p>
       )}
       <div
-        className={cn('flex items-center gap-3 p-4', hint ? 'pt-3' : 'border-border/50 border-t')}
+        className={cn(
+          'flex items-center gap-3 px-5 pb-5',
+          hint ? 'pt-3' : 'border-border/50 border-t pt-4'
+        )}
       >
         {mode === 'order' && (
           <div className="border-border flex items-center rounded-xl border">
@@ -289,10 +310,17 @@ function DishForm({
             </Button>
           </div>
         )}
-        <Button type="submit" size="xl" className="flex-1" disabled={pending}>
-          {mode === 'default' ? 'Als Standard merken' : ahead ? 'Vorbestellen' : 'Bestellen'}
+        <Button
+          type="submit"
+          size="xl"
+          className="h-auto min-h-12 min-w-0 flex-1 flex-wrap gap-x-1.5 gap-y-0 py-2"
+          disabled={pending}
+        >
+          <span>
+            {mode === 'default' ? 'Als Standard merken' : ahead ? 'Vorbestellen' : 'Bestellen'}
+          </span>
           <span className="tabular-nums opacity-90">
-            · {formatEuro(unit * (mode === 'order' ? quantity : 1))}
+            {formatEuro(unit * (mode === 'order' ? quantity : 1))}
           </span>
         </Button>
       </div>

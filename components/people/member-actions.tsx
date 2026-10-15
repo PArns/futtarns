@@ -62,17 +62,17 @@ export function MemberActions({
               }
             }}
           >
-            <KeyRound /> {member.kind === 'guest' ? 'Zum Mitglied machen' : 'Neuer Link'}
+            <KeyRound /> {member.kind === 'guest' ? 'Login geben' : 'Neuer Link'}
           </Button>
         )}
         {isAdminViewer && member.kind === 'member' && (
           <>
             {toggle('Stammtruppe', member.core, { core: !member.core })}
             {toggle('Admin', member.isAdmin, { isAdmin: !member.isAdmin })}
-            {toggle('Standard-Gastgeber', member.isDefaultHost, {
+            {toggle('Fester Gastgeber', member.isDefaultHost, {
               isDefaultHost: !member.isDefaultHost,
             })}
-            {toggle('Gastgeber', member.assignsHosts, { assignsHosts: !member.assignsHosts })}
+            {toggle('Vertretungen', member.assignsHosts, { assignsHosts: !member.assignsHosts })}
             {toggle(member.active ? 'Aktiv' : 'Inaktiv', member.active, { active: !member.active })}
           </>
         )}
