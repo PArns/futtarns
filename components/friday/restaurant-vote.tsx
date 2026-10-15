@@ -3,7 +3,13 @@
 import { BookOpen, ChevronDown, Crown, ExternalLink, Vote as VoteIcon } from 'lucide-react';
 import { useState } from 'react';
 import { menuPreviewAction, voteAction } from '@/app/actions';
-import { MenuPreview, type MenuPreviewDish } from '@/components/friday/menu-preview';
+import {
+  DishDialog,
+  type MenuDish,
+  type OpenedDish,
+  type OrderTarget,
+} from '@/components/friday/dish-dialog';
+import { MenuPreview } from '@/components/friday/menu-preview';
 import { Avatar } from '@/components/ui/avatar';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -19,23 +25,29 @@ export type BallotOption = VoteOption & {
   /** What the Friday orders from if the vote changes nothing. */
   current: boolean;
   voters: { id: number; name: string }[];
+  /** What the viewer ordered ahead from it, such as `2× Maki Lachs`. */
+  preordered: string[];
 };
 
 /**
  * The restaurant vote: every option with who wants it, and the viewer's own pick, which
  * they can change or take back until Thursday midnight. The most votes win; without votes
- * or on a tie it stays as it is.
+ * or on a tie it stays as it is. A dish tapped in a menu is ordered (ahead, unless the
+ * Friday orders there already) and votes for its restaurant.
  */
 export function RestaurantVote({
   date,
   options,
   myVote,
+  orderAs,
   closesAt,
   serverNow,
 }: {
   date: string;
   options: BallotOption[];
   myVote: number | null;
+  /** The viewer, while they can still order; otherwise the menus are only to look at. */
+  orderAs: OrderTarget | null;
   closesAt: number;
   serverNow: number;
 }) {
@@ -45,7 +57,33 @@ export function RestaurantVote({
   const open = now < closesAt;
   // One menu open at a time, each fetched the first time it is opened.
   const [shownMenu, setShownMenu] = useState<number | null>(null);
-  const [menus, setMenus] = useState<Record<number, MenuPreviewDish[] | 'failed'>>({});
+  const [menus, setMenus] = useState<Record<number, MenuDish[] | 'failed'>>({});
+  const [opened, setOpened] = useState<OpenedDish | null>(null);
+  const [openCount, setOpenCount] = useState(0);
+  const [orderFrom, setOrderFrom] = useState<BallotOption | null>(null);
+  // Ordering ahead goes with the vote, so ordering anywhere else drops it.
+  const aheadAt = options.find((option) => option.preordered.length > 0 && !option.current);
+
+  function pick(option: BallotOption, dish: MenuDish) {
+    setOrderFrom(option);
+    setOpenCount(openCount + 1);
+    setOpened({ dish, instance: openCount + 1 });
+  }
+
+  function hintFor(option: BallotOption): string {
+    const lines = [
+      option.id === myVote ? '' : `Damit wählst du ${option.current ? 'auch ' : ''}${option.name}.`,
+      option.current
+        ? ''
+        : option.id === myVote
+          ? `Die Bestellung zählt, wenn ${option.name} die Wahl gewinnt.`
+          : 'Die Bestellung zählt, wenn es gewinnt.',
+      aheadAt && aheadAt.id !== option.id
+        ? `Deine Vorbestellung bei ${aheadAt.name} fliegt dann raus.`
+        : '',
+    ];
+    return lines.filter(Boolean).join(' ');
+  }
 
   async function toggleMenu(restaurantId: number) {
     if (shownMenu === restaurantId) return setShownMenu(null);
@@ -60,6 +98,8 @@ export function RestaurantVote({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
           Antworten geht auch per WhatsApp mit dem Buchstaben.
+          {orderAs &&
+            ' Tippst du in einer Karte auf ein Gericht, bestellst du es und wählst das Restaurant gleich mit.'}
         </p>
         <Pill tone={open ? 'primary' : 'muted'}>
           {open ? `Wahllokal schließt ${formatCountdown(closesAt - now)}` : 'Wahllokal geschlossen'}
@@ -118,6 +158,17 @@ export function RestaurantVote({
                   <div className="text-muted-foreground mt-0.5 text-xs">
                     {deliveryTerms(option)}
                   </div>
+                  {option.preordered.length > 0 && (
+                    <div className="mt-0.5 text-xs">
+                      <span className="text-primary font-semibold">
+                        Vorbestellt: {option.preordered.join(', ')}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {' '}
+                        · fliegt raus, wenn du umwählst
+                      </span>
+                    </div>
+                  )}
                   {option.dishCount > 0 ? (
                     <button
                       type="button"
@@ -179,7 +230,10 @@ export function RestaurantVote({
                           Die Karte ließ sich nicht laden. Versuch es gleich noch mal.
                         </p>
                       ) : menus[option.id] ? (
-                        <MenuPreview dishes={menus[option.id] as MenuPreviewDish[]} />
+                        <MenuPreview
+                          dishes={menus[option.id] as MenuDish[]}
+                          onPick={orderAs && open ? (dish) => pick(option, dish) : undefined}
+                        />
                       ) : (
                         <p className="text-muted-foreground text-sm">Karte wird geladen …</p>
                       )}
@@ -191,6 +245,20 @@ export function RestaurantVote({
           );
         })}
       </ul>
+      {orderAs && orderFrom && (
+        <DishDialog
+          opened={opened}
+          onClose={() => setOpened(null)}
+          mode="order"
+          date={date}
+          restaurantId={orderFrom.id}
+          targets={[orderAs]}
+          initialTargetId={orderAs.id}
+          ahead={!orderFrom.current}
+          vote
+          hint={hintFor(orderFrom)}
+        />
+      )}
     </GlassCard>
   );
 }

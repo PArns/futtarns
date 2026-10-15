@@ -1,24 +1,26 @@
 'use client';
 
-import { Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
+import type { MenuDish } from '@/components/friday/dish-dialog';
 import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
 import { groupByCategory } from '@/lib/menu/groups';
 
-export type MenuPreviewDish = {
-  id: number;
-  category: string | null;
-  name: string;
-  description: string | null;
-  priceCents: number;
-};
-
 /** Long enough that finding the pizza needs a search field. */
 const SEARCH_FROM = 12;
 
-/** A restaurant's menu to look at while voting: headings, dishes and prices, nothing to tap. */
-export function MenuPreview({ dishes }: { dishes: MenuPreviewDish[] }) {
+/**
+ * A restaurant's menu on the ballot: headings, dishes and prices. With `onPick` every dish
+ * can be tapped to order it.
+ */
+export function MenuPreview({
+  dishes,
+  onPick,
+}: {
+  dishes: MenuDish[];
+  onPick?: (dish: MenuDish) => void;
+}) {
   const [query, setQuery] = useState('');
   const needle = useDeferredValue(query).trim().toLowerCase();
   const groups = useMemo(
@@ -59,19 +61,44 @@ export function MenuPreview({ dishes }: { dishes: MenuPreviewDish[] }) {
               </div>
             )}
             <ul className="divide-border/40 divide-y">
-              {group.dishes.map((dish) => (
-                <li key={dish.id} className="flex items-baseline gap-3 py-1.5 text-sm">
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium">{dish.name}</span>
-                    {dish.description && (
-                      <span className="text-muted-foreground line-clamp-2 block text-xs">
-                        {dish.description}
-                      </span>
+              {group.dishes.map((dish) => {
+                const content = (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">{dish.name}</span>
+                      {dish.description && (
+                        <span className="text-muted-foreground line-clamp-2 block text-xs">
+                          {dish.description}
+                        </span>
+                      )}
+                    </span>
+                    <span className="shrink-0 tabular-nums">
+                      {dish.optionGroups.length > 0 && (
+                        <span className="text-muted-foreground">ab </span>
+                      )}
+                      {formatEuro(dish.priceCents)}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={dish.id}>
+                    {onPick ? (
+                      <button
+                        type="button"
+                        onClick={() => onPick(dish)}
+                        className="group flex w-full items-center gap-3 py-1.5 text-left text-sm"
+                      >
+                        {content}
+                        <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-6 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white">
+                          <Plus className="size-3.5" />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="flex items-baseline gap-3 py-1.5 text-sm">{content}</div>
                     )}
-                  </span>
-                  <span className="shrink-0 tabular-nums">{formatEuro(dish.priceCents)}</span>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}

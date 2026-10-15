@@ -213,8 +213,9 @@ export async function handleIncoming(
           ...options.map((entry, index) => `${bold(voteLetter(index))} · ${entry.name}`),
         ].join('\n');
       }
+      let dropped = 0;
       try {
-        await castVote(db, date, member.id, option.id, now);
+        dropped = await castVote(db, date, member.id, option.id, now);
       } catch (error) {
         if (error instanceof ServiceError) return error.message;
         throw error;
@@ -224,6 +225,7 @@ export async function handleIncoming(
         after.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
       return [
         `🗳️ Stimme gezählt: ${bold(option.name)}!`,
+        ...(dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
         '',
         bold('Stand:'),
         ...standings(options, after.votes, nameOf),

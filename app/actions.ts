@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
-import type { MenuPreviewDish } from '@/components/friday/menu-preview';
+import type { MenuDish } from '@/components/friday/dish-dialog';
 import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -32,6 +32,7 @@ import {
   bookOpen,
   castVote,
   clearPayments,
+  currentRestaurantId,
   getFridayRow,
   hostedFridaysBetween,
   hostIdFor,
@@ -178,16 +179,17 @@ async function requireGroupManager() {
 
 // ---------------------------------------------------------------- Friday: answers and orders
 
-/** A restaurant's menu to look at, for the ballot: dishes and prices, nothing to order. */
-export async function menuPreviewAction(restaurantId: number): Promise<MenuPreviewDish[]> {
+/** A restaurant's menu for the ballot, with what it takes to order from it there. */
+export async function menuPreviewAction(restaurantId: number): Promise<MenuDish[]> {
   await getGroupContext();
   const rows = await listDishes(await getDb(), recordId.parse(restaurantId));
-  return rows.map(({ id, category, name, description, priceCents }) => ({
+  return rows.map(({ id, category, name, description, priceCents, optionGroups }) => ({
     id,
     category,
     name,
     description,
     priceCents,
+    optionGroups,
   }));
 }
 
@@ -196,13 +198,14 @@ export async function voteAction(date: string, restaurantId: number | null): Pro
   return run(async () => {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
-    await castVote(
+    const dropped = await castVote(
       await getDb(),
       day,
       viewer.id,
       restaurantId === null ? null : recordId.parse(restaurantId),
       new Date()
     );
+    if (dropped) return { ok: true, message: 'Deine Vorbestellung ist damit raus' };
   });
 }
 
@@ -224,25 +227,37 @@ export async function setAnswerAction(input: {
 const dishChoice = z.object({
   date: fridayDate,
   memberId,
+  restaurantId: recordId,
   dishId: recordId,
   selection: z.record(z.string(), z.array(z.string()).max(30)),
   quantity: z.number().int().min(1).max(20),
   note: optionalText,
   saveAsDefault: z.boolean(),
+  // Ordered from the ballot: it is the viewer's vote for that restaurant, too.
+  vote: z.boolean().default(false),
 });
 
 export async function addItemAction(input: z.input<typeof dishChoice>): Promise<ActionResult> {
   return run(async () => {
     const { viewer } = await getGroupContext();
     const data = dishChoice.parse(input);
-    const { db } = await orderAccess(viewer, data.date, data.memberId);
-    await addItem(db, data.date, data.memberId, data);
-    if (data.saveAsDefault && data.memberId === viewer.id) {
-      const row = await getFridayRow(db, data.date);
-      if (row?.restaurantId) await setDefaultDish(db, viewer.id, row.restaurantId, data);
-      return { ok: true, message: 'Bestellt und als dein Standard gemerkt' };
+    if (data.vote && data.memberId !== viewer.id) {
+      throw new ServiceError('Abstimmen kannst du nur für dich');
     }
-    return { ok: true, message: 'Bestellt' };
+    const { db } = await orderAccess(viewer, data.date, data.memberId);
+    await addItem(db, data.date, data.memberId, data, { from: data.restaurantId, vote: data.vote });
+    const ahead = (await currentRestaurantId(db, data.date)) !== data.restaurantId;
+    if (data.saveAsDefault && data.memberId === viewer.id) {
+      await setDefaultDish(db, viewer.id, data.restaurantId, data);
+      return {
+        ok: true,
+        message: `${ahead ? 'Vorbestellt' : 'Bestellt'} und als dein Standard gemerkt`,
+      };
+    }
+    return {
+      ok: true,
+      message: ahead ? 'Vorbestellt: zählt, wenn das Restaurant gewinnt' : 'Bestellt',
+    };
   });
 }
 
@@ -1027,12 +1042,13 @@ export async function addMissingDishAction(input: {
       viewer.id
     );
     if (!data.date) return { ok: true, message: `${dish.name} steht jetzt auf der Karte` };
-    await addItem(db, data.date, viewer.id, {
-      dishId: dish.id,
-      selection: {},
-      note: null,
-      quantity: 1,
-    });
+    await addItem(
+      db,
+      data.date,
+      viewer.id,
+      { dishId: dish.id, selection: {}, note: null, quantity: 1 },
+      { from: data.restaurantId }
+    );
     return { ok: true, message: `${dish.name} eingetragen und bestellt` };
   });
 }

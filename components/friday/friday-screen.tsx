@@ -26,7 +26,7 @@ import type { OrderTarget } from '@/components/friday/dish-dialog';
 import { HostSection } from '@/components/friday/host-section';
 import { HostPicker } from '@/components/friday/host-tools';
 import { ItemRow } from '@/components/friday/item-row';
-import { Menu } from '@/components/friday/menu';
+import { MenuChoice, type MenuOption } from '@/components/friday/menu-choice';
 import { MyMoney } from '@/components/friday/my-money';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
@@ -49,7 +49,7 @@ import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members';
 import { getDefault } from '@/lib/services/orders';
-import { restaurantsForHost } from '@/lib/services/restaurants';
+import { listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
 import { voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
 import { cn } from '@/lib/utils';
@@ -138,7 +138,8 @@ export async function FridayScreen({
   const takenBy: Record<number, string[]> = {};
   for (const participant of view.participants) {
     const label = participant.member.id === viewer.id ? 'Du' : participant.member.name;
-    for (const item of participant.items) {
+    const ahead = view.preorders.filter((item) => item.memberId === participant.member.id);
+    for (const item of [...participant.items, ...ahead]) {
       if (item.dishId === null) continue;
       const names = (takenBy[item.dishId] ??= []);
       if (!names.includes(label)) names.push(label);
@@ -174,6 +175,52 @@ export async function FridayScreen({
     !view.settled &&
     targets.length > 0 &&
     (!closed || manage);
+
+  const myVote = view.votes.find((vote) => vote.memberId === viewer.id)?.restaurantId ?? null;
+  // While the vote runs, the viewer can also order ahead from the restaurant they voted for.
+  const canOrderAhead = voting && Boolean(me) && !closed && editable(me!);
+  const votedFor =
+    canOrderAhead && myVote !== view.restaurant?.id
+      ? (restaurants.find((option) => option.id === myVote) ?? null)
+      : null;
+  const [aheadDishes, aheadDefault] = votedFor
+    ? await Promise.all([listDishes(db, votedFor.id), getDefault(db, viewer.id, votedFor.id)])
+    : [[], null];
+  const myPreorders = voting ? view.preorders.filter((item) => item.memberId === viewer.id) : [];
+  const preorderGroups = [...Map.groupBy(myPreorders, (item) => item.restaurantId)].map(
+    ([restaurantId, items]) => ({
+      name: restaurants.find((option) => option.id === restaurantId)?.name ?? 'anderes Restaurant',
+      items,
+    })
+  );
+  const self: OrderTarget = { id: viewer.id, name: viewer.name, isSelf: true };
+  const menus: MenuOption[] = [
+    ...(me && view.restaurant && canOrder
+      ? [
+          {
+            restaurantId: view.restaurant.id,
+            name: view.restaurant.name,
+            dishes: view.dishes,
+            targets,
+            defaultDishId: myDefault?.dish?.id ?? null,
+            ahead: false,
+          },
+        ]
+      : []),
+    ...(votedFor
+      ? [
+          {
+            restaurantId: votedFor.id,
+            name: votedFor.name,
+            dishes: aheadDishes,
+            targets: [self],
+            defaultDishId: aheadDefault?.dish?.id ?? null,
+            ahead: true,
+            hint: `Zählt, wenn ${votedFor.name} die Wahl gewinnt.`,
+          },
+        ]
+      : []),
+  ];
 
   const nameOf = (id: number) =>
     view.participants.find((p) => p.member.id === id)?.member.name ?? '?';
@@ -255,6 +302,9 @@ export async function FridayScreen({
     voters: view.votes
       .filter((vote) => vote.restaurantId === option.id)
       .map((vote) => ({ id: vote.memberId, name: nameOf(vote.memberId) })),
+    preordered: myPreorders
+      .filter((item) => item.restaurantId === option.id)
+      .map((item) => `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}`),
   }));
   // The host's picker keeps the current restaurant even if it no longer serves this host.
   const pickable =
@@ -392,7 +442,10 @@ export async function FridayScreen({
                   : [
                       {
                         label: 'Aussuchen',
-                        done: me.items.length > 0 || me.attendance.status !== 'in',
+                        done:
+                          me.items.length > 0 ||
+                          myPreorders.length > 0 ||
+                          me.attendance.status !== 'in',
                       },
                     ]),
                 { label: 'Zahlen', done: payDone },
@@ -493,7 +546,8 @@ export async function FridayScreen({
             <RestaurantVote
               date={date}
               options={ballot}
-              myVote={view.votes.find((vote) => vote.memberId === viewer.id)?.restaurantId ?? null}
+              myVote={myVote}
+              orderAs={canOrderAhead ? self : null}
               closesAt={voteClosesAt(date).getTime()}
               serverNow={now.getTime()}
             />
@@ -510,11 +564,11 @@ export async function FridayScreen({
               hint={
                 flat
                   ? `${formatEuro(view.flatPriceCents ?? 0)} pro Person, für alle gleich.`
-                  : !view.restaurant
+                  : !view.restaurant && menus.length === 0
                     ? 'Der Gastgeber sucht das Restaurant noch aus.'
                     : closed
                       ? 'Bestellschluss ist vorbei.'
-                      : canOrder && (
+                      : menus.length > 0 && (
                           <>
                             Such dir{' '}
                             <a href="#karte" className="text-primary font-semibold hover:underline">
@@ -548,6 +602,19 @@ export async function FridayScreen({
                   </ul>
                 </div>
               )}
+              {preorderGroups.map((group) => (
+                <div key={group.name}>
+                  <p className="text-muted-foreground flex items-center gap-1.5 text-xs font-semibold">
+                    <Vote className="text-primary size-3.5" /> Vorbestellt bei {group.name} · zählt,
+                    wenn es die Wahl gewinnt
+                  </p>
+                  <ul className="divide-border/50 divide-y">
+                    {group.items.map((item) => (
+                      <ItemRow key={item.id} item={item} editable={editable(me)} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
               {!flat &&
                 me.items.length === 0 &&
                 myDefault &&
@@ -577,7 +644,11 @@ export async function FridayScreen({
                 !myDefault?.dish &&
                 me.attendance.status === 'in' &&
                 view.restaurant && (
-                  <p className="text-muted-foreground text-sm">Noch nichts ausgesucht.</p>
+                  <p className="text-muted-foreground text-sm">
+                    {myPreorders.length > 0
+                      ? `Bei ${view.restaurant.name} noch nichts ausgesucht.`
+                      : 'Noch nichts ausgesucht.'}
+                  </p>
                 )}
               {!flat &&
                 me.items.length === 0 &&
@@ -675,31 +746,26 @@ export async function FridayScreen({
           </section>
         )}
 
-        {me && view.restaurant && canOrder && (
+        {me && menus.length > 0 && (
           <section id="karte" className="scroll-mt-16">
             <ChapterHeading
               number={++chapter}
               icon={BookOpen}
               kicker="Die Karte"
-              title={view.restaurant.name}
+              title={menus.map((menu) => menu.name).join(' oder ')}
               hint={
                 closed
                   ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
-                  : voting
-                    ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
-                    : 'Tippe auf ein Gericht, um es zu bestellen.'
+                  : menus.length > 1
+                    ? 'Such bei beiden aus: Es bleibt nur, was du beim Gewinner der Wahl bestellt hast. Stehst du danach ohne Bestellung da, kriegst du Freitagmorgen per WhatsApp Bescheid.'
+                    : votedFor
+                      ? `Was du hier vorbestellst, zählt, wenn ${votedFor.name} die Wahl gewinnt.`
+                      : voting
+                        ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
+                        : 'Tippe auf ein Gericht, um es zu bestellen.'
               }
             />
-            <Menu
-              dishes={view.dishes}
-              mode="order"
-              date={date}
-              restaurantId={view.restaurant.id}
-              targets={targets}
-              initialTargetId={targets[0]!.id}
-              defaultDishId={myDefault?.dish?.id ?? null}
-              takenBy={takenBy}
-            />
+            <MenuChoice date={date} menus={menus} takenBy={takenBy} />
           </section>
         )}
 

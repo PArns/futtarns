@@ -22,7 +22,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
 | `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
 | `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                             |
-| `order_items`             | what someone ordered, with name, category, options and price copied in                                                                                                                                          |
+| `order_items`             | what someone ordered and where from, with name, category, options and price copied in; only the Friday's restaurant counts                                                                                      |
 | `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                                                             |
 | `charges`                 | the final share per person after settlement                                                                                                                                                                     |
 | `payments`                | the money ledger: what someone paid for a Friday and to whom (negative = paid back; no payee = the host)                                                                                                        |
@@ -167,9 +167,19 @@ opened (`menuPreviewAction`).
 At midnight (`closeVote`, from the timer or the first page view) the restaurant with the
 most votes wins. Without votes, or when two share the lead, the current restaurant (the
 host's usual one, or whatever the first order pinned) stays. Ordering already works during
-the vote; if another restaurant wins, those orders are deleted (`voteDroppedIds`) and their
-owners get a message on Friday at 09:00 asking them to pick again, never at night. A
-winner that does not deliver to the host makes the Friday a pickup Friday.
+the vote; if another restaurant wins, those orders are deleted and their owners
+(`voteDroppedIds`) get a message on Friday at 09:00 asking them to pick again, never at
+night. A winner that does not deliver to the host makes the Friday a pickup Friday.
+
+Members can also order ahead from the restaurant they vote for (`addItem` with `from`): the
+item carries that restaurant and counts only if it wins. Tapping a dish in a ballot's menu
+orders it and casts the vote at once; the Friday page's menu chapter then offers the
+current restaurant and the voted one side by side. Orders from any restaurant but the
+Friday's stay out of the view's participants, prices and order list (`preorders`).
+Changing or taking back the vote drops what was ordered ahead (`castVote`); at midnight
+the winner's orders stay and all others go, so whoever ends up without one gets the
+09:00 message, whether their restaurant lost or the old one was voted out. A host's pick
+does the same without the message, and the lock clears whatever is left.
 
 ## Pentecost
 

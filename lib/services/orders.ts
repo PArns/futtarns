@@ -10,9 +10,8 @@ import {
   restaurants,
 } from '@/lib/db/schema';
 import { resolveSelection, selectionOf, unitPriceCents } from '@/lib/menu/options';
-import { setAttendance } from '@/lib/services/fridays';
-import { getDefaultHost, ServiceError } from '@/lib/services/members';
-import { hostRestaurant } from '@/lib/services/restaurants';
+import { castVote, currentRestaurantId, openVoteOf, setAttendance } from '@/lib/services/fridays';
+import { ServiceError } from '@/lib/services/members';
 
 export type DishChoice = {
   dishId: number;
@@ -37,35 +36,47 @@ async function dishWithOptions(db: Db, choice: DishChoice, restaurantId: number)
   return { dish, options: resolved.options };
 }
 
-/** Adds a dish to someone's order for a Friday; ordering means they are coming. */
+/**
+ * Adds a dish to someone's order for a Friday; ordering means they are coming. It comes
+ * from the Friday's restaurant unless `from` names another: while the vote runs, a member
+ * can order ahead from the restaurant they vote for, and `vote` casts that vote first.
+ */
 export async function addItem(
   db: Db,
   date: IsoDate,
   memberId: number,
-  choice: DishChoice & { quantity: number }
+  choice: DishChoice & { quantity: number },
+  { from, vote = false, now = new Date() }: { from?: number; vote?: boolean; now?: Date } = {}
 ) {
   const [friday] = await db.select().from(fridays).where(eq(fridays.date, date));
   if (friday?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
   if (friday?.mode === 'flat') throw new ServiceError('An diesem Freitag gibt es eine Pauschale');
-  let restaurantId = friday?.restaurantId ?? null;
-  if (!restaurantId) {
+  const currentId = await currentRestaurantId(db, date);
+  const restaurantId = from ?? currentId;
+  if (!restaurantId) throw new ServiceError('Für diesen Freitag steht noch kein Restaurant fest');
+  const { dish, options } = await dishWithOptions(db, choice, restaurantId);
+  if (vote) await castVote(db, date, memberId, restaurantId, now);
+  if (restaurantId !== currentId) {
+    if ((await openVoteOf(db, date, memberId, now)) !== restaurantId) {
+      throw new ServiceError(
+        'Vorbestellen geht nur beim Restaurant, das du gewählt hast, solange die Wahl läuft'
+      );
+    }
+  } else if (!friday?.restaurantId) {
     // The first order on the host's usual restaurant pins it to this Friday, so a new host
     // or a changed default does not leave these orders pointing at the wrong menu.
-    const hostId = friday?.hostId ?? (await getDefaultHost(db))?.id ?? null;
-    restaurantId = (await hostRestaurant(db, hostId))?.id ?? null;
-    if (!restaurantId) throw new ServiceError('Für diesen Freitag steht noch kein Restaurant fest');
     await db
       .insert(fridays)
       .values({ date, restaurantId })
       .onConflictDoUpdate({ target: fridays.date, set: { restaurantId } });
   }
-  const { dish, options } = await dishWithOptions(db, choice, restaurantId);
   const quantity = Math.min(Math.max(Math.round(choice.quantity), 1), 20);
 
   await db.transaction(async (tx) => {
     await tx.insert(orderItems).values({
       fridayDate: date,
       memberId,
+      restaurantId,
       dishId: dish.id,
       name: dish.name,
       category: dish.category,
