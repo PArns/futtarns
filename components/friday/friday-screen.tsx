@@ -54,12 +54,18 @@ import { buildOrderSheet } from '@/lib/order-sheet';
 import { debtLines, feeLines, toPayee } from '@/lib/balance';
 import { unitPriceCents } from '@/lib/menu/options';
 import { canEditOrderOf, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
-import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
+import {
+  loadFriday,
+  openBalancesFor,
+  paymentOpen,
+  projectVoteResult,
+  type Participant,
+} from '@/lib/services/fridays';
 import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members';
-import { getDefault } from '@/lib/services/orders';
-import { listDishes, restaurantsForHost } from '@/lib/services/restaurants';
+import { getDefault, membersWithDefault } from '@/lib/services/orders';
+import { getRestaurant, listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
-import { tally, voteClosesAt, voteLetter, votingAt } from '@/lib/vote';
+import { tally, voteClosesAt, voteLetter, voteWinner, votingAt } from '@/lib/vote';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -268,17 +274,34 @@ export async function FridayScreen({
       participant.attendance.reason === 'answered' || (flat && participant.member.id === hostId),
     waiting: participant.attendance.reason === 'silent' && participant.attendance.status === 'out',
   }));
+  // While the vote runs, the host's order list is the one the restaurant ahead would get.
+  const leaderId =
+    voting && restaurants.length > 1
+      ? voteWinner(
+          view.votes.filter((vote) =>
+            restaurants.some((option) => option.id === vote.restaurantId)
+          ),
+          view.restaurant?.id ?? null
+        )
+      : (view.restaurant?.id ?? null);
+  const leader =
+    leaderId === null || leaderId === view.restaurant?.id
+      ? null
+      : (view.ahead.find((entry) => entry.restaurant.id === leaderId)?.restaurant ??
+        (await getRestaurant(db, leaderId)));
+  const outcome = leader ? projectVoteResult(view, leader) : view;
+  const leaderDefaults = leader ? await membersWithDefault(db, leader.id) : null;
   const sheet = buildOrderSheet(
-    view.participants.flatMap((participant) => participant.items),
+    outcome.participants.flatMap((participant) => participant.items),
     nameOf
   );
   const hungry = closed
     ? []
-    : view.participants.filter(
+    : outcome.participants.filter(
         (entry) =>
           entry.attendance.status === 'in' &&
           entry.items.length === 0 &&
-          !entry.projectedDefault &&
+          !(leaderDefaults ? leaderDefaults.has(entry.member.id) : entry.projectedDefault) &&
           entry.member.id !== hostId
       );
   const amHost = viewer.id === hostId;
@@ -1044,6 +1067,7 @@ export async function FridayScreen({
                 view={view}
                 closed={closed}
                 sheet={sheet}
+                sheetFor={leader?.name ?? null}
                 hungry={hungry}
                 restaurants={pickable.map(({ id, name, delivers }) => ({
                   id,

@@ -28,6 +28,7 @@ export function HostSection({
   view,
   closed,
   sheet,
+  sheetFor,
   hungry,
   restaurants,
   members,
@@ -40,6 +41,8 @@ export function HostSection({
   view: FridayView;
   closed: boolean;
   sheet: OrderLine[];
+  /** The restaurant ahead in the vote, when the list is the one it would get. */
+  sheetFor: string | null;
   hungry: Participant[];
   restaurants: { id: number; name: string; isDefault: boolean }[];
   members: { id: number; name: string }[];
@@ -142,6 +145,11 @@ export function HostSection({
               </h3>
               {hasOrders && <CopyButton text={orderSheetText(sheet)} />}
             </div>
+            {sheetFor && (
+              <p className="text-muted-foreground -mt-2 text-xs">
+                Für {sheetFor}, das gerade bei der Wahl vorne liegt.
+              </p>
+            )}
             {view.voucherCents ? (
               <Notice className="flex items-center gap-2">
                 <Ticket className="text-primary" />
