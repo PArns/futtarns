@@ -211,32 +211,60 @@ export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boole
   if (claimed.lockedAt || claimed.settledAt) return false;
   const hostId = claimed.hostId ?? (await getDefaultHost(db))?.id ?? null;
   const options = await restaurantsForHost(db, hostId);
-  const votes = (
-    await db.select().from(restaurantVotes).where(eq(restaurantVotes.fridayDate, date))
-  ).filter((vote) => options.some((option) => option.id === vote.restaurantId));
+  const allVotes = await db
+    .select()
+    .from(restaurantVotes)
+    .where(eq(restaurantVotes.fridayDate, date));
+  const votes = allVotes.filter((vote) =>
+    options.some((option) => option.id === vote.restaurantId)
+  );
   const currentId = claimed.restaurantId ?? (await hostRestaurant(db, hostId))?.id ?? null;
   const winner = voteWinner(votes, currentId);
+  const switched = winner !== currentId;
   // Orders from any other restaurant go, those placed before the vote and those ordered
-  // ahead from a loser alike. Whoever is left without one hears about it.
+  // ahead from a loser alike. Whoever is left without an order from the winner hears about
+  // it in the morning when it concerns them: their orders went, their pick lost, or they
+  // said yes to a restaurant the vote replaced.
   const ordered = await db
     .select({ memberId: orderItems.memberId, restaurantId: orderItems.restaurantId })
     .from(orderItems)
     .where(eq(orderItems.fridayDate, date));
-  const dropped = [
-    ...new Set(ordered.filter((item) => item.restaurantId !== winner).map((item) => item.memberId)),
-  ].filter(
+  const saidYes = await db
+    .select({ memberId: attendance.memberId })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.status, 'in')));
+  const concerned = new Set([
+    ...ordered.map((item) => item.memberId),
+    ...allVotes.filter((vote) => vote.restaurantId !== winner).map((vote) => vote.memberId),
+    ...(switched ? saidYes.map((entry) => entry.memberId) : []),
+  ]);
+  const toTell = [...concerned].filter(
     (memberId) =>
       !ordered.some((item) => item.memberId === memberId && item.restaurantId === winner)
   );
-  if (winner !== null && winner !== currentId) {
+  if (winner !== null && switched) {
     await setRestaurant(db, date, winner, { chosen: false });
   } else {
     await dropOrdersExcept(db, date, [winner]);
   }
-  if (dropped.length) {
-    await db.update(fridays).set({ voteDroppedIds: dropped }).where(eq(fridays.date, date));
+  if (toTell.length) {
+    await db.update(fridays).set({ voteDroppedIds: toTell }).where(eq(fridays.date, date));
   }
-  return winner !== currentId;
+  return switched;
+}
+
+/** Whether a Friday's group can vote at `now`; a Friday without a row is a normal one. */
+function voteOpenAt(row: Friday | null, date: IsoDate, now: Date): boolean {
+  return votingAt(
+    {
+      date,
+      mode: row?.mode ?? 'delivery',
+      cancelled: row?.cancelled ?? false,
+      restaurantChosen: row?.restaurantChosen ?? false,
+      voteClosed: Boolean(row?.voteClosedAt),
+    },
+    now
+  );
 }
 
 /**
@@ -251,15 +279,7 @@ export async function castVote(
   restaurantId: number | null,
   now: Date
 ) {
-  const row = await getFridayRow(db, date);
-  const friday = {
-    date,
-    mode: row?.mode ?? 'delivery',
-    cancelled: row?.cancelled ?? false,
-    restaurantChosen: row?.restaurantChosen ?? false,
-    voteClosed: Boolean(row?.voteClosedAt),
-  };
-  if (!votingAt(friday, now)) {
+  if (!voteOpenAt(await getFridayRow(db, date), date, now)) {
     throw new ServiceError('Die Restaurantwahl für diesen Freitag ist vorbei');
   }
   // Outside the Stammtruppe, only those invited to this Friday have a say in it.
@@ -297,32 +317,19 @@ export async function castVote(
   return dropOrdersExcept(db, date, [await currentRestaurantId(db, date), restaurantId], memberId);
 }
 
-/** The restaurant a member votes for while the vote is open, otherwise null. */
-export async function openVoteOf(
+/** Whether a Friday's vote is open at `now`, and which restaurant a member votes for. */
+export async function voteState(
   db: Db,
   date: IsoDate,
   memberId: number,
   now: Date
-): Promise<number | null> {
-  const row = await getFridayRow(db, date);
-  const open =
-    row !== null &&
-    votingAt(
-      {
-        date,
-        mode: row.mode,
-        cancelled: row.cancelled,
-        restaurantChosen: row.restaurantChosen,
-        voteClosed: Boolean(row.voteClosedAt),
-      },
-      now
-    );
-  if (!open) return null;
+): Promise<{ open: boolean; votedFor: number | null }> {
+  const open = voteOpenAt(await getFridayRow(db, date), date, now);
   const [vote] = await db
     .select({ restaurantId: restaurantVotes.restaurantId })
     .from(restaurantVotes)
     .where(and(eq(restaurantVotes.fridayDate, date), eq(restaurantVotes.memberId, memberId)));
-  return vote?.restaurantId ?? null;
+  return { open, votedFor: vote?.restaurantId ?? null };
 }
 
 /** Turns a Friday into one with a single price for everyone, e.g. a barbecue. */
@@ -632,6 +639,9 @@ export type Participant = {
   money: Money;
 };
 
+/** A restaurant ordered ahead from, and roughly each eater's part of its fees if it won. */
+export type AheadEstimate = { restaurant: Restaurant; sharedCentsEach: number };
+
 export type FridayView = {
   date: IsoDate;
   host: Member | null;
@@ -656,13 +666,18 @@ export type FridayView = {
   /** The vote was counted. */
   voteClosed: boolean;
   votes: Vote[];
-  /** Whose orders the vote threw away, leaving them without any. */
+  /**
+   * Whom the vote left without an order from the restaurant it decided on: their orders
+   * went, their pick lost, or they said yes to the restaurant it replaced.
+   */
   voteDroppedIds: number[];
   /**
    * Ordered ahead during the vote from the restaurant someone votes for: it counts only
    * if that restaurant wins.
    */
   preorders: OrderItem[];
+  /** For each restaurant ordered ahead from, roughly what its fees would cost each eater. */
+  ahead: AheadEstimate[];
   /** True when no restaurant was picked and the default one applies. */
   restaurantIsDefault: boolean;
   dishes: Dish[];
@@ -844,6 +859,32 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
           }))
       : splitTotal(priced, finalTotalCents ?? estimate?.totalCents ?? subtotal);
 
+  // Each restaurant someone ordered ahead from, with roughly what its fees would come to if
+  // it won: on what was ordered ahead there, shared by as many as eat now or ordered there.
+  const aheadIds = [...new Set(preorders.map((item) => item.restaurantId))];
+  const aheadRestaurants = aheadIds.length
+    ? await db.select().from(restaurants).where(inArray(restaurants.id, aheadIds))
+    : [];
+  const ahead = await Promise.all(
+    aheadRestaurants.map(async (option): Promise<AheadEstimate> => {
+      const list = preorders.filter((item) => item.restaurantId === option.id);
+      const optionArea = await restaurantHostIds(db, option.id);
+      const delivers = optionArea.length === 0 || (hostId !== null && optionArea.includes(hostId));
+      const estimate = estimateFees(
+        list.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),
+        option,
+        row?.tipCents ?? DEFAULT_TIP_CENTS,
+        row?.voucherCents ?? 0,
+        !delivers && option.pickup
+      );
+      const eaters = new Set([
+        ...shares.map((share) => share.memberId),
+        ...list.map((item) => item.memberId),
+      ]).size;
+      return { restaurant: option, sharedCentsEach: Math.ceil(estimate.sharedCents / eaters) };
+    })
+  );
+
   const participants = base.map((entry): Participant => {
     const share = shares.find((candidate) => candidate.memberId === entry.member.id) ?? null;
     const charge = storedCharges.find((candidate) => candidate.memberId === entry.member.id);
@@ -886,6 +927,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     votes,
     voteDroppedIds: row?.voteDroppedIds ?? [],
     preorders,
+    ahead,
     restaurantIsDefault: Boolean(defaultRestaurant),
     dishes: menu,
     deadline: orderDeadline(date),
@@ -920,12 +962,19 @@ export type CalendarEntry = {
   absentMemberIds: number[];
   /** Members and the guests added to this Friday, with whether they come, by name. */
   people: CalendarPerson[];
+  /** The group still votes on its restaurant; only known for the first Friday. */
+  voting: boolean;
 };
 
 export type CalendarPerson = AttendancePerson;
 
 /** The coming Fridays with host, restaurant and who is away, for the calendar. */
-export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promise<CalendarEntry[]> {
+export async function loadCalendar(
+  db: Db,
+  from: IsoDate,
+  weeks: number,
+  now?: Date
+): Promise<CalendarEntry[]> {
   const dates = fridaysFrom(from, weeks);
   const to = dates[dates.length - 1]!;
   const rows = await db
@@ -934,6 +983,12 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
     .where(and(gte(fridays.date, from), lte(fridays.date, to)));
   const everyone = await db.select().from(members);
   const defaultHost = everyone.find((member) => member.isDefaultHost && member.active) ?? null;
+  // With `now`, whether the group still votes on the first Friday's restaurant.
+  const first = rows.find((entry) => entry.date === from) ?? null;
+  const votingFirst =
+    now !== undefined &&
+    voteOpenAt(first, from, now) &&
+    (await restaurantsForHost(db, first?.hostId ?? defaultHost?.id ?? null)).length > 1;
   const allRestaurants = await db
     .select({
       id: restaurants.id,
@@ -1014,6 +1069,7 @@ export async function loadCalendar(db: Db, from: IsoDate, weeks: number): Promis
       restaurantIsDefault: mode === 'delivery' && !row?.restaurantId && Boolean(defaultRestaurant),
       hostAbsent: host ? absentMemberIds.includes(host.id) : false,
       absentMemberIds,
+      voting: date === from && votingFirst,
     };
   });
 }

@@ -108,6 +108,29 @@ export function voteWinner(votes: Vote[], currentId: number | null): number | nu
   return first[0];
 }
 
+/**
+ * Whether `more` votes still to come could change what the vote decides: by lifting another
+ * option into the lead, or level with it when a tie hands it back to the current one.
+ * Only votes for one of `optionIds` count, as at the count.
+ */
+export function couldSwing(
+  votes: Vote[],
+  optionIds: number[],
+  currentId: number | null,
+  more: number
+): boolean {
+  const counted = votes.filter((vote) => optionIds.includes(vote.restaurantId));
+  const winner = voteWinner(counted, currentId);
+  // Putting every new vote on one option is the strongest push it can get.
+  return optionIds.some(
+    (restaurantId) =>
+      voteWinner(
+        [...counted, ...Array.from({ length: more }, () => ({ memberId: 0, restaurantId }))],
+        currentId
+      ) !== winner
+  );
+}
+
 /** Who voted for what, one line per option with votes, the most first: `Sakura Sushi 2 (Anna, Ben)`. */
 export function standings(
   options: { id: number; name: string }[],

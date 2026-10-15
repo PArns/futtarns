@@ -1,8 +1,8 @@
 import { Check, Clock, CupSoda, House, ShoppingBag } from 'lucide-react';
 import { AnswerSelect } from '@/components/friday/answer-select';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
-import { ItemRow } from '@/components/friday/item-row';
 import { MoneyStatus } from '@/components/friday/money-status';
+import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -102,6 +102,7 @@ export function ParticipantCard({
   canManage,
   payable,
   nameOf,
+  orders,
 }: {
   participant: Participant;
   view: FridayView;
@@ -111,6 +112,8 @@ export function ParticipantCard({
   /** Paying is open (from the deadline on), so the host may book payments. */
   payable: boolean;
   nameOf: (id: number) => string;
+  /** What they ordered, by restaurant once they also ordered ahead during the vote. */
+  orders: OrderGroup[];
 }) {
   const isHost = participant.member.id === view.host?.id;
   const isPicker = view.pickup && participant.member.id === view.picker?.id;
@@ -161,13 +164,7 @@ export function ParticipantCard({
             <Badge variant={badge.variant}>{badge.label}</Badge>
           )}
         </div>
-        {participant.items.length > 0 && (
-          <ul className="divide-border/50 mt-2 divide-y">
-            {participant.items.map((item) => (
-              <ItemRow key={item.id} item={item} editable={editOthers} />
-            ))}
-          </ul>
-        )}
+        <OrderedItems groups={orders} editable={editOthers} className="mt-2" />
       </div>
       {(showMoney || showDrinks || showPayeeMoney) && (
         <div className="border-border/60 mt-3 space-y-2 border-t pt-3">

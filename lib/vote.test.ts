@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { optionForLetter, standings, voteLetter, voteWinner, votingAt } from '@/lib/vote';
+import {
+  couldSwing,
+  optionForLetter,
+  standings,
+  voteLetter,
+  voteWinner,
+  votingAt,
+} from '@/lib/vote';
 
 const vote = (memberId: number, restaurantId: number) => ({ memberId, restaurantId });
 
@@ -12,6 +19,27 @@ describe('voteWinner', () => {
   it('gives the most votes the win, even against the current one', () => {
     expect(voteWinner([vote(1, 2), vote(2, 2), vote(3, 1)], 1)).toBe(2);
     expect(voteWinner([vote(1, 2)], null)).toBe(2);
+  });
+});
+
+describe('couldSwing', () => {
+  const options = [1, 2, 3];
+
+  it('sees any vote count while nobody has voted', () => {
+    expect(couldSwing([], options, 1, 1)).toBe(true);
+    expect(couldSwing([], options, 1, 0)).toBe(false);
+  });
+
+  it('counts a tie that hands the win back to the current restaurant', () => {
+    // One ahead with one vote to come: drawing level keeps the current restaurant.
+    const votes = [vote(1, 2), vote(2, 2), vote(3, 1)];
+    expect(couldSwing(votes, options, 1, 1)).toBe(true);
+    expect(couldSwing([...votes, vote(4, 2)], options, 1, 1)).toBe(false);
+  });
+
+  it('ignores votes for restaurants no longer on the ballot', () => {
+    expect(couldSwing([vote(1, 9), vote(2, 9)], options, 1, 1)).toBe(true);
+    expect(couldSwing([vote(1, 1), vote(2, 1), vote(3, 1)], options, 1, 2)).toBe(false);
   });
 });
 
