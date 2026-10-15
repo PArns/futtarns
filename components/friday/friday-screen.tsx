@@ -52,6 +52,7 @@ import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { buildOrderSheet } from '@/lib/order-sheet';
 import { debtLines, feeLines, toPayee } from '@/lib/balance';
+import { unitPriceCents } from '@/lib/menu/options';
 import { canEditOrderOf, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
 import { loadFriday, openBalancesFor, paymentOpen, type Participant } from '@/lib/services/fridays';
 import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members';
@@ -387,6 +388,43 @@ export async function FridayScreen({
                   : 'bezahlt',
         }
       : null;
+
+  // The viewer's outcome if the restaurant they vote for wins: what they ordered ahead there,
+  // or else their default there, which a vote for it brings along.
+  const aheadBoxes = me
+    ? [
+        ...ordersOf(me)
+          .filter((group) => group.ahead)
+          .map((group) => ({
+            restaurantId: group.restaurantId,
+            name: group.name,
+            usual: false,
+            dishes: group.items.map((item) => ({
+              label: `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}`,
+              cents: item.unitPriceCents * item.quantity,
+            })),
+          })),
+        ...(votedFor &&
+        aheadDefault?.dish &&
+        !aheadDefault.dish.archived &&
+        me.attendance.status === 'in' &&
+        !myPreorders.some((item) => item.restaurantId === votedFor.id)
+          ? [
+              {
+                restaurantId: votedFor.id,
+                name: votedFor.name,
+                usual: true,
+                dishes: [
+                  {
+                    label: `${aheadDefault.dish.name} (Standard)`,
+                    cents: unitPriceCents(aheadDefault.dish.priceCents, aheadDefault.entry.options),
+                  },
+                ],
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   const orderAside = !view.cancelled && Boolean(me);
 
@@ -882,47 +920,46 @@ export async function FridayScreen({
                   me={me}
                   canEdit={editable(me)}
                   payable={payable}
-                  stays={myPreorders.length > 0 ? view.restaurant?.name : undefined}
+                  stays={aheadBoxes.length > 0 ? view.restaurant?.name : undefined}
                 />
-                {ordersOf(me)
-                  .filter((group) => group.ahead)
-                  .map((group) => {
-                    // What it would roughly come to if the restaurant they ordered ahead from
-                    // wins: their dishes there and an equal part of its fees, line by line.
-                    const ahead = view.ahead.find(
-                      (entry) => entry.restaurant.id === group.restaurantId
-                    );
-                    const lines = [
-                      ...group.items.map((item) => ({
-                        label: `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}`,
-                        cents: item.unitPriceCents * item.quantity,
-                      })),
-                      ...(ahead
-                        ? feeLines(
-                            Math.round(ahead.estimate.sharedCents / ahead.eaters),
-                            ahead.estimate,
-                            ahead.eaters
-                          )
-                        : []),
-                      ...(!amHost && me.money.drinksCents > 0
-                        ? [{ label: 'Getränke', cents: me.money.drinksCents }]
-                        : []),
-                    ];
-                    return (
-                      <PayBox
-                        key={group.restaurantId}
-                        date={date}
-                        memberId={me.member.id}
-                        amountCents={lines.reduce((sum, line) => sum + line.cents, 0)}
-                        lines={lines}
-                        payees={[]}
-                        label={`Gewinnt ${group.name} · ungefähr`}
-                        payable={false}
-                        maybe
-                        note={`Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}. Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
-                      />
-                    );
-                  })}
+                {aheadBoxes.map((box) => {
+                  // What it would roughly come to if that restaurant wins: their dishes there
+                  // and an equal part of its fees, line by line.
+                  const ahead = view.ahead.find(
+                    (entry) => entry.restaurant.id === box.restaurantId
+                  );
+                  const lines = [
+                    ...box.dishes,
+                    ...(ahead && ahead.eaters > 0
+                      ? feeLines(
+                          Math.round(ahead.estimate.sharedCents / ahead.eaters),
+                          ahead.estimate,
+                          ahead.eaters
+                        )
+                      : []),
+                    ...(!amHost && me.money.drinksCents > 0
+                      ? [{ label: 'Getränke', cents: me.money.drinksCents }]
+                      : []),
+                  ];
+                  return (
+                    <PayBox
+                      key={box.restaurantId}
+                      date={date}
+                      memberId={me.member.id}
+                      amountCents={lines.reduce((sum, line) => sum + line.cents, 0)}
+                      lines={lines}
+                      payees={[]}
+                      label={`Gewinnt ${box.name} · ungefähr`}
+                      payable={false}
+                      maybe
+                      note={`${
+                        box.usual
+                          ? 'Dann bekommst du dort deinen Standard, wenn du nichts anderes aussuchst.'
+                          : `Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}.`
+                      } Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
+                    />
+                  );
+                })}
               </GlassCard>
             </section>
           </aside>

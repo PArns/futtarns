@@ -17,7 +17,7 @@ import {
   type FridayView,
 } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
-import { orderUsual } from '@/lib/services/orders';
+import { getDefault, orderUsual } from '@/lib/services/orders';
 import { restaurantsForHost } from '@/lib/services/restaurants';
 import { optionForLetter, standings, voteLetter, votingAt } from '@/lib/vote';
 import { sendWhatsApp } from '@/lib/whatsapp';
@@ -265,9 +265,9 @@ export async function handleIncoming(
           ...options.map((entry, index) => `${bold(voteLetter(index))} · ${entry.name}`),
         ].join('\n');
       }
-      let dropped = 0;
+      let cast: Awaited<ReturnType<typeof castVote>>;
       try {
-        dropped = await castVote(db, date, member.id, option.id, now);
+        cast = await castVote(db, date, member.id, option.id, now);
       } catch (error) {
         if (error instanceof ServiceError) return error.message;
         throw error;
@@ -275,9 +275,19 @@ export async function handleIncoming(
       const after = await loadFriday(db, date, now);
       const nameOf = (id: number) =>
         after.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
+      // A vote is a yes; without a dish from there, their default there is what they get.
+      const usual = (await getDefault(db, member.id, option.id))?.dish;
+      const orderedThere = [
+        ...after.participants.flatMap((entry) => entry.items),
+        ...after.preorders,
+      ].some((item) => item.memberId === member.id && item.restaurantId === option.id);
       return [
         `🗳️ Stimme gezählt: ${bold(option.name)}!`,
-        ...(dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
+        ...(cast.joined ? ['Damit bist du am Freitag dabei.'] : []),
+        ...(usual && !orderedThere
+          ? [`Sagst du nichts anderes, bekommst du dort deinen Standard (${bold(usual.name)}).`]
+          : []),
+        ...(cast.dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
         ...(option.id !== after.restaurant?.id
           ? [
               `Auf der Seite kannst du bei ${option.name} schon vorbestellen, das zählt, wenn es gewinnt.`,

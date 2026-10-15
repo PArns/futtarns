@@ -200,14 +200,18 @@ export async function voteAction(date: string, restaurantId: number | null): Pro
   return run(async () => {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
-    const dropped = await castVote(
+    const { dropped, joined } = await castVote(
       await getDb(),
       day,
       viewer.id,
       restaurantId === null ? null : recordId.parse(restaurantId),
       new Date()
     );
-    if (dropped) return { ok: true, message: 'Deine Vorbestellung ist damit raus' };
+    const said = [
+      ...(joined ? ['Stimme gezählt, damit bist du dabei'] : []),
+      ...(dropped ? ['Deine Vorbestellung ist damit raus'] : []),
+    ];
+    if (said.length) return { ok: true, message: said.join('. ') };
   });
 }
 

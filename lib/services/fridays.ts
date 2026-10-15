@@ -295,8 +295,11 @@ function voteOpenAt(row: Friday | null, date: IsoDate, now: Date): boolean {
 
 /**
  * One member's vote for a Friday's restaurant, or null to take it back. Only while the
- * vote is open and only for a restaurant that can serve this Friday's host. What they
- * ordered ahead from the restaurant they voted for before goes; says how many dishes.
+ * vote is open and only for a restaurant that can serve this Friday's host. A vote is a
+ * yes: whoever had not answered or was out is in now, and gets their default there unless
+ * they pick something else; coming without food stays. What they ordered ahead from the
+ * restaurant they voted for before goes. Says how many dishes went and whether the vote
+ * made them say yes.
  */
 export async function castVote(
   db: Db,
@@ -340,7 +343,19 @@ export async function castVote(
       });
   }
   // What they ordered ahead goes with the vote it came with.
-  return dropOrdersExcept(db, date, [await currentRestaurantId(db, date), restaurantId], memberId);
+  const dropped = await dropOrdersExcept(
+    db,
+    date,
+    [await currentRestaurantId(db, date), restaurantId],
+    memberId
+  );
+  const [answer] = await db
+    .select({ status: attendance.status })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+  const joined = restaurantId !== null && (!answer || answer.status === 'out');
+  if (joined) await setAttendance(db, date, memberId, 'in', now);
+  return { dropped, joined };
 }
 
 /** Whether a Friday's vote is open at `now`, and which restaurant a member votes for. */
@@ -890,11 +905,19 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
           }))
       : splitTotal(priced, finalTotalCents ?? estimate?.totalCents ?? subtotal);
 
-  // Each restaurant someone ordered ahead from, with roughly what its fees would come to if
-  // it won. It is priced like the Friday's restaurant: what was ordered there, plus the
-  // default there of whoever comes and has nothing there, so both estimates split their fees
-  // among the people who would really eat.
-  const aheadIds = [...new Set(preorders.map((item) => item.restaurantId))];
+  // Each restaurant someone ordered ahead from or votes for, with roughly what its fees would
+  // come to if it won. It is priced like the Friday's restaurant: what was ordered there,
+  // plus the default there of whoever comes and has nothing there, so both estimates split
+  // their fees among the people who would really eat.
+  const voteRuns = voteOpenAt(row ?? null, date, now);
+  const aheadIds = [
+    ...new Set([
+      ...preorders.map((item) => item.restaurantId),
+      ...(voteRuns ? votes.map((vote) => vote.restaurantId) : []).filter(
+        (id) => id !== restaurantId
+      ),
+    ]),
+  ];
   const aheadRestaurants = aheadIds.length
     ? await db.select().from(restaurants).where(inArray(restaurants.id, aheadIds))
     : [];

@@ -107,7 +107,7 @@ export function RestaurantVote({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
           {canVote
-            ? 'Antworten geht auch per WhatsApp mit dem Buchstaben.'
+            ? 'Wer abstimmt, ist dabei. Antworten geht auch per WhatsApp mit dem Buchstaben.'
             : 'Sag oben zu, dann stimmst du mit ab.'}
           {orderAs &&
             ' Tippst du in einer Karte auf ein Gericht, bestellst du es. Bei einem anderen als dem bisherigen Restaurant ist das zugleich deine Stimme.'}
