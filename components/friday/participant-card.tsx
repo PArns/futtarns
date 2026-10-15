@@ -1,4 +1,4 @@
-import { Check, Clock, CupSoda, House, ShoppingBag } from 'lucide-react';
+import { Check, Clock, CupSoda, House, ShoppingBag, Vote } from 'lucide-react';
 import { AnswerSelect } from '@/components/friday/answer-select';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { MoneyStatus } from '@/components/friday/money-status';
@@ -99,6 +99,7 @@ export function ParticipantCard({
   payable,
   nameOf,
   orders,
+  ahead,
   titled,
 }: {
   participant: Participant;
@@ -110,6 +111,8 @@ export function ParticipantCard({
   nameOf: (id: number) => string;
   /** What they ordered, by restaurant once they also ordered ahead during the vote. */
   orders: OrderGroup[];
+  /** Roughly what they pay if a restaurant they ordered ahead from wins. */
+  ahead: { name: string; cents: number }[];
   /** Name the restaurant over every order, as while the vote runs. */
   titled: boolean;
 }) {
@@ -161,7 +164,7 @@ export function ParticipantCard({
           )}
         </div>
         <OrderedItems groups={orders} editable={canEdit} titled={titled} />
-        {(showMoney || showDrinks || showPayeeMoney) && (
+        {(showMoney || showDrinks || showPayeeMoney || ahead.length > 0) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {showPayeeMoney && (
               <PayeeMoney
@@ -180,6 +183,11 @@ export function ParticipantCard({
                 payable={payable}
               />
             )}
+            {ahead.map((entry) => (
+              <Pill key={entry.name} tone="muted">
+                <Vote /> falls {entry.name}: ~{formatEuro(entry.cents)}
+              </Pill>
+            ))}
             {showDrinks && (
               <DrinksToggle
                 date={view.date}
