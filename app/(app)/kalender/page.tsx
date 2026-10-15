@@ -226,7 +226,7 @@ export default async function CalendarPage() {
             icon={Plane}
             kicker="Urlaubsmodus"
             title="Wann bist du weg?"
-            hint="An diesen Tagen giltst du als abgemeldet und bekommst kein Standardgericht."
+            hint="An diesen Tagen bist du automatisch raus und bekommst kein Standardgericht."
           />
           <GlassCard variant="tile" className="space-y-4 p-5">
             <AbsenceForm defaultFrom={currentFriday} />

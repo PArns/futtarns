@@ -36,7 +36,8 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 
 1. **Open**: anyone answers and orders until 19:00 Berlin time (`lib/dates.ts`). Silent
    members count as in (`lib/attendance.ts`), or as coming without food when their default
-   is „nix“; absences count as out. On a flat-price Friday only a yes counts.
+   is „nix“; absences count as out. On a flat-price Friday only a yes counts, except for its host,
+   who is there anyway.
    Without a picked restaurant the Friday uses its host's (`hostRestaurant`); the first
    order pins it, so handing the Friday to a substitute keeps the menu.
 2. **Lock at 19:00** (`lockFriday`): the first page view or scheduler tick after the
@@ -98,7 +99,7 @@ the flag on the people page, and new members get it by default.
 - Members change their own answer and order, and those of guests they brought, until 19:00.
 - The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
   everyone's orders after the deadline, settlement and payments.
-- Members with the „Gastgeber“ role (`assignsHosts`, given by an admin) may hand any single
+- Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
@@ -161,7 +162,8 @@ until Thursday 23:59. The ballot lists the restaurants that can serve this Frida
 under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
 pickup, marked „nur abholen“. They are lettered in the order they were created, so a
 letter stays put while new restaurants join. Members vote on the Friday page or by
-replying with the letter to the Wednesday message, which carries every Lieferando link;
+replying with the letter to the Wednesday message, which asks who comes first and then
+lists the restaurants by letter, with one link to the page for menus and delivery terms;
 they can change or take back their vote until the end. The page and the bot's reply show
 who voted for what, and each restaurant's menu folds open on the page, fetched when first
 opened (`menuPreviewAction`).

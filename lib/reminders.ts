@@ -7,7 +7,6 @@ import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 import {
   couldSwing,
-  deliveryTerms,
   standings,
   voteClosesAt,
   voteLetter,
@@ -72,24 +71,24 @@ function untilFriday(date: string, now: Date) {
         : `In ${days} Tagen`;
 }
 
-/** The ballot: every restaurant with its letter and Lieferando link, the current one crowned. */
+/**
+ * The ballot, short enough for a phone: every restaurant with its letter, the current one
+ * crowned, and how it ends. Menus, delivery terms and ordering ahead are behind the link.
+ */
 function ballot(options: VoteOption[], current: { id: number; name: string } | null) {
   return [
-    bold('Zur Wahl stehen:'),
-    ...options.flatMap((option, index) => [
-      `${bold(voteLetter(index))} · ${option.name}${option.id === current?.id ? ' 👑' : ''}`,
-      deliveryTerms(option),
-      ...(option.lieferandoUrl ? [option.lieferandoUrl] : []),
-    ]),
-    '',
-    `Antworte mit dem Buchstaben, das Wahllokal schließt ${bold('Donnerstag um 23:59')}. ${
+    `🗳️ ${bold('Wo bestellen wir am Freitag?')} Antworte mit dem Buchstaben:`,
+    ...options.map(
+      (option, index) =>
+        `${bold(voteLetter(index))} · ${option.name}${option.id === current?.id ? ' 👑' : ''}${
+          option.delivers ? '' : ' (nur abholen)'
+        }`
+    ),
+    `${
       current
         ? `Wählt keiner, bleibt's beim 👑 ${current.name}`
         : 'Wählt keiner, sucht der Gastgeber aus'
-    }, sonst entscheidet die Mehrheit.`,
-    `Hunger kennt keine Wahlperiode: ${
-      current ? `Beim 👑 ${current.name} kannst du schon bestellen, beim` : 'Beim'
-    } Restaurant deiner Wahl auf der Seite vorbestellen. Es bleibt, was du beim Gewinner bestellt hast; stehst du danach ohne da, kriegst du Freitagmorgen Bescheid.`,
+    }. Abstimmen bis ${bold('Donnerstag um 23:59')}.`,
   ].join('\n');
 }
 
@@ -136,7 +135,11 @@ export function planReminders({
 
   if (view.cancelled) {
     if (between(now, berlinAt(date, -2, 12), view.deadline)) {
-      const text = [`😢 ${bold(`Freitag (${day}) fällt aus.`)}`, view.cancelReason]
+      const text = [
+        `😢 ${bold(`Freitag (${day}) fällt aus.`)}`,
+        view.cancelReason,
+        `Was als Nächstes ansteht: ${appUrl}/kalender`,
+      ]
         .filter(Boolean)
         .join('\n');
       for (const entry of reachable) {
@@ -208,26 +211,27 @@ export function planReminders({
   const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
   if (between(now, berlinAt(date, -2, 12), voteClosesAt(date))) {
     const hello = `${untilFriday(date, now)} ist wieder Freitag${place}`;
-    const vote = `${hello}, und damit Zeit für die große Restaurantwahl! 🗳️\n\n${ballot(restaurants, view.restaurant)}`;
+    const vote = ballot(restaurants, view.restaurant);
+    const more = `Karten, Lieferkosten und Vorbestellen:\n${link}`;
+    // The question who comes first, the vote after it; one link for everything else.
     for (const entry of unanswered) {
       const asksVote = voting && !hasVoted(entry.member.id);
       out.push({
         key: `ask:${date}:${entry.member.id}`,
         to: entry.member.phone!,
         text: [
-          `🍕 ${bold('Freunde des Freitagszocks!')}`,
-          asksVote
-            ? vote
-            : voting
-              ? `${hello}, und die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}. Deine Stimme ist schon drin.`
-              : `${hello}: ${bold(`Diesmal ${what}`)}.`,
-          '',
-          asksVote
-            ? ['Und bist du überhaupt dabei? Antworte mit', ...ANSWER_OPTIONS].join('\n')
-            : ANSWER_HINT,
-          '',
+          `🍕 ${bold(`${hello}!`)}${voting ? '' : ` Diesmal ${what}.`}`,
+          ANSWER_HINT,
           rule,
-          link,
+          '',
+          ...(asksVote
+            ? [vote, '', more]
+            : voting
+              ? [
+                  `Die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}. Deine Stimme ist schon drin.`,
+                  link,
+                ]
+              : [link]),
         ].join('\n'),
       });
     }
@@ -241,7 +245,7 @@ export function planReminders({
         out.push({
           key: `vote:${date}:${id}`,
           to: entry.member.phone!,
-          text: `🗳️ ${bold('Freunde des Freitagszocks!')}\n${vote}\n${link}`,
+          text: `${vote}\n\n${more}`,
         });
       }
     }
@@ -331,12 +335,12 @@ export function planReminders({
       });
     }
 
-    const remind = (key: string, intro: string, entries: Participant[]) => {
+    const remind = (key: string, text: (entry: Participant) => string, entries: Participant[]) => {
       for (const entry of entries) {
         out.push({
           key: `${key}:${date}:${entry.member.id}`,
           to: entry.member.phone!,
-          text: `${intro}\nBis ${bold(deadline)} kannst du bei ${bold(restaurant.name)} bestellen, sonst ${orderFallback(entry.member.id)}.\n${link}`,
+          text: `${text(entry)}\n${link}`,
         });
       }
     };
@@ -350,7 +354,7 @@ export function planReminders({
         if (!entry || entry.items.length > 0 || entry.attendance.status !== 'in') continue;
         const { phone, prefix } = billTo(entry);
         if (!phone) continue;
-        const pick = `Such dir bis ${bold(deadline)} bei ${bold(restaurant.name)} was aus, sonst ${orderFallback(id)}.`;
+        const pick = `Such dir bis ${bold(deadline)} dort was aus, sonst ${orderFallback(id)}.`;
         const asks = unanswered.some((other) => other.member.id === id);
         out.push({
           key: `revote:${date}:${id}`,
@@ -372,7 +376,13 @@ export function planReminders({
     if (between(now, orderAt, view.deadline)) {
       remind(
         'order',
-        '🍽️ Dein Magen hat angerufen: Du hast für heute Abend noch nichts ausgesucht.',
+        (entry) => {
+          const usual = defaultDish.get(entry.member.id);
+          // With a default, nothing goes wrong by staying silent: it only offers a change.
+          return usual
+            ? `🍽️ Heute gibt's ${bold(restaurant.name)}. Sagst du nichts, bekommst du deinen Standard (${bold(usual)}). Lieber was anderes? Aussuchen geht bis ${bold(deadline)}:`
+            : `🍽️ ${bold('Dein Magen hat angerufen:')} Du hast für heute Abend noch nichts ausgesucht.\nBis ${bold(deadline)} kannst du bei ${bold(restaurant.name)} aussuchen, sonst gibt’s für dich nichts.`;
+        },
         withoutOrder.filter(
           (entry) =>
             entry.attendance.reason === 'answered' &&
@@ -387,7 +397,8 @@ export function planReminders({
     if (between(now, lastCall, view.deadline)) {
       remind(
         'lastcall',
-        `⏰ ${bold('Letzte Chance!')} Sonst schaust du heute Abend nur beim Essen zu.`,
+        () =>
+          `⏰ ${bold('Letzte Chance!')} Bis ${bold(deadline)} kannst du noch bei ${bold(restaurant.name)} aussuchen, sonst schaust du heute Abend nur beim Essen zu.`,
         withoutOrder.filter(
           (entry) => !defaultDish.has(entry.member.id) && answeredBefore(entry, lastCall)
         )

@@ -713,7 +713,7 @@ export async function FridayScreen({
                       {myDefault.entry.options.length > 0 &&
                         ` (${myDefault.entry.options.map((option) => option.choiceName).join(', ')})`}
                       . Den bekommst du, wenn du bis {formatTime(view.deadline)} nichts anderes
-                      wählst.
+                      aussuchst.
                     </span>
                   </p>
                 )}
@@ -931,7 +931,7 @@ export async function FridayScreen({
               icon={House}
               kicker="Vertretung"
               title="Wer ist Gastgeber?"
-              hint="Mit der Rolle Gastgeber kannst du diesen Freitag jemand anderem geben."
+              hint="Mit der Rolle Vertretungen kannst du diesen Freitag jemand anderem geben."
             />
             <GlassCard variant="tile" className="max-w-md p-5">
               <HostPicker

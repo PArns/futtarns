@@ -15,10 +15,7 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
   );
   return (
     <div className="space-y-4">
-      <form
-        action={formAction}
-        className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-      >
+      <form action={formAction} className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:items-end">
         <Label>
           Name
           <Input name="name" required maxLength={60} placeholder="Vorname" />
@@ -27,10 +24,7 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
           Handynummer
           <Input name="phone" inputMode="tel" placeholder="+49 170 1234567" />
         </Label>
-        <Button type="submit" disabled={pending}>
-          <UserPlus /> Anlegen
-        </Button>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-3">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-2">
           <label className="flex items-center gap-2">
             <input type="checkbox" name="core" defaultChecked className="accent-primary size-4" />{' '}
             Stammtruppe
@@ -40,19 +34,23 @@ export function CreateMemberForm({ canGrantAdmin }: { canGrantAdmin: boolean }) 
           </label>
         </div>
         {canGrantAdmin && (
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-3">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm sm:col-span-2">
             <label className="flex items-center gap-2">
               <input type="checkbox" name="isAdmin" className="accent-primary size-4" /> Admin
             </label>
             <label className="flex items-center gap-2">
               <input type="checkbox" name="assignsHosts" className="accent-primary size-4" />{' '}
-              Gastgeber
+              Vertretungen
               <span className="text-muted-foreground text-xs">
-                (darf für einzelne Freitage den Gastgeber tauschen)
+                (darf für einzelne Freitage eintragen, wer Gastgeber ist)
               </span>
             </label>
           </div>
         )}
+        {/* Last, after the boxes it sends along. */}
+        <Button type="submit" disabled={pending} className="justify-self-start">
+          <UserPlus /> Anlegen
+        </Button>
       </form>
       {state && !state.ok && <p className="text-error text-sm">{state.error}</p>}
       {state?.ok && state.link && (

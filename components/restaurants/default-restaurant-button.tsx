@@ -14,7 +14,7 @@ export function DefaultRestaurantButton({ id }: { id: number }) {
       disabled={pending}
       onClick={() => execute(() => setHostRestaurantAction(id))}
     >
-      <Star /> Mein Standard als Gastgeber
+      <Star /> Mein Stammlokal als Gastgeber
     </Button>
   );
 }
