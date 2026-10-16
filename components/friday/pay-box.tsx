@@ -2,12 +2,13 @@
 
 import { Check, Wallet } from 'lucide-react';
 import { payAction } from '@/app/actions';
+import { CopyButton } from '@/components/common/copy-button';
 import { AmountRow } from '@/components/ui/amount-row';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { payeePurpose, type MoneyLine, type Payee } from '@/lib/balance';
 import { formatEuro } from '@/lib/format';
 import { useAction } from '@/lib/hooks/use-action';
-import { paypalMeLink } from '@/lib/paypal';
+import { paypalAmount, paypalMeLink } from '@/lib/paypal';
 import { cn } from '@/lib/utils';
 
 /**
@@ -105,6 +106,22 @@ export function PayBox({
               <Check /> Hab bezahlt
             </Button>
           </div>
+          {payees.some((payee) => payee.paypalMe) && (
+            // The PayPal app opens the link but does not always take the amount over.
+            <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+              <span>Fehlt in der PayPal-App der Betrag?</span>
+              {payees.map(
+                (payee) =>
+                  payee.paypalMe && (
+                    <CopyButton
+                      key={payee.what}
+                      text={paypalAmount(payee.cents)}
+                      label={`${formatEuro(payee.cents)} kopieren`}
+                    />
+                  )
+              )}
+            </div>
+          )}
           <p className="text-muted-foreground text-xs">
             {withoutPaypal.length === 0
               ? 'Bitte in PayPal „Freunde und Familie“ auswählen, sonst gehen Gebühren ab. Danach auf „Hab bezahlt“ tippen.'

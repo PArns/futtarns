@@ -210,6 +210,13 @@ describe('reminders', () => {
     expect(due('+491703333333')).toMatch(
       /^🥤 \*Bestellschluss!\* Ohne Essen, aber nicht ohne Durst: \*1,50\s€\* für die Getränke\./
     );
+    // What went out is gone from the host's list, the order list (`sheet:<date>`) included.
+    const later = at('2026-10-16T17:26:00Z');
+    const still = (await upcomingMessages(db, await loadFriday(db, FRIDAY, later), later)).map(
+      (line) => line.kind
+    );
+    expect(still).not.toContain('Bestellliste');
+    expect(still).not.toContain('Betrag und Zahl-Link');
 
     await recordPayment(db, {
       date: FRIDAY,

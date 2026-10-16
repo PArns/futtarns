@@ -2,12 +2,13 @@ import { Check, Clock, PartyPopper, Wallet } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { payByLinkAction } from '@/app/actions';
+import { CopyButton } from '@/components/common/copy-button';
 import { LoginShell } from '@/components/login/login-shell';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { payeePurpose, payeesFor } from '@/lib/balance';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
-import { paypalMeLink } from '@/lib/paypal';
+import { paypalAmount, paypalMeLink } from '@/lib/paypal';
 import { openPayLink } from '@/lib/services/pay-links';
 
 export const metadata: Metadata = { title: 'Bezahlt?' };
@@ -90,6 +91,22 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
                       : `Mit PayPal an ${payee.name} zahlen`}
                   </a>
                 )
+            )}
+            {payees.some((payee) => payee.paypalMe) && (
+              // The PayPal app opens the link but does not always take the amount over.
+              <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+                <span>Fehlt in der PayPal-App der Betrag?</span>
+                {payees.map(
+                  (payee) =>
+                    payee.paypalMe && (
+                      <CopyButton
+                        key={payee.what}
+                        text={paypalAmount(payee.cents)}
+                        label={`${formatEuro(payee.cents)} kopieren`}
+                      />
+                    )
+                )}
+              </div>
             )}
             <form action={payByLinkAction.bind(null, token)}>
               <Button type="submit" size="lg" className="w-full">

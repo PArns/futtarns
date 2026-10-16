@@ -60,7 +60,15 @@ function payLines(view: FridayView, money: Money) {
       ? `${intro}PayPal: ${paypalMeLink(payee.paypalMe, payee.cents)}`
       : `${intro}Bitte direkt ${split ? '' : `an ${payee.name} `}zahlen.`;
   });
-  if (payees.some((payee) => payee.paypalMe)) lines.push('Bitte als „Freunde und Familie“.');
+  if (payees.some((payee) => payee.paypalMe)) {
+    // The PayPal app opens these links but does not always take the amount over.
+    lines.push(
+      split
+        ? 'Fehlt in der PayPal-App der Betrag, trag ihn einfach selbst ein.'
+        : `Fehlt in der PayPal-App der Betrag, trag einfach ${bold(formatEuro(payees[0]!.cents))} ein.`,
+      'Bitte als „Freunde und Familie“.'
+    );
+  }
   return lines.join('\n');
 }
 

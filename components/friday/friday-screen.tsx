@@ -67,6 +67,7 @@ import { getDefault, membersWithDefault } from '@/lib/services/orders';
 import { getRestaurant, listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
 import { tally, voteClosesAt, voteLetter, voteWinner, votingAt } from '@/lib/vote';
+import { botState } from '@/lib/whatsapp';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
@@ -134,12 +135,14 @@ export async function FridayScreen({
   ];
   const voting = votingAt(view, now);
   const canBringGuests = !view.cancelled && (!closed || manage);
-  const [restaurants, members, defaultHost, messages, guests] = await Promise.all([
+  const [restaurants, members, defaultHost, messages, guests, bot] = await Promise.all([
     manage || voting ? restaurantsForHost(db, hostId) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
     manage ? upcomingMessages(db, view, now) : [],
     canBringGuests ? listGuests(db) : [],
+    // Whether the messages due now can go out at all, for the host's list of them.
+    manage ? botState() : null,
   ]);
   const knownGuests = guests.filter(
     (guest) => !view.participants.some((entry) => entry.member.id === guest.id)
@@ -1149,6 +1152,7 @@ export async function FridayScreen({
                   recipients: message.recipients,
                 }))}
                 serverNow={now.getTime()}
+                whatsappDown={bot?.kind === 'unreachable' || bot?.kind === 'linking'}
               />
             </section>
           )}

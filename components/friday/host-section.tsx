@@ -37,6 +37,7 @@ export function HostSection({
   messages,
   serverNow,
   voting,
+  whatsappDown,
 }: {
   view: FridayView;
   closed: boolean;
@@ -52,6 +53,8 @@ export function HostSection({
   serverNow: number;
   /** The group is still voting on the restaurant. */
   voting: boolean;
+  /** The bot is not linked to WhatsApp, so nothing goes out right now. */
+  whatsappDown: boolean;
 }) {
   const flat = view.mode === 'flat';
   const hasOrders = sheet.length > 0;
@@ -216,7 +219,7 @@ export function HostSection({
             )}
           </GlassCard>
         )}
-        <UpcomingMessages messages={messages} serverNow={serverNow} />
+        <UpcomingMessages messages={messages} serverNow={serverNow} whatsappDown={whatsappDown} />
       </div>
     </div>
   );
