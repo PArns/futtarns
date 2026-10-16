@@ -1,5 +1,5 @@
 import { isBilled, payeeOf, payeePurpose, payeesFor, shareLines, type Money } from '@/lib/balance';
-import { berlinAt, daysBetween, todayIso } from '@/lib/dates';
+import { berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold } from '@/lib/messages';
 import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
@@ -37,6 +37,11 @@ type Input = {
   paidLink: (memberId: number) => string;
   /** The restaurants this Friday's host can order from, in the vote's order. */
   restaurants: VoteOption[];
+  /**
+   * What each member had the last time at this Friday's restaurant, for the last call to
+   * offer „gleiches“; e.g. `HDD Döner Teller, 2× Pommes`.
+   */
+  lastOrder?: Map<number, { date: IsoDate; items: string }>;
 };
 
 function between(now: Date, from: Date, to: Date) {
@@ -113,6 +118,7 @@ export function planReminders({
   sent,
   paidLink,
   restaurants,
+  lastOrder = new Map(),
 }: Input): Outgoing[] {
   const out: Outgoing[] = [];
   const date = view.date;
@@ -392,13 +398,23 @@ export function planReminders({
         )
       );
     }
-    // Whoever has no default would go hungry, so they hear once more.
+    // Whoever has no default would go hungry, so they hear once more, with what they had
+    // last time here to order again by replying „gleiches“.
     const lastCall = berlinAt(date, 0, 18, 30);
     if (between(now, lastCall, view.deadline)) {
       remind(
         'lastcall',
-        () =>
-          `⏰ ${bold('Letzte Chance!')} Bis ${bold(deadline)} kannst du noch bei ${bold(restaurant.name)} aussuchen, sonst schaust du heute Abend nur beim Essen zu.`,
+        (entry) => {
+          const last = lastOrder.get(entry.member.id);
+          return [
+            `⏰ ${bold('Letzte Chance!')} Bis ${bold(deadline)} kannst du noch bei ${bold(restaurant.name)} aussuchen, sonst schaust du heute Abend nur beim Essen zu.`,
+            ...(last
+              ? [
+                  `Am ${formatDayShort(last.date)} hattest du hier ${bold(last.items)}. Antworte ${bold('gleiches')}, dann bestell ich dir das wieder.`,
+                ]
+              : []),
+          ].join('\n');
+        },
         withoutOrder.filter(
           (entry) => !defaultDish.has(entry.member.id) && answeredBefore(entry, lastCall)
         )
@@ -412,20 +428,28 @@ export function planReminders({
     for (const entry of view.participants) {
       const open = entry.money.openCents;
       if (open < NAG_THRESHOLD_CENTS) continue;
-      const { phone, prefix } = billTo(entry);
+      const { phone } = billTo(entry);
       if (!phone) continue;
+      const guest = entry.member.kind === 'guest' ? entry.member.name : null;
+      const amount = bold(formatEuro(open));
+      // What the money is for, said with a wink: a seat, a meal, or only the drinks.
+      const opener = flat
+        ? `🎟️ ${bold('Anmeldeschluss!')} ${guest ? `Dein Gast ${guest} ist dabei` : 'Dein Platz ist sicher'}, jetzt darf ${guest ? 'dein' : 'der'} Geldbeutel nachziehen: ${amount}.`
+        : entry.items.length === 0
+          ? `🥤 ${bold('Bestellschluss!')} Ohne Essen, aber nicht ohne Durst: ${amount} für die Getränke${guest ? ` von ${guest}` : ''}.`
+          : `🍽️ ${bold('Bestellschluss!')} ${guest ? `Dein Gast ${guest} hat` : 'Dein Magen hat'} bestellt, jetzt darf ${guest ? 'dein' : 'der'} Geldbeutel nachziehen: ${amount}.`;
       out.push({
         key: `due:${date}:${entry.member.id}`,
         to: phone,
         text: [
-          `🧾 ${prefix}${bold(flat ? 'Anmeldeschluss!' : 'Bestellschluss!')} Die Würfel sind gefallen, für heute Abend sind ${bold(formatEuro(open))} offen.`,
+          opener,
           '',
           ...shareLines(view, entry).map((line) => `${line.label}: ${formatEuro(line.cents)}`),
           '',
           payLines(view, entry.money),
           ...(flat || view.pickup
             ? []
-            : ['Kleine Abweichungen gleichen wir nach der Abrechnung aus.']),
+            : ['Kostet’s am Ende ein paar Cent anders, gleichen wir das nach der Abrechnung aus.']),
           '',
           `Schon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`,
         ].join('\n'),

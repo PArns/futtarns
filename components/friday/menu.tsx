@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, Search, Users } from 'lucide-react';
+import { Check, Plus, Search, Users } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import {
   DishDialog,
@@ -9,10 +9,12 @@ import {
   type OrderTarget,
 } from '@/components/friday/dish-dialog';
 import { MissingDishForm } from '@/components/friday/missing-dish-form';
+import { useOrderFlash } from '@/components/friday/order-event';
 import { Chip } from '@/components/ui/chip';
 import { Input } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
 import { byDishName, categoriesOf, groupByCategory } from '@/lib/menu/groups';
+import { cn } from '@/lib/utils';
 
 const ALL = '__all__';
 const TAKEN = '__taken__';
@@ -35,6 +37,7 @@ export function Menu({
   takenBy = {},
   ahead = false,
   hint,
+  ordered = {},
 }: {
   dishes: MenuDish[];
   mode: 'order' | 'default';
@@ -49,11 +52,15 @@ export function Menu({
   ahead?: boolean;
   /** What ordering here means, shown in the dish dialog. */
   hint?: string;
+  /** How many of each dish (by id) the viewer already has from here. */
+  ordered?: Record<number, number>;
 }) {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState(ALL);
   const [opened, setOpened] = useState<OpenedDish | null>(null);
   const [openCount, setOpenCount] = useState(0);
+  // The card of the dish just ordered pops, so the order is seen where it was placed.
+  const popped = useOrderFlash(900);
   const deferredQuery = useDeferredValue(query);
   const deferredCategory = useDeferredValue(category);
 
@@ -146,7 +153,11 @@ export function Menu({
                     setOpenCount(openCount + 1);
                     setOpened({ dish, instance: openCount + 1 });
                   }}
-                  className="group bg-card/60 hover:border-primary/50 relative flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors sm:items-start sm:py-3"
+                  className={cn(
+                    'group bg-card/60 hover:border-primary/50 relative flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors sm:items-start sm:py-3',
+                    ordered[dish.id] && 'border-success/40',
+                    popped?.dishId === dish.id && 'order-pop'
+                  )}
                 >
                   {/* Name and price share a line, so a phone shows twice the dishes. */}
                   <div className="min-w-0 flex-1">
@@ -171,6 +182,12 @@ export function Menu({
                         {dish.description}
                       </p>
                     )}
+                    {ordered[dish.id] && (
+                      <p className="text-success mt-1 flex items-center gap-1 text-xs font-semibold">
+                        <Check className="size-3.5 shrink-0" />
+                        {ordered[dish.id]! > 1 ? `${ordered[dish.id]}× ` : ''}bestellt
+                      </p>
+                    )}
                     {takenBy[dish.id] && (
                       <p className="text-primary mt-1 flex items-center gap-1 text-xs font-medium">
                         <Users className="size-3 shrink-0" />
@@ -178,8 +195,15 @@ export function Menu({
                       </p>
                     )}
                   </div>
-                  <span className="border-primary/30 bg-primary/10 text-primary group-hover:bg-primary flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white sm:size-8">
-                    <Plus className="size-4" />
+                  <span
+                    className={cn(
+                      'flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors group-hover:text-white sm:size-8',
+                      ordered[dish.id]
+                        ? 'border-success/40 bg-success/15 text-success group-hover:bg-success'
+                        : 'border-primary/30 bg-primary/10 text-primary group-hover:bg-primary'
+                    )}
+                  >
+                    {ordered[dish.id] ? <Check className="size-4" /> : <Plus className="size-4" />}
                   </span>
                 </button>
               ))}
@@ -205,6 +229,7 @@ export function Menu({
         initialTargetId={initialTargetId}
         ahead={ahead}
         hint={hint}
+        ordered={ordered}
       />
     </div>
   );

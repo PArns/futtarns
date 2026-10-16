@@ -378,6 +378,65 @@ describe('a Friday', () => {
     ).rejects.toThrow('Größe');
   });
 
+  it('counts a double tap once and the same dish again as one more on its line', async () => {
+    const { anna, margherita, salami } = await setup();
+    const size = margherita.optionGroups[0]!;
+    const pizza = (choice: number, note: string | null = null) => ({
+      dishId: margherita.id,
+      selection: { [size.id]: [size.choices[choice]!.id] },
+      note,
+      quantity: 1,
+    });
+    const at = (iso: string) => ({ now: new Date(iso) });
+
+    expect((await addItem(db, FRIDAY, anna.id, pizza(0), at('2026-10-16T10:00:00Z'))).outcome).toBe(
+      'added'
+    );
+    // The second tap a moment later changes nothing.
+    expect((await addItem(db, FRIDAY, anna.id, pizza(0), at('2026-10-16T10:00:02Z'))).outcome).toBe(
+      'repeated'
+    );
+    // Asked for one more right after, it counts; later the same pizza raises its line too.
+    expect(
+      (
+        await addItem(db, FRIDAY, anna.id, pizza(0), {
+          now: new Date('2026-10-16T10:00:05Z'),
+          again: true,
+        })
+      ).outcome
+    ).toBe('more');
+    expect((await addItem(db, FRIDAY, anna.id, pizza(0), at('2026-10-16T10:05:00Z'))).outcome).toBe(
+      'more'
+    );
+    // Another size, a note or another dish gets a line of its own.
+    await addItem(db, FRIDAY, anna.id, pizza(1), at('2026-10-16T10:06:00Z'));
+    await addItem(db, FRIDAY, anna.id, pizza(0, ' ohne Basilikum '), at('2026-10-16T10:07:00Z'));
+    await addItem(
+      db,
+      FRIDAY,
+      anna.id,
+      { dishId: salami.id, selection: {}, note: null, quantity: 1 },
+      at('2026-10-16T10:08:00Z')
+    );
+
+    const items = (await loadFriday(db, FRIDAY, BEFORE)).participants.find(
+      (entry) => entry.member.id === anna.id
+    )!.items;
+    expect(
+      items.map((item) => [
+        item.name,
+        item.options.map((option) => option.choiceName).join(),
+        item.note,
+        item.quantity,
+      ])
+    ).toEqual([
+      ['Margherita', 'Normal', null, 3],
+      ['Margherita', 'Groß', null, 1],
+      ['Margherita', 'Normal', 'ohne Basilikum', 1],
+      ['Salami', '', null, 1],
+    ]);
+  });
+
   it('splits the real total and nets prepayments and drinks', async () => {
     const { patrick, anna, ben, clara, margherita, salami } = await setup();
     const guest = await addGuest(db, FRIDAY, 'Tim', anna.id);

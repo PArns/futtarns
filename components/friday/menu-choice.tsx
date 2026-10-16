@@ -16,6 +16,8 @@ export type MenuOption = {
   ahead: boolean;
   /** What ordering here means, shown in the dish dialog. */
   hint?: string;
+  /** How many of each dish (by id) the viewer already has from here. */
+  ordered: Record<number, number>;
 };
 
 /**
@@ -92,6 +94,7 @@ export function MenuChoice({
         takenBy={takenBy}
         ahead={shown.ahead}
         hint={shown.hint}
+        ordered={shown.ordered}
       />
     </div>
   );

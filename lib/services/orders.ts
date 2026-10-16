@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, lt } from 'drizzle-orm';
 import type { IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import {
@@ -8,8 +8,14 @@ import {
   memberDefaults,
   orderItems,
   restaurants,
+  type OrderItem,
 } from '@/lib/db/schema';
-import { resolveSelection, selectionOf, unitPriceCents } from '@/lib/menu/options';
+import {
+  resolveSelection,
+  selectionOf,
+  unitPriceCents,
+  type SelectedOption,
+} from '@/lib/menu/options';
 import { castVote, currentRestaurantId, setAttendance, voteState } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
 
@@ -41,14 +47,21 @@ async function dishWithOptions(db: Db, choice: DishChoice, restaurantId: number)
  * from the Friday's restaurant unless `from` names another: while the vote runs, a member
  * can order ahead from the restaurant they vote for, and `vote` (ordering from the ballot)
  * casts that vote first. A dish from the current restaurant leaves a vote for another one
- * alone, so a member can have both: what they want and a fallback.
+ * alone, so a member can have both: what they want and a fallback. The same dish again
+ * raises the quantity of its line (`more`), unless it comes right after: then it was a double
+ * tap and nothing changes (`repeated`), unless `again` says the member asked for one more.
  */
 export async function addItem(
   db: Db,
   date: IsoDate,
   memberId: number,
   choice: DishChoice & { quantity: number },
-  { from, vote = false, now = new Date() }: { from?: number; vote?: boolean; now?: Date } = {}
+  {
+    from,
+    vote = false,
+    again = false,
+    now = new Date(),
+  }: { from?: number; vote?: boolean; again?: boolean; now?: Date } = {}
 ) {
   const [friday] = await db.select().from(fridays).where(eq(fridays.date, date));
   if (friday?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
@@ -82,8 +95,43 @@ export async function addItem(
     }
   }
   const quantity = Math.min(Math.max(Math.round(choice.quantity), 1), 20);
+  const note = choice.note?.trim() || null;
 
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    // The answer first: its row lock makes a second add of the same person wait for this one.
+    await tx
+      .insert(attendance)
+      .values({ fridayDate: date, memberId, status: 'in' })
+      .onConflictDoUpdate({
+        target: [attendance.fridayDate, attendance.memberId],
+        set: { status: 'in', updatedAt: now },
+      });
+    // The same dish with the same options and note goes onto the line already there, so a
+    // second one shows as „2×“; the same one again within seconds is a double tap.
+    const [same] = (
+      await tx
+        .select()
+        .from(orderItems)
+        .where(
+          and(
+            eq(orderItems.fridayDate, date),
+            eq(orderItems.memberId, memberId),
+            eq(orderItems.restaurantId, restaurantId),
+            eq(orderItems.dishId, dish.id),
+            eq(orderItems.isDefault, false)
+          )
+        )
+    ).filter((item) => sameOptions(item.options, options) && (item.note ?? null) === note);
+    if (same) {
+      if (!again && now.getTime() - same.createdAt.getTime() < DOUBLE_TAP_MS) {
+        return { outcome: 'repeated' as const, name: dish.name };
+      }
+      await tx
+        .update(orderItems)
+        .set({ quantity: Math.min(same.quantity + quantity, 20) })
+        .where(eq(orderItems.id, same.id));
+      return { outcome: 'more' as const, name: dish.name };
+    }
     await tx.insert(orderItems).values({
       fridayDate: date,
       memberId,
@@ -94,16 +142,23 @@ export async function addItem(
       unitPriceCents: unitPriceCents(dish.priceCents, options),
       quantity,
       options,
-      note: choice.note,
+      note,
+      createdAt: now,
     });
-    await tx
-      .insert(attendance)
-      .values({ fridayDate: date, memberId, status: 'in' })
-      .onConflictDoUpdate({
-        target: [attendance.fridayDate, attendance.memberId],
-        set: { status: 'in', updatedAt: new Date() },
-      });
+    return { outcome: 'added' as const, name: dish.name };
   });
+}
+
+/** A second tap on „Bestellen“ this soon after the first is not a second dish. */
+const DOUBLE_TAP_MS = 10_000;
+
+function sameOptions(a: SelectedOption[], b: SelectedOption[]): boolean {
+  const key = (options: SelectedOption[]) =>
+    options
+      .map((option) => `${option.groupId}:${option.choiceId}`)
+      .sort()
+      .join('|');
+  return key(a) === key(b);
 }
 
 export async function getItem(db: Db, itemId: number) {
@@ -213,4 +268,94 @@ export async function orderUsual(
     quantity: 1,
   });
   return { dish: usual.dish.name };
+}
+
+/** `2× Margherita (Groß)`: one line of an order as a message names it. */
+export function itemLabel(item: Pick<OrderItem, 'name' | 'quantity' | 'options'>): string {
+  const options = item.options.map((option) => option.choiceName).join(', ');
+  return `${item.quantity > 1 ? `${item.quantity}× ` : ''}${item.name}${options ? ` (${options})` : ''}`;
+}
+
+/**
+ * What each member had the last time they ate from a restaurant before a Friday: all the
+ * dishes of their latest earlier order there. For „gleiches“ and the messages offering it.
+ */
+export async function lastOrdersAt(
+  db: Db,
+  restaurantId: number,
+  before: IsoDate,
+  memberId?: number
+): Promise<Map<number, { date: IsoDate; items: OrderItem[] }>> {
+  const rows = await db
+    .select()
+    .from(orderItems)
+    .where(
+      and(
+        eq(orderItems.restaurantId, restaurantId),
+        lt(orderItems.fridayDate, before),
+        memberId === undefined ? undefined : eq(orderItems.memberId, memberId)
+      )
+    )
+    .orderBy(desc(orderItems.fridayDate), asc(orderItems.id));
+  const last = new Map<number, { date: IsoDate; items: OrderItem[] }>();
+  for (const item of rows) {
+    const entry = last.get(item.memberId);
+    if (!entry) last.set(item.memberId, { date: item.fridayDate, items: [item] });
+    else if (entry.date === item.fridayDate) entry.items.push(item);
+  }
+  return last;
+}
+
+/**
+ * „gleiches“: orders again what someone had the last time they ate from this Friday's
+ * restaurant. A dish that is gone from the menu, or whose options changed, is left out and
+ * named. Null when they never ordered there.
+ */
+export async function orderSame(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  restaurantId: number,
+  now: Date
+): Promise<{ date: IsoDate; ordered: string[]; gone: string[] } | null> {
+  const last = (await lastOrdersAt(db, restaurantId, date, memberId)).get(memberId);
+  if (!last) return null;
+  // Lines of the same dish become one, or the second would pass for a double tap.
+  const lines = new Map<string, OrderItem>();
+  for (const item of last.items) {
+    const key = [
+      item.dishId,
+      item.options.map((option) => `${option.groupId}:${option.choiceId}`).sort(),
+      item.note,
+    ].join('|');
+    const same = lines.get(key);
+    lines.set(key, same ? { ...same, quantity: same.quantity + item.quantity } : item);
+  }
+  const ordered: string[] = [];
+  const gone: string[] = [];
+  for (const item of lines.values()) {
+    if (item.dishId === null) {
+      gone.push(item.name);
+      continue;
+    }
+    try {
+      await addItem(
+        db,
+        date,
+        memberId,
+        {
+          dishId: item.dishId,
+          selection: selectionOf(item.options),
+          note: item.note,
+          quantity: item.quantity,
+        },
+        { now }
+      );
+      ordered.push(itemLabel(item));
+    } catch (error) {
+      if (!(error instanceof ServiceError)) throw error;
+      gone.push(item.name);
+    }
+  }
+  return { date: last.date, ordered, gone };
 }

@@ -17,6 +17,7 @@ import {
   projectVoteResult,
   type FridayView,
 } from '@/lib/services/fridays';
+import { itemLabel, lastOrdersAt } from '@/lib/services/orders';
 import { payLinkMaker } from '@/lib/services/pay-links';
 import { getRestaurant, restaurantsForHost } from '@/lib/services/restaurants';
 import { voteWinner, votingAt } from '@/lib/vote';
@@ -32,6 +33,21 @@ async function defaultDishNames(db: Db, restaurantId: number | null): Promise<Ma
     .innerJoin(dishes, eq(dishes.id, memberDefaults.dishId))
     .where(eq(memberDefaults.restaurantId, restaurantId));
   return new Map(rows.map((row) => [row.memberId, row.name]));
+}
+
+/** What everyone had the last time at a Friday's restaurant, for the last call. */
+async function lastOrderTexts(
+  db: Db,
+  view: FridayView
+): Promise<Map<number, { date: IsoDate; items: string }>> {
+  if (!view.restaurant) return new Map();
+  const last = await lastOrdersAt(db, view.restaurant.id, view.date);
+  return new Map(
+    [...last].map(([memberId, order]) => [
+      memberId,
+      { date: order.date, items: order.items.map(itemLabel).join(', ') },
+    ])
+  );
 }
 
 async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
@@ -92,6 +108,7 @@ export async function runScheduler(
       sent: await sentKeysFor(db, date),
       paidLink: (memberId) => paidLink(date, memberId),
       restaurants: await restaurantsForHost(db, view.host?.id ?? null),
+      lastOrder: date === thisWeek ? await lastOrderTexts(db, view) : undefined,
     });
     for (const message of messages) {
       if (await deliver(db, message, send)) {

@@ -241,6 +241,8 @@ const dishChoice = z.object({
   saveAsDefault: z.boolean(),
   // Ordered from the ballot: it is the viewer's vote for that restaurant, too.
   vote: z.boolean().default(false),
+  // The dish was ordered already and the viewer asked for one more, so it is no double tap.
+  again: z.boolean().default(false),
 });
 
 export async function addItemAction(input: z.input<typeof dishChoice>): Promise<ActionResult> {
@@ -251,11 +253,19 @@ export async function addItemAction(input: z.input<typeof dishChoice>): Promise<
       throw new ServiceError('Abstimmen kannst du nur für dich');
     }
     const { db } = await orderAccess(viewer, data.date, data.memberId);
-    await addItem(db, data.date, data.memberId, data, { from: data.restaurantId, vote: data.vote });
+    const { outcome, name } = await addItem(db, data.date, data.memberId, data, {
+      from: data.restaurantId,
+      vote: data.vote,
+      again: data.again,
+    });
+    // A second tap on the same dish right after the first changes nothing.
+    if (outcome === 'repeated') return { ok: true, message: `${name} ist schon bestellt` };
     const ahead = (await currentRestaurantId(db, data.date)) !== data.restaurantId;
-    const done = ahead
-      ? `Vorbestellt bei ${(await getRestaurant(db, data.restaurantId))?.name ?? 'deiner Wahl'}`
-      : 'Bestellt';
+    const done = `${name}${outcome === 'more' ? ' noch mal' : ''} ${
+      ahead
+        ? `vorbestellt bei ${(await getRestaurant(db, data.restaurantId))?.name ?? 'deiner Wahl'}`
+        : 'bestellt'
+    }`;
     if (data.saveAsDefault && data.memberId === viewer.id) {
       await setDefaultDish(db, viewer.id, data.restaurantId, data);
       return { ok: true, message: `${done} und als dein Standard gemerkt` };

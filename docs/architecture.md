@@ -123,7 +123,7 @@ stale reminders afterwards.
 | Fri 08:00            | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't) |
 | Fri 10:00 – 17:00    | members who haven't answered               | invitation with reply options and what to order       |
 | Fri 10:00            | said yes before, uninvited, no order       | order reminder naming their default                   |
-| Fri 18:30            | in before then, nothing ordered or default | last call                                             |
+| Fri 18:30            | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)   |
 | Fri 19:00            | host                                       | the order list                                        |
 | Fri 19:00            | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here  |
 | Sat–Mon 10:00        | host, not settled                          | enter what Lieferando charged                         |
@@ -155,7 +155,16 @@ and payment reminders repeat daily, so it shows the next one of each. It is a fo
 whoever answers or orders in the meantime drops out of later reminders.
 
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
-without food for a „nix“ default) and „andere“ (who eats what this Friday).
+without food for a „nix“ default), „gleiches“ (orders again what they had the last time at
+this restaurant, `orderSame`; dishes gone from the menu are named and left out) and „andere“
+(who eats what this Friday).
+
+Ordering the same dish with the same options and note again raises its line's quantity
+instead of adding a line, and the same dish again within ten seconds counts once: that is a
+double tap (`addItem`). On the page, the menu marks what the viewer already ordered („✓
+bestellt“), the dish dialog says so before a second one, and an order plays a short
+animation where it lands: the dish card, the order bar on a phone, the order column on a
+desktop (`announceOrder`, `useOrderFlash`).
 
 ## Restaurant vote (`lib/vote.ts`)
 

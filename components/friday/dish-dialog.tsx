@@ -3,6 +3,7 @@
 import { Check, Minus, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { addItemAction, saveDefaultAction } from '@/app/actions';
+import { announceOrder } from '@/components/friday/order-event';
 import { Button } from '@/components/ui/button';
 import { Input, Label, Select } from '@/components/ui/input';
 import { formatEuro } from '@/lib/format';
@@ -37,6 +38,8 @@ type Props = {
   vote?: boolean;
   /** A line above the button on what ordering here means. */
   hint?: string;
+  /** How many of each dish (by id) the viewer already has from this restaurant. */
+  ordered?: Record<number, number>;
 };
 
 function initialSelection(groups: OptionGroup[]): Record<string, string[]> {
@@ -98,6 +101,7 @@ function DishForm({
   ahead = false,
   vote = false,
   hint,
+  ordered = {},
   close,
 }: Omit<Props, 'opened' | 'onClose'> & { dish: MenuDish; close: () => void }) {
   const [selection, setSelection] = useState(() => initialSelection(dish.optionGroups));
@@ -106,8 +110,12 @@ function DishForm({
   const [targetId, setTargetId] = useState(initialTargetId);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const { pending, execute } = useAction();
+  // Taken before the first re-render, so a double click cannot send the order twice.
+  const sending = useRef(false);
 
   const target = targets.find((entry) => entry.id === targetId);
+  // Ordering something the viewer already has is most likely a tap too many, so say so.
+  const already = mode === 'order' && target?.isSelf ? (ordered[dish.id] ?? 0) : 0;
   const extras = dish.optionGroups.flatMap((group) =>
     group.choices.filter((choice) => selection[group.id]?.includes(choice.id))
   );
@@ -129,8 +137,16 @@ function DishForm({
   }
 
   function submit() {
+    if (sending.current) return;
+    sending.current = true;
+    const done = () => {
+      sending.current = false;
+    };
     if (mode === 'default') {
-      execute(() => saveDefaultAction({ restaurantId, dishId: dish.id, selection, note }), close);
+      execute(
+        () => saveDefaultAction({ restaurantId, dishId: dish.id, selection, note }).finally(done),
+        close
+      );
       return;
     }
     execute(
@@ -145,8 +161,12 @@ function DishForm({
           quantity,
           note,
           saveAsDefault: saveAsDefault && Boolean(target?.isSelf),
-        }),
-      close
+          again: already > 0,
+        }).finally(done),
+      () => {
+        close();
+        announceOrder({ dishId: dish.id, name: dish.name });
+      }
     );
   }
 
@@ -281,10 +301,21 @@ function DishForm({
       {hint && (
         <p className="border-border/50 text-muted-foreground border-t px-5 pt-3 text-xs">{hint}</p>
       )}
+      {already > 0 && (
+        <p
+          className={cn(
+            'text-success flex items-center gap-1.5 px-5 pt-3 text-sm font-semibold',
+            !hint && 'border-border/50 border-t'
+          )}
+        >
+          <Check className="size-4 shrink-0" />
+          Hast du schon bestellt{already > 1 ? ` (${already}×)` : ''}. Noch mal?
+        </p>
+      )}
       <div
         className={cn(
           'flex items-center gap-3 px-5 pb-5',
-          hint ? 'pt-3' : 'border-border/50 border-t pt-4'
+          hint || already > 0 ? 'pt-3' : 'border-border/50 border-t pt-4'
         )}
       >
         {mode === 'order' && (
@@ -317,7 +348,13 @@ function DishForm({
           disabled={pending}
         >
           <span>
-            {mode === 'default' ? 'Als Standard merken' : ahead ? 'Vorbestellen' : 'Bestellen'}
+            {mode === 'default'
+              ? 'Als Standard merken'
+              : already > 0
+                ? 'Noch mal bestellen'
+                : ahead
+                  ? 'Vorbestellen'
+                  : 'Bestellen'}
           </span>
           <span className="tabular-nums opacity-90">
             {formatEuro(unit * (mode === 'order' ? quantity : 1))}
