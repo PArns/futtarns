@@ -68,3 +68,16 @@ export function canEditOrderOf(
   if (state.locked) return false;
   return target.id === viewer.id || target.addedById === viewer.id;
 }
+
+/**
+ * Who may say someone comes later: whoever may change their order, also after the deadline,
+ * because the host may still order their dish later. Not once the Friday is settled.
+ */
+export function canSetArrival(
+  viewer: Viewer,
+  target: { id: number; addedById: number | null },
+  hostId: number | null,
+  state: OrderLockState
+): boolean {
+  return canEditOrderOf(viewer, target, hostId, { ...state, locked: false });
+}

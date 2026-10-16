@@ -20,7 +20,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `fridays`                 | one row per Friday that differs from the default: host, cancelled, mode (`delivery`/`flat`), restaurant or flat title and price, tip, drinks fee, voucher, pickup and who fetches the food, lock and settlement |
 | `restaurant_votes`        | who wants which restaurant for a Friday, one vote per member                                                                                                                                                    |
 | `restaurant_hosts`        | which hosts a restaurant delivers to; none means everyone                                                                                                                                                       |
-| `attendance`              | explicit answers (`in`, `nofood`, `out`) and who added a guest                                                                                                                                                  |
+| `attendance`              | explicit answers (`in`, `nofood`, `out`), who added a guest, and „Ich komm später“ (`late`, `arrives_at` like `21:00`)                                                                                          |
 | `restaurants`, `dishes`   | fees (delivery, Lieferando's 0,99 € service fee, tip), whether pickup is possible, and menus; option groups are JSON on the dish; members can add dishes                                                        |
 | `order_items`             | what someone ordered and where from, with name, category, options and price copied in; only the Friday's restaurant counts                                                                                      |
 | `member_defaults`         | the default dish per member and restaurant; no dish means „nix“: silent means coming without eating                                                                                                             |
@@ -127,7 +127,7 @@ stale reminders afterwards.
 | Fri 10:00 – 17:00    | members who haven't answered               | invitation with reply options and what to order       |
 | Fri 10:00            | said yes before, uninvited, no order       | order reminder naming their default                   |
 | Fri 18:30            | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)   |
-| Fri 19:00            | host                                       | the order list                                        |
+| Fri 19:00            | host                                       | the order list, the latecomers' dishes apart          |
 | Fri 19:00            | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here  |
 | Sat–Mon 10:00        | host, not settled                          | enter what Lieferando charged                         |
 | after settlement     | open balance ≥ 50 cents either way         | amount to pay or to get back                          |
@@ -161,8 +161,15 @@ linked to WhatsApp, the list says so: what is due waits and is retried every min
 
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
 without food for a „nix“ default), „gleiches“ (orders again what they had the last time at
-this restaurant, `orderSame`; dishes gone from the menu are named and left out) and „andere“
-(who eats what this Friday).
+this restaurant, `orderSame`; dishes gone from the menu are named and left out), „später“
+(„Ich komm später“, optionally with a time: `später 21:30`; „pünktlich“ takes it back) and
+„andere“ (who eats what this Friday).
+
+„Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
+the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
+picked by the deadline; the order list on the page and in the 19:00 message shows the
+latecomers' dishes in a block of their own („Später bestellen“, `sheetsByArrival`), so the
+host can order them later and they arrive warm. The people list says „kommt später (~21:00)“.
 
 Ordering the same dish with the same options and note again raises its line's quantity
 instead of adding a line, and the same dish again within ten seconds counts once: that is a

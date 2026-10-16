@@ -1,4 +1,5 @@
 import { and, asc, eq, gte, inArray, isNull, lte, notInArray, or, sql } from 'drizzle-orm';
+import { parseArrival } from '@/lib/arrival';
 import {
   effectiveAttendance,
   hostLast,
@@ -437,13 +438,15 @@ export async function setAttendance(
   status: AttendanceStatus,
   now: Date = new Date()
 ) {
+  // Whoever is out does not come later either.
+  const late = status === 'out' ? { late: false, arrivesAt: null } : {};
   await db.transaction(async (tx) => {
     await tx
       .insert(attendance)
       .values({ fridayDate: date, memberId, status, updatedAt: now })
       .onConflictDoUpdate({
         target: [attendance.fridayDate, attendance.memberId],
-        set: { status, updatedAt: now },
+        set: { status, updatedAt: now, ...late },
       });
     if (status !== 'in') {
       await tx
@@ -451,6 +454,35 @@ export async function setAttendance(
         .where(and(eq(orderItems.fridayDate, date), eq(orderItems.memberId, memberId)));
     }
   });
+}
+
+/**
+ * „Ich komm später“: they come, but after the food, maybe at a rough time (`21:00`), so the
+ * host can order their dish later. Saying so is a yes for whoever had not answered or was
+ * out; coming without food stays. `late: false` takes it back.
+ */
+export async function setLate(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  late: boolean,
+  arrivesAt: string | null,
+  now: Date = new Date()
+) {
+  if (arrivesAt !== null && parseArrival(arrivesAt) !== arrivesAt) {
+    throw new ServiceError('Die Uhrzeit bitte wie „21:30“');
+  }
+  const [answer] = await db
+    .select({ status: attendance.status })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+  if (!late && !answer) return;
+  const status = !answer || answer.status === 'out' ? 'in' : answer.status;
+  const values = { status, late, arrivesAt: late ? arrivesAt : null, updatedAt: now };
+  await db
+    .insert(attendance)
+    .values({ fridayDate: date, memberId, ...values })
+    .onConflictDoUpdate({ target: [attendance.fridayDate, attendance.memberId], set: values });
 }
 
 /**
@@ -706,6 +738,9 @@ export type Participant = {
   attendance: EffectiveAttendance;
   /** When they last answered for this Friday, if they did. */
   answeredAt: Date | null;
+  /** Comes after the food („Ich komm später“), at `arrivesAt` (`21:00`) if they said. */
+  late: boolean;
+  arrivesAt: string | null;
   addedById: number | null;
   items: OrderItem[];
   itemsCents: number;
@@ -886,6 +921,8 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       member,
       attendance,
       answeredAt: answer?.updatedAt ?? null,
+      late: (answer?.late ?? false) && attendance.status !== 'out',
+      arrivesAt: answer?.arrivesAt ?? null,
       addedById: answer?.addedById ?? null,
       items: own,
       itemsCents: own.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0),

@@ -2,7 +2,7 @@ import { isBilled, payeeOf, payeePurpose, payeesFor, shareLines, type Money } fr
 import { berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold } from '@/lib/messages';
-import { buildOrderSheet, orderSheetText } from '@/lib/order-sheet';
+import { orderSheetText, sheetsByArrival } from '@/lib/order-sheet';
 import { paypalMeLink } from '@/lib/paypal';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 import {
@@ -469,12 +469,13 @@ export function planReminders({
   const ordererPhone = view.picker ? view.picker.phone : hostPhone;
   if (view.locked && ordererPhone && between(now, view.deadline, sheetUntil)) {
     const eating = view.participants.filter((entry) => entry.attendance.status === 'in').length;
-    const sheet = orderSheetText(
-      buildOrderSheet(
-        view.participants.flatMap((entry) => entry.items),
-        (id) => view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?'
-      )
+    // Whoever comes later gets a block of their own: their food can be ordered later.
+    const sheets = sheetsByArrival(
+      view.participants,
+      (id) => view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?'
     );
+    const sheet = orderSheetText(sheets.now);
+    const later = orderSheetText(sheets.later);
     const restaurant = bold(view.restaurant?.name ?? 'das Restaurant');
     const lieferando = view.restaurant?.lieferandoUrl;
     out.push({
@@ -485,7 +486,8 @@ export function planReminders({
         : [
             `${view.pickup ? '🛍️' : '🛵'} ${bold('Bestellschluss!')} ${view.pickup ? `Zum Abholen bei ${restaurant}` : `Das geht an ${restaurant}`}:`,
             '',
-            sheet || 'Niemand hat etwas bestellt.',
+            sheet || (later ? 'Jetzt nichts, alle kommen später.' : 'Niemand hat etwas bestellt.'),
+            ...(later ? ['', `🕘 ${bold('Kommen später, lieber später bestellen:')}`, later] : []),
             ...(view.voucherCents
               ? ['', `${bold('Gutschein einlösen:')} ${formatEuro(view.voucherCents)}`]
               : []),

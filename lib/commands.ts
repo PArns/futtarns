@@ -1,4 +1,5 @@
 import type { AttendanceStatus } from '@/lib/db/schema';
+import { parseArrival } from '@/lib/arrival';
 import { bold } from '@/lib/messages';
 
 export type Command =
@@ -6,6 +7,10 @@ export type Command =
   | { kind: 'usual' }
   /** The same as last time at this restaurant. */
   | { kind: 'same' }
+  /** „Ich komm später“, maybe with a rough time (`21:30`). */
+  | { kind: 'late'; arrivesAt: string | null }
+  /** Comes on time after all. */
+  | { kind: 'onTime' }
   | { kind: 'others' }
   | { kind: 'paid' }
   | { kind: 'login' }
@@ -14,6 +19,10 @@ export type Command =
   /** A letter from the restaurant vote's ballot. */
   | { kind: 'vote'; letter: string }
   | { kind: 'unknown' };
+
+/** `später`, `ich komm später`, `später 21`, `komme später gegen 21:30 Uhr`. */
+const LATE =
+  /^(?:ich )?(?:komm(?:e)? )?später(?: (?:so |erst )?(?:um |gegen |ca\.? ?|ab )?(\d{1,2}(?:[:.]\d{2})?(?: ?uhr)?))?$/;
 
 const WORDS: [RegExp, Command][] = [
   [
@@ -33,6 +42,7 @@ const WORDS: [RegExp, Command][] = [
     /^(gleiches|das gleiche|dasselbe|das selbe|gleiche wie letztes mal|wie letztes mal|wie letzte woche|nochmal das gleiche)$/,
     { kind: 'same' },
   ],
+  [/^(pünktlich|doch pünktlich|bin pünktlich|komme pünktlich)$/, { kind: 'onTime' }],
   [/^(andere|die anderen|wer isst was|was essen die anderen|bestellungen)$/, { kind: 'others' }],
   [/^(bezahlt|gezahlt|hab bezahlt|habe bezahlt|paid|überwiesen)$/, { kind: 'paid' }],
   [/^(login|code|link|anmelden|einloggen)$/, { kind: 'login' }],
@@ -45,6 +55,16 @@ const WORDS: [RegExp, Command][] = [
  * A trailing „sicher“ confirms an answer that would throw away an order.
  */
 export function parseCommand(text: string): Command {
+  // Read before the times lose their colon to the clean-up below.
+  const late = LATE.exec(
+    text
+      .toLowerCase()
+      .replace(/[!,;"„“]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\.$/, '')
+  );
+  if (late) return { kind: 'late', arrivesAt: late[1] ? parseArrival(late[1]) : null };
   const normalized = text
     .toLowerCase()
     .replace(/[.!,;:"„“]/g, '')
@@ -65,6 +85,7 @@ export const HELP_TEXT = [
   `${bold('3')} – bin raus`,
   `${bold('wie immer')} – bin dabei, mit meinem Standardgericht`,
   `${bold('gleiches')} – bin dabei, mit dem, was ich letztes Mal hier hatte`,
+  `${bold('später 21')} – ich komm später (gegen 21 Uhr), mein Essen wird später bestellt`,
   `${bold('andere')} – was essen die anderen?`,
   `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Donnerstag 23:59)`,
   `${bold('bezahlt')} – ich hab gezahlt`,

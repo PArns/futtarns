@@ -1,4 +1,4 @@
-import { Flame, Receipt, Settings2, ShoppingBag, Store, Ticket } from 'lucide-react';
+import { Clock, Flame, Receipt, Settings2, ShoppingBag, Store, Ticket } from 'lucide-react';
 import { CopyButton } from '@/components/common/copy-button';
 import { ExtrasForm } from '@/components/friday/extras-form';
 import { FlatForm } from '@/components/friday/flat-form';
@@ -29,6 +29,7 @@ export function HostSection({
   closed,
   sheet,
   sheetFor,
+  sheetLater,
   hungry,
   restaurants,
   members,
@@ -44,6 +45,8 @@ export function HostSection({
   sheet: OrderLine[];
   /** The restaurant ahead in the vote, when the list is the one it would get. */
   sheetFor: string | null;
+  /** The dishes of those who come later, to order later. */
+  sheetLater: OrderLine[];
   hungry: Participant[];
   restaurants: { id: number; name: string; isDefault: boolean }[];
   members: { id: number; name: string }[];
@@ -57,7 +60,7 @@ export function HostSection({
   whatsappDown: boolean;
 }) {
   const flat = view.mode === 'flat';
-  const hasOrders = sheet.length > 0;
+  const hasOrders = sheet.length > 0 || sheetLater.length > 0;
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
       <div className="space-y-4">
@@ -146,7 +149,7 @@ export function HostSection({
               <h3 className="flex items-center gap-2 font-bold">
                 <ShoppingBag className="text-primary size-4" /> Bestellliste
               </h3>
-              {hasOrders && <CopyButton text={orderSheetText(sheet)} />}
+              {sheet.length > 0 && <CopyButton text={orderSheetText(sheet)} />}
             </div>
             {sheetFor && (
               <p className="text-muted-foreground -mt-2 text-xs">
@@ -168,35 +171,26 @@ export function HostSection({
                 {hungry.map((entry) => entry.member.name).join(', ')}
               </Notice>
             )}
-            {!hasOrders ? (
-              <p className="text-muted-foreground text-sm">Noch nichts bestellt.</p>
+            {sheet.length > 0 ? (
+              <SheetLines lines={sheet} />
             ) : (
-              <ul className="space-y-2 text-sm">
-                {sheet.map((line, index) => (
-                  <li key={line.key} className="flex flex-wrap gap-2">
-                    {sheet.some((other) => other.category) &&
-                      (index === 0 || line.category !== sheet[index - 1]!.category) && (
-                        <span className="text-primary w-full pt-1 text-[11px] font-bold tracking-[0.14em] uppercase">
-                          {line.category ?? 'Sonstiges'}
-                        </span>
-                      )}
-                    <span className="text-primary w-7 shrink-0 font-extrabold tabular-nums">
-                      {line.count}×
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="font-semibold">{line.name}</span>
-                      {(line.options.length > 0 || line.notes.length > 0) && (
-                        <span className="text-muted-foreground block text-xs">
-                          {[...line.options, ...line.notes.map((note) => `„${note}“`)].join(' · ')}
-                        </span>
-                      )}
-                      <span className="text-muted-foreground block text-xs">
-                        {line.people.join(', ')}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <p className="text-muted-foreground text-sm">
+                {hasOrders ? 'Für jetzt noch nichts, nur für später.' : 'Noch nichts bestellt.'}
+              </p>
+            )}
+            {sheetLater.length > 0 && (
+              <div className="border-border/60 space-y-3 border-t pt-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 font-bold">
+                    <Clock className="text-primary size-4" /> Später bestellen
+                  </h3>
+                  <CopyButton text={orderSheetText(sheetLater)} />
+                </div>
+                <p className="text-muted-foreground -mt-2 text-xs">
+                  Kommen nach dem Essen. Ihr Essen lieber erst später bestellen, damit es warm ist.
+                </p>
+                <SheetLines lines={sheetLater} />
+              </div>
             )}
             {closed && hasOrders && (
               <div className="border-border/60 border-t pt-4">
@@ -222,5 +216,35 @@ export function HostSection({
         <UpcomingMessages messages={messages} serverNow={serverNow} whatsappDown={whatsappDown} />
       </div>
     </div>
+  );
+}
+
+/** An order list as the host types it into Lieferando: by category, with who eats what. */
+function SheetLines({ lines }: { lines: OrderLine[] }) {
+  return (
+    <ul className="space-y-2 text-sm">
+      {lines.map((line, index) => (
+        <li key={line.key} className="flex flex-wrap gap-2">
+          {lines.some((other) => other.category) &&
+            (index === 0 || line.category !== lines[index - 1]!.category) && (
+              <span className="text-primary w-full pt-1 text-[11px] font-bold tracking-[0.14em] uppercase">
+                {line.category ?? 'Sonstiges'}
+              </span>
+            )}
+          <span className="text-primary w-7 shrink-0 font-extrabold tabular-nums">
+            {line.count}×
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="font-semibold">{line.name}</span>
+            {(line.options.length > 0 || line.notes.length > 0) && (
+              <span className="text-muted-foreground block text-xs">
+                {[...line.options, ...line.notes.map((note) => `„${note}“`)].join(' · ')}
+              </span>
+            )}
+            <span className="text-muted-foreground block text-xs">{line.people.join(', ')}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
