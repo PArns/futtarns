@@ -1,4 +1,4 @@
-import { eq, like } from 'drizzle-orm';
+import { eq, like, or } from 'drizzle-orm';
 import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
@@ -50,11 +50,15 @@ async function lastOrderTexts(
   );
 }
 
+/**
+ * The keys already sent for a Friday. Most keys carry the date in the middle
+ * (`due:2026-10-16:7`), the order list's at the end (`sheet:2026-10-16`).
+ */
 async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
   const rows = await db
     .select({ key: notifications.key })
     .from(notifications)
-    .where(like(notifications.key, `%:${date}:%`));
+    .where(or(like(notifications.key, `%:${date}:%`), like(notifications.key, `%:${date}`)));
   return new Set(rows.map((row) => row.key));
 }
 

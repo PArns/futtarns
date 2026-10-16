@@ -62,7 +62,10 @@ A Friday without a row is a normal Friday: the default host and that host's rest
   line („Anteil Gutschein“); the order list reminds the host to redeem it.
 - **Drinks**: a flat 1,50 € per person who comes, eating or not, on by default and switched
   off per Friday by each member; the host can change or drop it for a Friday.
-- **Paying**: a PayPal.me link with the amount filled in, to the host, as friends and family.
+- **Paying**: a PayPal.me link with the amount (`paypal.me/name/12.34EUR`, as PayPal documents
+  it), to the host, as friends and family. The website fills the amount in; the PayPal app,
+  which opens these links on a phone, does not always, so messages name the amount next to the
+  link and the page offers it to copy (`paypalAmount`).
   Differences under 50 cents are shown but never chased.
 - **Pickup**: a restaurant can offer pickup („Abholen geht auch“), and the host then chooses
   per Friday between delivery and pickup and who fetches the food. Fetched food costs the
@@ -150,9 +153,11 @@ the reminders stop by themselves. Replying „bezahlt“ to the bot still works 
 The host and admins see what is still to go out, to whom and when, with a countdown, in the
 Friday's „Chefsache“ (`previewReminders`, `upcomingMessages`). It runs `planReminders` at
 every moment a window opens, with the Friday locked from the deadline on, plus the
-scheduler's next pass for what is due right away, and leaves out keys already sent. Settle
+scheduler's next pass for what is due right away, and leaves out keys already sent (keys carry
+the Friday's date in the middle, or at the end like the order list's `sheet:<date>`). Settle
 and payment reminders repeat daily, so it shows the next one of each. It is a forecast:
-whoever answers or orders in the meantime drops out of later reminders.
+whoever answers or orders in the meantime drops out of later reminders. When the bot is not
+linked to WhatsApp, the list says so: what is due waits and is retried every minute.
 
 Besides answers, the bot understands „wie immer“ (orders the default dish now, or comes
 without food for a „nix“ default), „gleiches“ (orders again what they had the last time at

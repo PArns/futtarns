@@ -12,8 +12,17 @@ export function normalizePaypalHandle(input: string): string | null {
   return /^[A-Za-z0-9._-]{1,64}$/.test(handle) ? handle : null;
 }
 
-/** A PayPal.me link that opens with the amount filled in. */
+/**
+ * A PayPal.me link with the amount, as PayPal documents it (`paypal.me/name/25EUR`). The
+ * website fills the amount in; the PayPal app, which opens these links on a phone, does not
+ * always, so the amount is shown next to the link as well (`paypalAmount`).
+ */
 export function paypalMeLink(handle: string, amountCents: number): string {
   const euros = (amountCents / 100).toFixed(2);
   return `https://paypal.me/${encodeURIComponent(handle)}/${euros}EUR`;
+}
+
+/** The amount as it is typed into PayPal, `12,34`, for when the app leaves it empty. */
+export function paypalAmount(amountCents: number): string {
+  return (amountCents / 100).toFixed(2).replace('.', ',');
 }

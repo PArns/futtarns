@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePaypalHandle, paypalMeLink } from '@/lib/paypal';
+import { normalizePaypalHandle, paypalAmount, paypalMeLink } from '@/lib/paypal';
 
 describe('paypal', () => {
   it.each([
@@ -17,5 +17,10 @@ describe('paypal', () => {
   it('builds a link with the amount', () => {
     expect(paypalMeLink('patrickarns', 1234)).toBe('https://paypal.me/patrickarns/12.34EUR');
     expect(paypalMeLink('patrickarns', 500)).toBe('https://paypal.me/patrickarns/5.00EUR');
+  });
+
+  it('writes the amount as it is typed into PayPal', () => {
+    expect(paypalAmount(1234)).toBe('12,34');
+    expect(paypalAmount(500)).toBe('5,00');
   });
 });

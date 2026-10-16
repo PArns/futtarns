@@ -1,6 +1,7 @@
 'use client';
 
-import { BellRing } from 'lucide-react';
+import { BellRing, TriangleAlert } from 'lucide-react';
+import Link from 'next/link';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Pill } from '@/components/ui/pill';
 import { formatCountdown } from '@/lib/format';
@@ -20,9 +21,12 @@ const NAMES_SHOWN = 4;
 export function UpcomingMessages({
   messages,
   serverNow,
+  whatsappDown = false,
 }: {
   messages: UpcomingMessage[];
   serverNow: number;
+  /** The bot is not linked to WhatsApp: what is due waits, retried every minute. */
+  whatsappDown?: boolean;
 }) {
   const now = useNow(serverNow);
   const upcoming = messages.filter((message) => message.at > now);
@@ -31,6 +35,19 @@ export function UpcomingMessages({
       <h3 className="flex items-center gap-2 font-bold">
         <BellRing className="text-primary size-4" /> Nachrichten, die noch rausgehen
       </h3>
+      {whatsappDown && (
+        <p className="border-warning/40 bg-warning/10 text-warning flex items-start gap-2 rounded-xl border p-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <span>
+            WhatsApp ist gerade nicht verbunden. Was fällig ist, bleibt liegen und geht raus, sobald
+            der Bot wieder verbunden ist. Ein Admin kann ihn unter{' '}
+            <Link href="/leute#whatsapp" className="font-semibold underline">
+              Leute
+            </Link>{' '}
+            neu verbinden.
+          </span>
+        </p>
+      )}
       {upcoming.length === 0 ? (
         <p className="text-muted-foreground text-sm">Für diesen Freitag steht nichts mehr an.</p>
       ) : (
