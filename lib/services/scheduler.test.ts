@@ -131,6 +131,53 @@ describe('reminders', () => {
     expect(sent.filter((message) => message.to === '+491703333333')).toEqual([]);
   });
 
+  it('offers what someone had last time in the last call, ordered again with „gleiches“', async () => {
+    const { anna, ben, restaurant, dish } = await setup();
+    // Last week Ben had two Margheritas here.
+    const lastWeek = '2026-10-09';
+    await setRestaurant(db, lastWeek, restaurant.id);
+    for (const minute of ['10:00', '10:05']) {
+      await addItem(
+        db,
+        lastWeek,
+        ben.id,
+        { dishId: dish.id, selection: {}, note: null, quantity: 1 },
+        { now: at(`2026-10-09T${minute}:00Z`) }
+      );
+    }
+    await setAttendance(db, FRIDAY, ben.id, 'in', at('2026-10-14T10:00:00Z'));
+    await setAttendance(db, FRIDAY, anna.id, 'in', at('2026-10-14T10:00:00Z'));
+
+    await runScheduler(db, at('2026-10-16T16:31:00Z'), send, noPause);
+    const lastCall = (phone: string) =>
+      sent.find((message) => message.to === phone && message.text.includes('Letzte Chance'))
+        ?.text ?? '';
+    expect(lastCall('+491703333333')).toContain(
+      'hattest du hier *2× Margherita*. Antworte *gleiches*, dann bestell ich dir das wieder.'
+    );
+    // Anna never ate here, so there is nothing to offer her.
+    expect(lastCall('+491702222222')).not.toContain('gleiches');
+
+    const reply = await handleIncoming(
+      db,
+      '+491703333333',
+      'Gleiches!',
+      at('2026-10-16T16:35:00Z'),
+      send
+    );
+    expect(reply).toContain(': *2× Margherita*. Du bist dabei.');
+    const view = await loadFriday(db, FRIDAY, at('2026-10-16T16:36:00Z'));
+    const items = view.participants.find((entry) => entry.member.id === ben.id)!.items;
+    expect(items.map((item) => [item.name, item.quantity])).toEqual([['Margherita', 2]]);
+    // Once he has something, „gleiches“ adds nothing more.
+    expect(
+      await handleIncoming(db, '+491703333333', 'gleiches', at('2026-10-16T16:37:00Z'), send)
+    ).toContain('Du hast schon *Margherita* bestellt');
+    expect(
+      await handleIncoming(db, '+491702222222', 'gleiches', at('2026-10-16T16:37:00Z'), send)
+    ).toContain('Bei *Bella Napoli* hast du noch nie bestellt');
+  });
+
   it('does not remind someone whose default is „nix“ to order', async () => {
     const { anna, ben, restaurant } = await setup();
     await setNoFoodDefault(db, anna.id, restaurant.id);
@@ -154,6 +201,15 @@ describe('reminders', () => {
     expect(
       sent.filter((message) => message.text.includes('/bezahlt/')).map((message) => message.to)
     ).toEqual(['+491702222222', '+491703333333']);
+    // Anna ate; Ben has nothing to eat and only pays for the drinks.
+    const due = (phone: string) =>
+      sent.find((message) => message.to === phone && message.text.includes('/bezahlt/'))?.text;
+    expect(due('+491702222222')).toMatch(
+      /^🍽️ \*Bestellschluss!\* Dein Magen hat bestellt, jetzt darf der Geldbeutel nachziehen: \*\d+,\d+\s€\*\./
+    );
+    expect(due('+491703333333')).toMatch(
+      /^🥤 \*Bestellschluss!\* Ohne Essen, aber nicht ohne Durst: \*1,50\s€\* für die Getränke\./
+    );
 
     await recordPayment(db, {
       date: FRIDAY,

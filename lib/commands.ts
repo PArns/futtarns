@@ -4,6 +4,8 @@ import { bold } from '@/lib/messages';
 export type Command =
   | { kind: 'answer'; status: AttendanceStatus; confirmed: boolean }
   | { kind: 'usual' }
+  /** The same as last time at this restaurant. */
+  | { kind: 'same' }
   | { kind: 'others' }
   | { kind: 'paid' }
   | { kind: 'login' }
@@ -27,6 +29,10 @@ const WORDS: [RegExp, Command][] = [
     { kind: 'answer', status: 'out', confirmed: false },
   ],
   [/^(wie immer|wieimmer|das übliche|das uebliche|standard)$/, { kind: 'usual' }],
+  [
+    /^(gleiches|das gleiche|dasselbe|das selbe|gleiche wie letztes mal|wie letztes mal|wie letzte woche|nochmal das gleiche)$/,
+    { kind: 'same' },
+  ],
   [/^(andere|die anderen|wer isst was|was essen die anderen|bestellungen)$/, { kind: 'others' }],
   [/^(bezahlt|gezahlt|hab bezahlt|habe bezahlt|paid|überwiesen)$/, { kind: 'paid' }],
   [/^(login|code|link|anmelden|einloggen)$/, { kind: 'login' }],
@@ -58,6 +64,7 @@ export const HELP_TEXT = [
   `${bold('2')} – komme, esse aber nix`,
   `${bold('3')} – bin raus`,
   `${bold('wie immer')} – bin dabei, mit meinem Standardgericht`,
+  `${bold('gleiches')} – bin dabei, mit dem, was ich letztes Mal hier hatte`,
   `${bold('andere')} – was essen die anderen?`,
   `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Donnerstag 23:59)`,
   `${bold('bezahlt')} – ich hab gezahlt`,

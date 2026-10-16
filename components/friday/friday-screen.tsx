@@ -30,6 +30,7 @@ import { MenuChoice, type MenuOption } from '@/components/friday/menu-choice';
 import { MenuPreview } from '@/components/friday/menu-preview';
 import { MyMoney } from '@/components/friday/my-money';
 import { OrderBar } from '@/components/friday/order-bar';
+import { OrderGlow } from '@/components/friday/order-glow';
 import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
@@ -149,9 +150,11 @@ export async function FridayScreen({
     .filter((member) => member.active && member.core)
     .map(({ id, name }) => ({ id, name }));
 
+  // Who else picked a dish; the viewer's own show on the card as „bestellt“.
   const takenBy: Record<number, string[]> = {};
   for (const participant of view.participants) {
-    const label = participant.member.id === viewer.id ? 'Du' : participant.member.name;
+    if (participant.member.id === viewer.id) continue;
+    const label = participant.member.name;
     const ahead = view.preorders.filter((item) => item.memberId === participant.member.id);
     for (const item of [...participant.items, ...ahead]) {
       if (item.dishId === null) continue;
@@ -249,6 +252,15 @@ export async function FridayScreen({
         };
       });
   const self: OrderTarget = { id: viewer.id, name: viewer.name, isSelf: true };
+  // How many of each dish the viewer already has from a restaurant, to mark it on its menu.
+  const orderedFrom = (restaurantId: number) => {
+    const counts: Record<number, number> = {};
+    for (const item of [...(me?.items ?? []), ...myPreorders]) {
+      if (item.restaurantId !== restaurantId || item.dishId === null) continue;
+      counts[item.dishId] = (counts[item.dishId] ?? 0) + item.quantity;
+    }
+    return counts;
+  };
   const menus: MenuOption[] = [
     ...(me && view.restaurant && canOrder
       ? [
@@ -259,6 +271,7 @@ export async function FridayScreen({
             targets,
             defaultDishId: myDefault?.dish?.id ?? null,
             ahead: false,
+            ordered: orderedFrom(view.restaurant.id),
           },
         ]
       : []),
@@ -272,6 +285,7 @@ export async function FridayScreen({
             defaultDishId: aheadDefault?.dish?.id ?? null,
             ahead: true,
             hint: `Zählt, wenn ${votedFor.name} die Wahl gewinnt.`,
+            ordered: orderedFrom(votedFor.id),
           },
         ]
       : []),
@@ -903,127 +917,129 @@ export async function FridayScreen({
                   ) : undefined
                 }
               />
-              <GlassCard variant="tile" className="mb-6 space-y-4 p-4 sm:p-5">
-                {!flat && (
-                  <OrderedItems
-                    groups={ordersOf(me)}
-                    editable={editable(me)}
-                    titled={voting && restaurants.length > 1}
-                  />
-                )}
-                {!flat &&
-                  me.items.length === 0 &&
-                  myDefault &&
-                  !myDefault.dish &&
-                  me.attendance.reason === 'silent' && (
-                    <p className="text-muted-foreground text-sm">
-                      Dein Standard hier ist „nix“ – ohne Bestellung kommst du ohne Essen.
-                    </p>
-                  )}
-                {!flat &&
-                  me.items.length === 0 &&
-                  myDefault?.dish &&
-                  me.attendance.status === 'in' && (
-                    <p className="flex items-start gap-2 text-sm">
-                      <Sparkles className="text-warning mt-0.5 size-4 shrink-0" />
-                      <span>
-                        Dein Standard hier: <strong>{myDefault.dish.name}</strong>
-                        {myDefault.entry.options.length > 0 &&
-                          ` (${myDefault.entry.options.map((option) => option.choiceName).join(', ')})`}
-                        . Den bekommst du, wenn du bis {formatTime(view.deadline)} nichts anderes
-                        aussuchst.
-                      </span>
-                    </p>
-                  )}
-                {!flat &&
-                  me.items.length === 0 &&
-                  !myDefault?.dish &&
-                  me.attendance.status === 'in' &&
-                  view.restaurant && (
-                    <p className="text-muted-foreground text-sm">
-                      {myPreorders.length > 0
-                        ? `Bei ${view.restaurant.name} noch nichts ausgesucht.`
-                        : 'Noch nichts ausgesucht.'}
-                    </p>
-                  )}
-                {!flat &&
-                  me.items.length === 0 &&
-                  view.restaurant &&
-                  (me.attendance.status === 'out' ||
-                    (me.attendance.status === 'nofood' && me.attendance.reason !== 'silent')) && (
-                    <p className="text-muted-foreground text-sm">
-                      {me.attendance.reason === 'absent'
-                        ? 'Du bist an dem Tag als weg eingetragen. Kommst du doch, nimm das im Kalender raus.'
-                        : closed
-                          ? me.attendance.status === 'out'
-                            ? 'Du warst diesmal nicht dabei.'
-                            : 'Du warst diesmal ohne Essen dabei.'
-                          : me.attendance.status === 'out'
-                            ? 'Du bist diesmal raus. Kommst du doch, such dir auf der Karte einfach was aus.'
-                            : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir auf der Karte was aus.'}
-                    </p>
-                  )}
-                {!flat && !view.restaurant && (
-                  <p className="flex items-center gap-2 text-sm">
-                    <Store className="text-primary size-4 shrink-0" />
-                    Sobald das Restaurant feststeht, kannst du hier aussuchen.
-                  </p>
-                )}
-                {flat && (
-                  <p className="text-sm">
-                    {amHost
-                      ? `Du bist Gastgeber: Alle, die dabei sind, zahlen dir je ${formatEuro(view.flatPriceCents ?? 0)}.`
-                      : me.attendance.status === 'in' && me.attendance.reason === 'answered'
-                        ? `Du bist dabei und zahlst ${formatEuro(view.flatPriceCents ?? 0)} an ${view.host?.name ?? 'den Gastgeber'}.`
-                        : `Sag oben zu, dann bist du für ${formatEuro(view.flatPriceCents ?? 0)} dabei.`}
-                  </p>
-                )}
-                <MyMoney
-                  view={view}
-                  me={me}
-                  canEdit={editable(me)}
-                  payable={payable}
-                  stays={aheadBoxes.length > 0 ? view.restaurant?.name : undefined}
-                />
-                {aheadBoxes.map((box) => {
-                  // What it would roughly come to if that restaurant wins: their dishes there
-                  // and an equal part of its fees, line by line.
-                  const ahead = view.ahead.find(
-                    (entry) => entry.restaurant.id === box.restaurantId
-                  );
-                  const lines = [
-                    ...box.dishes,
-                    ...(ahead && ahead.eaters > 0
-                      ? feeLines(
-                          Math.round(ahead.estimate.sharedCents / ahead.eaters),
-                          ahead.estimate,
-                          ahead.eaters
-                        )
-                      : []),
-                    ...(!amHost && me.money.drinksCents > 0
-                      ? [{ label: 'Getränke', cents: me.money.drinksCents }]
-                      : []),
-                  ];
-                  return (
-                    <PayBox
-                      key={box.restaurantId}
-                      date={date}
-                      memberId={me.member.id}
-                      amountCents={lines.reduce((sum, line) => sum + line.cents, 0)}
-                      lines={lines}
-                      payees={[]}
-                      label={`Gewinnt ${box.name} · ungefähr`}
-                      payable={false}
-                      maybe
-                      note={`${
-                        box.usual
-                          ? 'Dann bekommst du dort deinen Standard, wenn du nichts anderes aussuchst.'
-                          : `Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}.`
-                      } Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
+              <OrderGlow className="mb-6">
+                <GlassCard variant="tile" className="space-y-4 p-4 sm:p-5">
+                  {!flat && (
+                    <OrderedItems
+                      groups={ordersOf(me)}
+                      editable={editable(me)}
+                      titled={voting && restaurants.length > 1}
                     />
-                  );
-                })}
-              </GlassCard>
+                  )}
+                  {!flat &&
+                    me.items.length === 0 &&
+                    myDefault &&
+                    !myDefault.dish &&
+                    me.attendance.reason === 'silent' && (
+                      <p className="text-muted-foreground text-sm">
+                        Dein Standard hier ist „nix“ – ohne Bestellung kommst du ohne Essen.
+                      </p>
+                    )}
+                  {!flat &&
+                    me.items.length === 0 &&
+                    myDefault?.dish &&
+                    me.attendance.status === 'in' && (
+                      <p className="flex items-start gap-2 text-sm">
+                        <Sparkles className="text-warning mt-0.5 size-4 shrink-0" />
+                        <span>
+                          Dein Standard hier: <strong>{myDefault.dish.name}</strong>
+                          {myDefault.entry.options.length > 0 &&
+                            ` (${myDefault.entry.options.map((option) => option.choiceName).join(', ')})`}
+                          . Den bekommst du, wenn du bis {formatTime(view.deadline)} nichts anderes
+                          aussuchst.
+                        </span>
+                      </p>
+                    )}
+                  {!flat &&
+                    me.items.length === 0 &&
+                    !myDefault?.dish &&
+                    me.attendance.status === 'in' &&
+                    view.restaurant && (
+                      <p className="text-muted-foreground text-sm">
+                        {myPreorders.length > 0
+                          ? `Bei ${view.restaurant.name} noch nichts ausgesucht.`
+                          : 'Noch nichts ausgesucht.'}
+                      </p>
+                    )}
+                  {!flat &&
+                    me.items.length === 0 &&
+                    view.restaurant &&
+                    (me.attendance.status === 'out' ||
+                      (me.attendance.status === 'nofood' && me.attendance.reason !== 'silent')) && (
+                      <p className="text-muted-foreground text-sm">
+                        {me.attendance.reason === 'absent'
+                          ? 'Du bist an dem Tag als weg eingetragen. Kommst du doch, nimm das im Kalender raus.'
+                          : closed
+                            ? me.attendance.status === 'out'
+                              ? 'Du warst diesmal nicht dabei.'
+                              : 'Du warst diesmal ohne Essen dabei.'
+                            : me.attendance.status === 'out'
+                              ? 'Du bist diesmal raus. Kommst du doch, such dir auf der Karte einfach was aus.'
+                              : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir auf der Karte was aus.'}
+                      </p>
+                    )}
+                  {!flat && !view.restaurant && (
+                    <p className="flex items-center gap-2 text-sm">
+                      <Store className="text-primary size-4 shrink-0" />
+                      Sobald das Restaurant feststeht, kannst du hier aussuchen.
+                    </p>
+                  )}
+                  {flat && (
+                    <p className="text-sm">
+                      {amHost
+                        ? `Du bist Gastgeber: Alle, die dabei sind, zahlen dir je ${formatEuro(view.flatPriceCents ?? 0)}.`
+                        : me.attendance.status === 'in' && me.attendance.reason === 'answered'
+                          ? `Du bist dabei und zahlst ${formatEuro(view.flatPriceCents ?? 0)} an ${view.host?.name ?? 'den Gastgeber'}.`
+                          : `Sag oben zu, dann bist du für ${formatEuro(view.flatPriceCents ?? 0)} dabei.`}
+                    </p>
+                  )}
+                  <MyMoney
+                    view={view}
+                    me={me}
+                    canEdit={editable(me)}
+                    payable={payable}
+                    stays={aheadBoxes.length > 0 ? view.restaurant?.name : undefined}
+                  />
+                  {aheadBoxes.map((box) => {
+                    // What it would roughly come to if that restaurant wins: their dishes there
+                    // and an equal part of its fees, line by line.
+                    const ahead = view.ahead.find(
+                      (entry) => entry.restaurant.id === box.restaurantId
+                    );
+                    const lines = [
+                      ...box.dishes,
+                      ...(ahead && ahead.eaters > 0
+                        ? feeLines(
+                            Math.round(ahead.estimate.sharedCents / ahead.eaters),
+                            ahead.estimate,
+                            ahead.eaters
+                          )
+                        : []),
+                      ...(!amHost && me.money.drinksCents > 0
+                        ? [{ label: 'Getränke', cents: me.money.drinksCents }]
+                        : []),
+                    ];
+                    return (
+                      <PayBox
+                        key={box.restaurantId}
+                        date={date}
+                        memberId={me.member.id}
+                        amountCents={lines.reduce((sum, line) => sum + line.cents, 0)}
+                        lines={lines}
+                        payees={[]}
+                        label={`Gewinnt ${box.name} · ungefähr`}
+                        payable={false}
+                        maybe
+                        note={`${
+                          box.usual
+                            ? 'Dann bekommst du dort deinen Standard, wenn du nichts anderes aussuchst.'
+                            : `Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}.`
+                        } Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
+                      />
+                    );
+                  })}
+                </GlassCard>
+              </OrderGlow>
             </section>
           </aside>
         )}

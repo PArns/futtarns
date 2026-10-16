@@ -17,7 +17,7 @@ import {
   type FridayView,
 } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
-import { getDefault, orderUsual } from '@/lib/services/orders';
+import { getDefault, orderSame, orderUsual } from '@/lib/services/orders';
 import { restaurantsForHost } from '@/lib/services/restaurants';
 import { optionForLetter, standings, voteLetter, votingAt } from '@/lib/vote';
 import { sendWhatsApp } from '@/lib/whatsapp';
@@ -157,6 +157,34 @@ export async function handleIncoming(
       return 'dish' in usual
         ? `Alles klar: ${bold(usual.dish)} wie immer. Du bist dabei.`
         : 'Alles klar, wie immer: du kommst, isst aber nichts mit.';
+    }
+
+    case 'same': {
+      const view = await loadFriday(db, date, now);
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.locked || isPastDeadline(date, now)) {
+        return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
+      }
+      if (view.mode === 'flat') {
+        return `Diesmal gibt's ${bold(view.flatTitle ?? 'eine Pauschale')}, da gibt es nichts zu bestellen. Mit ${bold('1')} bist du dabei.`;
+      }
+      if (!view.restaurant) return 'Das Restaurant steht noch nicht fest, ich sag Bescheid.';
+      const mine = view.participants.find((entry) => entry.member.id === member.id);
+      if (mine?.items.length) {
+        return `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt. Passt!`;
+      }
+      const same = await orderSame(db, date, member.id, view.restaurant.id, now);
+      if (!same) {
+        return `Bei ${bold(view.restaurant.name)} hast du noch nie bestellt. Such dir was aus:\n${link}`;
+      }
+      const gone = same.gone.length ? `Nicht mehr auf der Karte: ${same.gone.join(', ')}.` : '';
+      if (same.ordered.length === 0) {
+        return `${gone} Such dir bitte was Neues aus:\n${link}`;
+      }
+      return [
+        `👍 Alles klar, wie am ${formatDayShort(same.date)}: ${bold(same.ordered.join(', '))}. Du bist dabei.`,
+        ...(gone ? [gone] : []),
+      ].join('\n');
     }
 
     case 'others': {
