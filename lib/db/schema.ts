@@ -177,6 +177,10 @@ export const attendance = pgTable(
       .references(() => members.id, { onDelete: 'cascade' }),
     status: text('status').$type<AttendanceStatus>().notNull(),
     addedById: integer('added_by_id').references(() => members.id, { onDelete: 'set null' }),
+    // Comes later than the food: their dish may be worth ordering later. `arrivesAt` is the
+    // rough time (`21:00`), when they know it.
+    late: boolean('late').notNull().default(false),
+    arrivesAt: text('arrives_at'),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.fridayDate, t.memberId] })]

@@ -25,6 +25,7 @@ import { CostsSection } from '@/components/friday/costs-section';
 import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
 import { HostSection } from '@/components/friday/host-section';
+import { LateControl } from '@/components/friday/late-control';
 import { HostPicker } from '@/components/friday/host-tools';
 import { MenuChoice, type MenuOption } from '@/components/friday/menu-choice';
 import { MenuPreview } from '@/components/friday/menu-preview';
@@ -51,10 +52,16 @@ import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/date
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
-import { buildOrderSheet } from '@/lib/order-sheet';
+import { sheetsByArrival } from '@/lib/order-sheet';
 import { debtLines, feeLines, toPayee } from '@/lib/balance';
 import { unitPriceCents } from '@/lib/menu/options';
-import { canEditOrderOf, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
+import {
+  canEditOrderOf,
+  canManageFriday,
+  canSetArrival,
+  canSetHost,
+  canTakeOver,
+} from '@/lib/permissions';
 import {
   loadFriday,
   openBalancesFor,
@@ -327,10 +334,8 @@ export async function FridayScreen({
         (await getRestaurant(db, leaderId)));
   const outcome = leader ? projectVoteResult(view, leader) : view;
   const leaderDefaults = leader ? await membersWithDefault(db, leader.id) : null;
-  const sheet = buildOrderSheet(
-    outcome.participants.flatMap((participant) => participant.items),
-    nameOf
-  );
+  // Whoever comes later gets their dishes in a list of their own, to order later.
+  const { now: sheet, later: sheetLater } = sheetsByArrival(outcome.participants, nameOf);
   const hungry = closed
     ? []
     : outcome.participants.filter(
@@ -647,6 +652,18 @@ export async function FridayScreen({
               disabled={!editable(me)}
               hasItems={me.items.length > 0}
             />
+            {me.attendance.status !== 'out' && !view.settled && (
+              <LateControl
+                date={date}
+                memberId={viewer.id}
+                late={me.late}
+                arrivesAt={me.arrivesAt}
+                deadline={formatTime(view.deadline)}
+                disabled={
+                  !canSetArrival(viewer, { id: viewer.id, addedById: null }, hostId, lockState)
+                }
+              />
+            )}
             <p className="text-muted-foreground text-xs">{answerHint}</p>
           </div>
         )}
@@ -1135,6 +1152,7 @@ export async function FridayScreen({
                 closed={closed}
                 sheet={sheet}
                 sheetFor={leader?.name ?? null}
+                sheetLater={sheetLater}
                 hungry={hungry}
                 restaurants={pickable.map(({ id, name, delivers }) => ({
                   id,

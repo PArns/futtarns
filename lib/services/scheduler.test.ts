@@ -980,3 +980,55 @@ describe('the restaurant vote', () => {
     expect(view.preorders).toEqual([]);
   });
 });
+
+describe('coming later', () => {
+  it('puts the food of whoever comes later on a list of its own, from the bot to the host', async () => {
+    const { anna, ben, dish } = await setup();
+    const pizza = { dishId: dish.id, selection: {}, note: null, quantity: 1 };
+    const morning = at('2026-10-16T08:00:00Z');
+
+    // Ben comes later; he still picks by the deadline, and the bot says so.
+    const reply = await handleIncoming(
+      db,
+      '+491703333333',
+      'Komme später gegen 21:30',
+      morning,
+      send
+    );
+    expect(reply).toContain('🕘 Alles klar, du kommst gegen *21:30*.');
+    expect(reply).toContain('Such dir bis *19:00* trotzdem was aus');
+    await addItem(db, FRIDAY, ben.id, pizza, { now: morning });
+    await addItem(db, FRIDAY, anna.id, pizza, { now: morning });
+    expect(await handleIncoming(db, '+491703333333', 'status', morning, send)).toContain(
+      '🕘 Du kommst später (gegen 21:30).'
+    );
+
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    const sheet = sent.find(
+      (message) => message.to === '+491701111111' && message.text.includes('Bestellschluss!')
+    )!.text;
+    expect(sheet).toContain(
+      '1× Margherita – Anna\n\n🕘 *Kommen später, lieber später bestellen:*\n1× Margherita – Ben (~21:30)'
+    );
+  });
+
+  it('takes it back with „pünktlich“ or by backing out', async () => {
+    const { ben } = await setup();
+    const morning = at('2026-10-16T08:00:00Z');
+    const late = async () =>
+      (await loadFriday(db, FRIDAY, morning)).participants.find(
+        (entry) => entry.member.id === ben.id
+      )!.late;
+
+    await handleIncoming(db, '+491703333333', 'später', morning, send);
+    expect(await late()).toBe(true);
+    expect(await handleIncoming(db, '+491703333333', 'doch pünktlich', morning, send)).toContain(
+      'pünktlich da'
+    );
+    expect(await late()).toBe(false);
+
+    await handleIncoming(db, '+491703333333', 'später 21', morning, send);
+    await handleIncoming(db, '+491703333333', '3', morning, send);
+    expect(await late()).toBe(false);
+  });
+});

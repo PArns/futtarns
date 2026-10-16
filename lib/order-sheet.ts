@@ -55,6 +55,38 @@ export function buildOrderSheet(
   );
 }
 
+/**
+ * The order split by when it is eaten: what goes in the order now, and the dishes of those
+ * who come later („Ich komm später“), which the host may order later. Their names carry the
+ * time they come.
+ */
+export function sheetsByArrival(
+  participants: {
+    items: Parameters<typeof buildOrderSheet>[0];
+    late: boolean;
+    arrivesAt: string | null;
+  }[],
+  nameOf: (memberId: number) => string
+): { now: OrderLine[]; later: OrderLine[] } {
+  const late = participants.filter((entry) => entry.late);
+  const arrival = new Map(
+    late.flatMap((entry) => entry.items.map((item) => [item.memberId, entry.arrivesAt] as const))
+  );
+  return {
+    now: buildOrderSheet(
+      participants.filter((entry) => !entry.late).flatMap((entry) => entry.items),
+      nameOf
+    ),
+    later: buildOrderSheet(
+      late.flatMap((entry) => entry.items),
+      (memberId) => {
+        const at = arrival.get(memberId);
+        return at ? `${nameOf(memberId)} (~${at})` : nameOf(memberId);
+      }
+    ),
+  };
+}
+
 /** The order list as text, one block per menu category. */
 export function orderSheetText(lines: OrderLine[]): string {
   const text: string[] = [];

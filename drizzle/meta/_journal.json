@@ -71,6 +71,13 @@
       "when": 1792081277725,
       "tag": "0009_restaurant-tip",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792175068082,
+      "tag": "0010_late-arrival",
+      "breakpoints": true
     }
   ]
 }

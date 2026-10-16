@@ -14,6 +14,7 @@ import {
   paymentOpen,
   recordPayment,
   setAttendance,
+  setLate,
   type FridayView,
 } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
@@ -187,6 +188,32 @@ export async function handleIncoming(
       ].join('\n');
     }
 
+    case 'late': {
+      const view = await loadFriday(db, date, now);
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.settled) return `Freitag (${formatDayShort(date)}) ist schon abgerechnet.`;
+      await setLate(db, date, member.id, true, command.arrivesAt, now);
+      const after = await loadFriday(db, date, now);
+      const mine = after.participants.find((entry) => entry.member.id === member.id);
+      const when = command.arrivesAt ? `gegen ${bold(command.arrivesAt)}` : 'später';
+      const host = after.host?.name ?? 'der Gastgeber';
+      // Whoever comes later still picks by the deadline; their dish goes on the later list.
+      const food =
+        after.mode !== 'delivery' || mine?.attendance.status !== 'in'
+          ? ''
+          : mine.items.length
+            ? `\nDein ${bold(mine.items.map((item) => item.name).join(', '))} kommt auf die Später-Liste, ${host} bestellt es dann für später.`
+            : after.locked || isPastDeadline(date, now)
+              ? `\nAussuchen geht nicht mehr, sag ${host} direkt, was du willst.`
+              : `\nSuch dir bis ${bold(formatTime(after.deadline))} trotzdem was aus, ${host} bestellt es dann für später:\n${link}`;
+      return `🕘 Alles klar, du kommst ${when}.${food}`;
+    }
+
+    case 'onTime': {
+      await setLate(db, date, member.id, false, null, now);
+      return '⏰ Alles klar, du bist pünktlich da.';
+    }
+
     case 'others': {
       const view = await loadFriday(db, date, now);
       if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
@@ -251,7 +278,9 @@ export async function handleIncoming(
         view.mode === 'flat'
           ? `${view.flatTitle ?? 'Pauschale'} für ${formatEuro(view.flatPriceCents ?? 0)}`
           : (view.restaurant?.name ?? 'Restaurant noch offen');
-      const status = me ? STATUS_LINE[me.attendance.status] : '';
+      const status = me
+        ? `${STATUS_LINE[me.attendance.status]}${me.late ? `\n🕘 Du kommst später${me.arrivesAt ? ` (gegen ${me.arrivesAt})` : ''}.` : ''}`
+        : '';
       const items = me?.items.length
         ? `\nBestellt: ${bold(me.items.map((item) => item.name).join(', '))}`
         : '';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
+import { canManageFriday, canSetArrival, canSetHost, canTakeOver } from '@/lib/permissions';
 
 const member = { id: 2, isAdmin: false, assignsHosts: false };
 const hostRole = { id: 3, isAdmin: false, assignsHosts: true };
@@ -40,5 +40,18 @@ describe('canTakeOver', () => {
     expect(canTakeOver(anna, { ...away, cancelled: true })).toBe(false);
     expect(canTakeOver({ ...anna, core: false }, away)).toBe(false);
     expect(canTakeOver({ ...anna, id: 1 }, away)).toBe(false);
+  });
+});
+
+describe('canSetArrival', () => {
+  const anna = { id: 2, isAdmin: false, assignsHosts: false };
+  const self = { id: 2, addedById: null };
+
+  it('lets people say they come later after the deadline too, but not once settled', () => {
+    expect(canSetArrival(anna, self, 1, { locked: true, settled: false })).toBe(true);
+    expect(canSetArrival(anna, self, 1, { locked: true, settled: true })).toBe(false);
+    expect(
+      canSetArrival(anna, { id: 3, addedById: null }, 1, { locked: false, settled: false })
+    ).toBe(false);
   });
 });

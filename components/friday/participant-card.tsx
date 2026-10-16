@@ -6,6 +6,7 @@ import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Pill } from '@/components/ui/pill';
+import { lateLabel } from '@/lib/arrival';
 import { collecting } from '@/lib/balance';
 import { formatEuro } from '@/lib/format';
 import type { FridayView, Participant } from '@/lib/services/fridays';
@@ -149,6 +150,12 @@ export function ParticipantCard({
                 <ShoppingBag className="text-primary size-3.5 shrink-0" aria-label="Holt ab" />
               )}
             </div>
+            {participant.late && (
+              <p className="text-primary flex items-center gap-1 text-xs font-semibold">
+                <Clock className="size-3.5 shrink-0" />
+                {lateLabel(participant.arrivesAt)}
+              </p>
+            )}
             {sub && <p className="text-muted-foreground truncate text-xs">{sub}</p>}
           </div>
           {canEdit ? (

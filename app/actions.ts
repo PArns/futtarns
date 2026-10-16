@@ -20,7 +20,7 @@ import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/wha
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
-import { canEditOrderOf, canManageFriday, canSetHost } from '@/lib/permissions';
+import { canEditOrderOf, canManageFriday, canSetArrival, canSetHost } from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
   createSession,
@@ -40,6 +40,7 @@ import {
   paymentOpen,
   reopenSettlement,
   setAttendance,
+  setLate,
   setCancelled,
   setDrinksFee,
   setDrinksOptOut,
@@ -227,6 +228,49 @@ export async function setAnswerAction(input: {
       .parse(input);
     const { db } = await orderAccess(viewer, data.date, data.memberId);
     await setAttendance(db, data.date, data.memberId, data.status);
+  });
+}
+
+/** „Ich komm später“, with a rough time, or taken back; also after the deadline. */
+export async function setLateAction(input: {
+  date: string;
+  memberId: number;
+  late: boolean;
+  arrivesAt: string | null;
+}): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    const data = z
+      .object({
+        date: fridayDate,
+        memberId,
+        late: z.boolean(),
+        arrivesAt: z.string().max(5).nullable(),
+      })
+      .parse(input);
+    const db = await getDb();
+    const row = await getFridayRow(db, data.date);
+    if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+    const [answer] = await db
+      .select({ addedById: attendance.addedById })
+      .from(attendance)
+      .where(and(eq(attendance.fridayDate, data.date), eq(attendance.memberId, data.memberId)));
+    const allowed = canSetArrival(
+      viewer,
+      { id: data.memberId, addedById: answer?.addedById ?? null },
+      await hostIdFor(db, data.date),
+      { locked: false, settled: Boolean(row?.settledAt) }
+    );
+    if (!allowed) throw new ServiceError('Das darfst du nicht ändern');
+    await setLate(db, data.date, data.memberId, data.late, data.arrivesAt);
+    return {
+      ok: true,
+      message: !data.late
+        ? 'Alles klar, pünktlich'
+        : data.arrivesAt
+          ? `Alles klar, gegen ${data.arrivesAt}`
+          : 'Alles klar, später',
+    };
   });
 }
 
