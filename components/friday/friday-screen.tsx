@@ -523,18 +523,26 @@ export async function FridayScreen({
         }
       >
         <div className="hero-item mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-          {manage && !view.cancelled && !view.settled && (
-            <a
-              href="#chefsache"
-              className={buttonVariants({
-                variant: 'outline',
-                size: 'sm',
-                className: 'order-last',
-              })}
-            >
-              <Store /> {flat ? 'Restaurant oder Pauschale' : 'Restaurant wählen'}
-            </a>
-          )}
+          {/*
+            The host's shortcut to settle the restaurant, while it is still open: during the
+            vote or without one. Once the vote has decided, changing it stays in „Chefsache“.
+          */}
+          {manage &&
+            !view.cancelled &&
+            !view.settled &&
+            !closed &&
+            (voting || !view.restaurant) && (
+              <a
+                href="#chefsache"
+                className={buttonVariants({
+                  variant: 'outline',
+                  size: 'sm',
+                  className: 'order-last',
+                })}
+              >
+                <Store /> {flat ? 'Restaurant oder Pauschale' : 'Restaurant festlegen'}
+              </a>
+            )}
           {view.host && !view.cancelled && (
             <span className="inline-flex items-center gap-2">
               <Avatar name={view.host.name} id={view.host.id} className="size-6 text-[10px]" />
