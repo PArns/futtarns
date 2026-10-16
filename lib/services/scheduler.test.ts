@@ -307,7 +307,8 @@ describe('upcoming messages', () => {
   it('lists who hears what and when, and drops what went out', async () => {
     const { anna, ben, restaurant, dish } = await setup();
     await setDefaultDish(db, ben.id, restaurant.id, { dishId: dish.id, selection: {}, note: null });
-    await setAttendance(db, FRIDAY, anna.id, 'in');
+    // Answered at a fixed time: the 10:00 reminder only goes to who answered before it.
+    await setAttendance(db, FRIDAY, anna.id, 'in', at('2026-10-12T08:00:00Z'));
     expect((await preview(at('2026-10-12T08:00:00Z')))[0]).toEqual([
       '2026-10-14T10:00:00.000Z',
       'Kommst du?',
