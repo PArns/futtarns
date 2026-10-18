@@ -79,6 +79,10 @@ import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
 function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
+  // Three steps don't fit the narrowest phones: there only the step up next keeps its label,
+  // or the last one once all are done.
+  const next = steps.findIndex((step) => !step.done);
+  const labelled = next === -1 ? steps.length - 1 : next;
   return (
     <ol className="flex max-w-md items-center gap-1.5 text-xs font-semibold">
       {steps.map((step, index) => (
@@ -97,7 +101,8 @@ function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
           <span
             className={cn(
               'whitespace-nowrap',
-              step.done ? 'text-foreground' : 'text-muted-foreground'
+              step.done ? 'text-foreground' : 'text-muted-foreground',
+              steps.length > 2 && index !== labelled && 'max-[360px]:sr-only'
             )}
           >
             {step.label}
@@ -509,7 +514,9 @@ export async function FridayScreen({
         icon={flat ? Flame : CalendarDays}
         kicker={
           <span className="whitespace-nowrap">
-            {isCurrent ? 'Diese Woche' : 'Freitag'} · {formatDayShort(date)}
+            {/* The narrowest phones have room for the date only, beside the arrows. */}
+            <span className="max-[375px]:hidden">{isCurrent ? 'Diese Woche' : 'Freitag'} · </span>
+            {formatDayShort(date)}
           </span>
         }
         aside={

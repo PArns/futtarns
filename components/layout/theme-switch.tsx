@@ -15,7 +15,7 @@ export function ThemeSwitch() {
       type="button"
       onClick={() => setTheme(dark ? 'light' : 'dark')}
       aria-label={dark ? 'Helles Design' : 'Dunkles Design'}
-      className="border-border/60 bg-muted/60 hover:border-primary/50 relative inline-flex h-7 w-12 shrink-0 rounded-full border transition-colors"
+      className="border-border/60 bg-muted/60 hover:border-primary/50 relative inline-flex h-7 w-12 shrink-0 rounded-full border transition-colors max-[400px]:w-10"
     >
       <span
         className={cn(

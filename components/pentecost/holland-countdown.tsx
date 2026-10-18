@@ -29,7 +29,7 @@ export function HollandChip({ serverNow }: { serverNow: number }) {
         <span>Holland!</span>
       ) : (
         <>
-          <span className="sm:hidden">{days >= 1 ? `${days} T.` : left}</span>
+          <span className="max-[360px]:hidden sm:hidden">{days >= 1 ? `${days} T.` : left}</span>
           <span className="max-sm:hidden lg:hidden">noch {left}</span>
           <span className="max-lg:hidden">Pfingsten: noch {left}</span>
         </>

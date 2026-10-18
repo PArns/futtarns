@@ -111,6 +111,12 @@
   html {
     -webkit-tap-highlight-color: transparent;
   }
+  /* Nothing may push the page sideways on a phone: an element that is too wide gets clipped.
+     `clip`, unlike `hidden`, keeps sticky elements working. */
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     @apply bg-background text-foreground;
   }

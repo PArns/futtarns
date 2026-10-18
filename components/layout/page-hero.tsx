@@ -36,7 +36,7 @@ export function PageHero({
             {kicker && (
               <Pill size="label" className="min-w-0 shadow-none">
                 {Icon && <Icon />}
-                {kicker}
+                <span className="min-w-0 truncate">{kicker}</span>
               </Pill>
             )}
             {aside && <div className="-my-2 -mr-2 flex shrink-0 items-center">{aside}</div>}

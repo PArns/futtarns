@@ -71,7 +71,7 @@ export function DishForm({
           name="options"
           value={options}
           onChange={(event) => setOptions(event.target.value)}
-          className="min-h-20 font-mono text-xs"
+          className="min-h-20 font-mono"
           placeholder={'Größe (1): Normal | Groß +2,50\nExtras (0-3): Käse +1 | Salami +1,50'}
         />
         <Hint>{OPTIONS_HELP}</Hint>

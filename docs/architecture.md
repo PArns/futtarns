@@ -232,3 +232,13 @@ left.
 Every year the group spends Friday to Tuesday around Pentecost in Holland. `lib/pentecost.ts`
 derives the dates from Easter; the header counts down to the Friday on every page, the
 calendar shows the full countdown and marks that Friday.
+
+## On a phone
+
+Most people open the page on an iPhone, so it never scrolls sideways. `html` and `body`
+clip whatever sticks out (`overflow-x: clip`, which unlike `hidden` keeps sticky elements
+working), and narrow screens drop text instead of overflowing: the header shows icons and
+only the flag of the Holland countdown, a Friday's kicker only the date, the steps only the
+next label. Form fields are 16px on a phone, because iOS Safari zooms into a smaller field
+on focus and the page then pans sideways. The small pill select (`Select variant="sm"`)
+shows its choice in small text, with the real select invisible on top at 16px.

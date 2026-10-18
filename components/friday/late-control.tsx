@@ -56,8 +56,7 @@ export function LateControl({
             value={arrivesAt ?? ''}
             disabled={disabled || pending}
             onChange={(event) => set(true, event.target.value || null)}
-            // Room for the arrow, which the small size's padding would cover.
-            className="w-auto pr-8"
+            className="w-auto"
           >
             <option value="">Uhrzeit offen</option>
             {ARRIVAL_TIMES.map((time) => (
