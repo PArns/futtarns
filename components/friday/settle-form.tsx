@@ -52,7 +52,7 @@ export function SettleForm({
           disabled={pending}
           onClick={() => execute(() => reopenSettlementAction(date))}
         >
-          <RotateCcw /> Abrechnung öffnen, um Bestellungen zu korrigieren
+          <RotateCcw /> Abrechnung wieder öffnen
         </Button>
       )}
     </div>

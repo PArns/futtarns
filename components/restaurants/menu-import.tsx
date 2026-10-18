@@ -63,7 +63,7 @@ export function MenuImport({ restaurantId }: { restaurantId: number }) {
           setTyped(event.target.value);
           setSkipped(new Set());
         }}
-        className="min-h-40 font-mono text-xs"
+        className="min-h-40 font-mono"
         placeholder={
           '# Pizza\nMargherita 8,50 | Tomate, Mozzarella\nSalami 9,50\n\noder direkt von Lieferando kopiert:\nPizza Funghi\nmit Champignons\n9,90 €'
         }

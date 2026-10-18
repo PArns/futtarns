@@ -37,7 +37,7 @@ const LINKS = [
 export function NavLinks({ canManage }: { canManage: boolean }) {
   const pathname = usePathname();
   return (
-    <nav className="flex items-center gap-1 sm:gap-1.5">
+    <nav className="flex items-center gap-1 max-[400px]:gap-0.5 sm:gap-1.5">
       {LINKS.filter((link) => !link.managersOnly || canManage).map(
         ({ href, label, icon: Icon, match }) => {
           const active = match(pathname);
@@ -47,7 +47,7 @@ export function NavLinks({ canManage }: { canManage: boolean }) {
               href={href}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                'inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-200 sm:px-2.5',
+                'inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium transition-colors duration-200 max-[400px]:px-1.5 sm:px-2.5',
                 active
                   ? 'bg-primary/12 text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
