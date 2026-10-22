@@ -219,9 +219,9 @@ export async function setRestaurant(
 }
 
 /**
- * Counts the restaurant vote once Thursday is over: the most votes win, no votes or a tie
- * leave the restaurant as it is. Orders from the winner stay, all others go. Runs once per
- * Friday, from a page view or the timer.
+ * Counts the restaurant vote once it closes on Friday at 16:00: the most votes win, no votes
+ * or a tie leave the restaurant as it is. Orders from the winner stay, all others go. Runs
+ * once per Friday, from a page view or the timer.
  */
 export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boolean> {
   if (now < voteClosesAt(date)) return false;
@@ -250,8 +250,8 @@ export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boole
   const switched = winner !== currentId;
   // Orders from any other restaurant go, those placed before the vote and those ordered
   // ahead from a loser alike. Whoever is left without an order from the winner hears about
-  // it in the morning when it concerns them: their orders went, their pick lost, or they
-  // said yes to a restaurant the vote replaced.
+  // it right away when it concerns them: their orders went, their pick lost, or they said
+  // yes to a restaurant the vote replaced.
   const ordered = await db
     .select({ memberId: orderItems.memberId, restaurantId: orderItems.restaurantId })
     .from(orderItems)

@@ -6,6 +6,7 @@ import {
   loadFriday,
   recordPayment,
   setAttendance,
+  setCancelled,
   setPickup,
   setRestaurant,
   settleFriday,
@@ -271,14 +272,15 @@ describe('reminders', () => {
     const { restaurant } = await setup();
     await setRestaurant(db, FRIDAY, null);
     await runScheduler(db, at('2026-10-15T16:05:00Z'), send, noPause);
-    await runScheduler(db, at('2026-10-16T07:05:00Z'), send, noPause);
+    // On Friday not before ten, and then together with the invitations.
+    expect(await runScheduler(db, at('2026-10-16T07:55:00Z'), send, noPause)).toBe(0);
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     const toHost = sent.filter((message) => message.to === '+491701111111');
     expect(toHost).toHaveLength(2);
     expect(toHost.every((message) => message.text.includes('noch kein Restaurant'))).toBe(true);
-    sent = [];
-    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
-    expect(sent.map((message) => message.to).sort()).toEqual(['+491702222222', '+491703333333']);
-    expect(sent.every((message) => message.text.includes('Restaurant kommt noch'))).toBe(true);
+    const invites = sent.filter((message) => message.text.startsWith('🎉'));
+    expect(invites.map((message) => message.to).sort()).toEqual(['+491702222222', '+491703333333']);
+    expect(invites.every((message) => message.text.includes('Restaurant kommt noch'))).toBe(true);
     sent = [];
     await setRestaurant(db, FRIDAY, restaurant.id);
     await runScheduler(db, at('2026-10-16T08:10:00Z'), send, noPause);
@@ -298,6 +300,27 @@ describe('reminders', () => {
     expect(invites).toHaveLength(2);
     expect(invites[0]!.text).toContain('wo, klären wir noch');
     expect(invites[0]!.text).not.toContain('bei Patrick');
+  });
+
+  it('sends nothing before ten: what falls due at night waits until then', async () => {
+    await setup();
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    await setCancelled(db, FRIDAY, true, null);
+    sent = [];
+    // Called off at half past one on Thursday night.
+    const night = at('2026-10-14T23:30:00Z');
+    expect(await runScheduler(db, night, send, noPause)).toBe(0);
+    expect(await runScheduler(db, at('2026-10-15T07:55:00Z'), send, noPause)).toBe(0);
+    expect(
+      (await upcomingMessages(db, await loadFriday(db, FRIDAY, night), night))[0]
+    ).toMatchObject({ at: at('2026-10-15T08:00:00Z'), kind: 'Absage' });
+    await runScheduler(db, at('2026-10-15T08:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual([
+      '+491701111111',
+      '+491702222222',
+      '+491703333333',
+    ]);
+    expect(sent[0]!.text).toContain('fällt aus');
   });
 
   it('understands WhatsApp replies', async () => {
@@ -470,9 +493,9 @@ describe('fetching the food', () => {
 
 describe('the restaurant vote', () => {
   const NEXT = '2026-10-23';
-  // Wednesday 12:05 and Friday 00:01, Berlin time.
+  // Wednesday 12:05 and Friday 16:01, Berlin time.
   const WEDNESDAY = at('2026-10-21T10:05:00Z');
-  const AFTER = at('2026-10-22T22:01:00Z');
+  const AFTER = at('2026-10-23T14:01:00Z');
 
   async function voteSetup() {
     const base = await setup();
@@ -490,9 +513,9 @@ describe('the restaurant vote', () => {
     return { ...base, sushi };
   }
 
-  it('sends the ballot on Wednesday and lets the majority decide at midnight', async () => {
+  it('sends the ballot on Wednesday and lets the majority decide on Friday at four', async () => {
     const { anna, dish, sushi } = await voteSetup();
-    await setAttendance(db, NEXT, anna.id, 'in');
+    await setAttendance(db, NEXT, anna.id, 'in', at('2026-10-20T10:00:00Z'));
     // An order placed before the vote goes when the restaurant changes.
     await addItem(db, NEXT, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
 
@@ -505,6 +528,7 @@ describe('the restaurant vote', () => {
     expect(ask.text).toContain(
       '*Wo bestellen wir am Freitag?* Antworte mit dem Buchstaben:\n*A* · Bella Napoli 👑\n*B* · Sakura Sushi\n'
     );
+    expect(ask.text).toContain('Abstimmen bis *Freitag um 16:00*, wer abstimmt, ist dabei.');
     expect(ask.text).toContain('Karten, Lieferkosten und Vorbestellen:');
     // Anna already answered and the host is in anyway: they only get the ballot.
     const ballots = sent.filter((message) => !message.text.includes('Bist du dabei?'));
@@ -530,16 +554,17 @@ describe('the restaurant vote', () => {
       "Freitag gibt's *Sakura Sushi*"
     );
 
-    // Anna's order went with the old restaurant; she hears about it in the morning, not at night.
+    // Anna's order went with the old restaurant; she hears about it as soon as the vote is
+    // counted. The result already asks her to pick something, so the order reminder stays away.
+    const toAnna = () => sent.filter((message) => message.to === '+491702222222');
     sent = [];
     await runScheduler(db, AFTER, send, noPause);
-    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
-    await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
-    const repick = sent.find((message) => message.to === '+491702222222');
-    expect(repick?.text).toContain("*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!");
+    expect(toAnna().map((message) => message.text)).toEqual([
+      expect.stringContaining("*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!"),
+    ]);
     sent = [];
-    await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
-    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+    await runScheduler(db, at('2026-10-23T14:10:00Z'), send, noPause);
+    expect(toAnna()).toEqual([]);
   });
 
   it('does not send the ballot again to someone who answers the question it came with', async () => {
@@ -554,9 +579,9 @@ describe('the restaurant vote', () => {
     expect(sent.filter((message) => message.to === '+491703333333')).toEqual([]);
   });
 
-  it('leaves the host alone on Thursday while the group votes, and asks no one on Friday morning', async () => {
+  it('leaves the host alone while the group votes, and asks them once it decided nothing', async () => {
     const { host } = await voteSetup();
-    // No usual restaurant: the vote decides, or else the host on Friday morning.
+    // No usual restaurant: the vote decides, or else the host once it is over.
     await setHostRestaurant(db, host.id, null);
     await runScheduler(db, WEDNESDAY, send, noPause);
     sent = [];
@@ -566,20 +591,26 @@ describe('the restaurant vote', () => {
     expect(sent.find((message) => message.to === '+491701111111')?.text).toContain(
       'Noch keine Stimme, dann sucht der Gastgeber aus.'
     );
-    sent = [];
-    await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
-    expect(sent.find((message) => message.to === '+491701111111')?.text).toContain(
-      'kein Restaurant fest'
-    );
 
-    // Someone new on Friday morning hears nothing until the invitation at ten.
+    // Someone new on Friday morning hears nothing until the invitation at ten, which carries
+    // the ballot while the vote runs; the host still is not asked.
     await createMember(db, { name: 'Carla', phone: '+491704444444' }, null);
     sent = [];
-    await runScheduler(db, at('2026-10-23T07:30:00Z'), send, noPause);
-    expect(sent.filter((message) => message.to === '+491704444444')).toEqual([]);
+    expect(await runScheduler(db, at('2026-10-23T07:55:00Z'), send, noPause)).toBe(0);
     await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
-    expect(sent.find((message) => message.to === '+491704444444')?.text).toContain(
-      'Es ist Freitag, Carla!'
+    const invite = sent.find((message) => message.to === '+491704444444')?.text;
+    expect(invite).toContain('Es ist Freitag, Carla!');
+    expect(invite).toContain('Restaurant wird bis 16:00 gewählt');
+    expect(invite).toContain('*Wo bestellen wir heute?*');
+    expect(invite).toContain('Abstimmen bis *heute um 16:00*');
+    expect(invite).not.toContain('Such dir bis');
+    expect(sent.filter((message) => message.text.includes('kein Restaurant fest'))).toEqual([]);
+
+    // Nobody voted, so at four it is the host's turn.
+    sent = [];
+    await runScheduler(db, AFTER, send, noPause);
+    expect(sent.find((message) => message.to === '+491701111111')?.text).toContain(
+      'kein Restaurant fest'
     );
   });
 
@@ -607,7 +638,7 @@ describe('the restaurant vote', () => {
     const wednesday = at('2026-10-28T11:05:00Z');
     await handleIncoming(db, '+491702222222', 'b', wednesday, send);
     await handleIncoming(db, '+491703333333', 'a', wednesday, send);
-    expect((await loadFriday(db, next, at('2026-10-29T23:01:00Z'))).restaurant?.id).toBe(
+    expect((await loadFriday(db, next, at('2026-10-30T15:01:00Z'))).restaurant?.id).toBe(
       restaurant.id
     );
   });
@@ -714,7 +745,7 @@ describe('the restaurant vote', () => {
     // Nobody lost an order; only the host, whose vote said yes to sushi without a dish
     // from there, hears the result.
     expect([view.preorders, view.voteDroppedIds]).toEqual([[], [host.id]]);
-    await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
+    await runScheduler(db, AFTER, send, noPause);
     expect(
       sent
         .filter((message) => message.text.includes('Das Volk hat gewählt'))
@@ -810,11 +841,11 @@ describe('the restaurant vote', () => {
     await castVote(db, NEXT, ben.id, restaurant.id, WEDNESDAY);
     await castVote(db, NEXT, host.id, restaurant.id, WEDNESDAY);
 
-    // Bella Napoli stays; Anna's sushi goes and she is asked to pick again in the morning.
+    // Bella Napoli stays; Anna's sushi goes and she is asked to pick again.
     const view = await loadFriday(db, NEXT, AFTER);
     expect(view.restaurant?.id).toBe(restaurant.id);
     expect([view.preorders, view.voteDroppedIds]).toEqual([[], [anna.id]]);
-    await runScheduler(db, at('2026-10-23T07:05:00Z'), send, noPause);
+    await runScheduler(db, AFTER, send, noPause);
     expect(sent.find((message) => message.to === '+491702222222')?.text).toContain(
       "*Das Volk hat gewählt:* Heute gibt's *Bella Napoli*!"
     );
@@ -847,7 +878,7 @@ describe('the restaurant vote', () => {
     ).toEqual(['Margherita']);
   });
 
-  it('tells everyone the vote leaves without an order, at eight in the morning', async () => {
+  it('tells everyone the vote leaves without an order, as soon as it is counted', async () => {
     const { host, anna, ben, restaurant, sushi } = await voteSetup();
     const carla = (await createMember(db, { name: 'Carla', phone: '+491704444444' }, null)).member;
     const dora = (await createMember(db, { name: 'Dora' }, null)).member;
@@ -859,24 +890,53 @@ describe('the restaurant vote', () => {
       .values({ fridayDate: NEXT, memberId: carla.id, restaurantId: restaurant.id });
     for (const id of [anna.id, host.id, dora.id]) await castVote(db, NEXT, id, sushi.id, WEDNESDAY);
 
+    const told = (phone: string) =>
+      sent.filter((message) => message.to === phone).map((message) => message.text);
+    // At ten the vote still runs: only Carla, who has not answered, hears from the bot, and
+    // nobody is reminded to pick from a restaurant that may still change.
+    await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
+    expect(sent.map((message) => message.to)).toEqual(['+491704444444']);
+    expect(told('+491704444444')).toEqual([expect.stringContaining('Es ist Freitag, Carla!')]);
+    sent = [];
+
     expect((await loadFriday(db, NEXT, AFTER)).voteDroppedIds.sort()).toEqual(
       [host.id, anna.id, ben.id, carla.id, dora.id].sort()
     );
-    await runScheduler(db, at('2026-10-23T05:55:00Z'), send, noPause);
-    expect(sent.filter((message) => message.text.includes('Das Volk hat gewählt'))).toEqual([]);
-
-    await runScheduler(db, at('2026-10-23T06:05:00Z'), send, noPause);
-    const told = (phone: string) => sent.find((message) => message.to === phone)?.text ?? '';
-    const result =
-      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* dort was aus";
-    expect(told('+491703333333')).toContain(result);
-    expect(told('+491702222222')).toContain(result);
-    // Carla has not answered yet, so the result asks her, instead of the invitation at ten.
-    expect(told('+491704444444')).toContain('Bist du dabei? Antworte mit');
+    await runScheduler(db, AFTER, send, noPause);
+    const result = expect.stringContaining(
+      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* dort was aus"
+    );
+    // The result stands in for the order reminder that falls due with it.
+    expect(told('+491703333333')).toEqual([result]);
+    expect(told('+491702222222')).toEqual([result]);
+    // Carla still has not answered, so the result asks her, instead of announcing the
+    // restaurant to her invitation.
+    expect(told('+491704444444')).toEqual([expect.stringContaining('Bist du dabei? Antworte mit')]);
     sent = [];
+    await runScheduler(db, at('2026-10-23T14:10:00Z'), send, noPause);
+    expect(told('+491704444444')).toEqual([]);
+    expect(told('+491702222222')).toEqual([]);
+  });
+
+  it('reminds to pick something only once the vote has decided where', async () => {
+    const { anna, ben, restaurant, dish } = await voteSetup();
+    await setDefaultDish(db, ben.id, restaurant.id, { dishId: dish.id, selection: {}, note: null });
+    // Anna votes on Wednesday for the restaurant it stays at, without a dish; Ben says nothing.
+    await castVote(db, NEXT, anna.id, restaurant.id, WEDNESDAY);
     await runScheduler(db, at('2026-10-23T08:05:00Z'), send, noPause);
-    expect(told('+491704444444')).toBe('');
-    expect(told('+491702222222')).toBe('');
+    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+    expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
+      'Restaurant wird bis 16:00 gewählt'
+    );
+
+    sent = [];
+    await runScheduler(db, AFTER, send, noPause);
+    expect(sent.find((message) => message.to === '+491702222222')?.text).toContain(
+      'Bis *19:00* kannst du bei *Bella Napoli* aussuchen'
+    );
+    expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
+      'Für heute steht es fest: *Bella Napoli*.\nSuch dir bis *19:00* was aus, sonst bekommst du deinen Standard (*Margherita*).'
+    );
   });
 
   it('previews the messages after the vote as if the restaurant ahead now wins', async () => {
@@ -919,6 +979,7 @@ describe('the restaurant vote', () => {
     await runScheduler(db, at('2026-10-22T16:05:00Z'), send, noPause);
     expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491703333333']);
     expect(sent[0]!.text).toContain('*Deine Stimme kann’s noch drehen!*');
+    expect(sent[0]!.text).toContain('Das Wahllokal schließt *morgen um 16:00*');
     expect(sent[0]!.text).toContain('*Stand:*\nSakura Sushi 1 (Anna)');
     expect(sent[0]!.text).toContain('*A* · Bella Napoli 👑\n*B* · Sakura Sushi');
     sent = [];

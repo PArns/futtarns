@@ -73,7 +73,7 @@ import { getDefaultHost, listGuests, listMembers } from '@/lib/services/members'
 import { getDefault, membersWithDefault } from '@/lib/services/orders';
 import { getRestaurant, listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { upcomingMessages } from '@/lib/services/scheduler';
-import { tally, voteClosesAt, voteLetter, voteWinner, votingAt } from '@/lib/vote';
+import { tally, voteClosesAt, voteEndsText, voteLetter, voteWinner, votingAt } from '@/lib/vote';
 import { botState } from '@/lib/whatsapp';
 import { cn } from '@/lib/utils';
 
@@ -541,7 +541,7 @@ export async function FridayScreen({
           voteRuns && view.restaurant ? (
             <>
               {title}{' '}
-              {/* Only what it stays at if nobody votes: the vote decides on Thursday night. */}
+              {/* Only what it stays at if nobody votes: the vote decides on Friday at 16:00. */}
               <span className="text-warning inline-flex items-center gap-1 align-middle text-sm font-semibold tracking-normal whitespace-nowrap">
                 <Crown className="size-4" /> bisher
               </span>
@@ -843,8 +843,8 @@ export async function FridayScreen({
                 title="Wo essen wir?"
                 hint={
                   view.restaurant
-                    ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.`
-                    : 'Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis Donnerstag, 23:59.'
+                    ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis ${voteEndsText(date, now)}.`
+                    : `Wählt keiner, sucht der Gastgeber aus, sonst entscheidet die Mehrheit. Abstimmen bis ${voteEndsText(date, now)}.`
                 }
               />
               <RestaurantVote
@@ -869,11 +869,11 @@ export async function FridayScreen({
                   closed
                     ? 'Bestellschluss ist vorbei, als Gastgeber kannst du noch nachtragen.'
                     : menus.length > 1
-                      ? 'Such bei beiden aus: Es bleibt nur, was du beim Gewinner der Wahl bestellt hast. Stehst du danach ohne Bestellung da, kriegst du Freitagmorgen per WhatsApp Bescheid.'
+                      ? 'Such bei beiden aus: Es bleibt nur, was du beim Gewinner der Wahl bestellt hast. Stehst du danach ohne Bestellung da, kriegst du nach der Wahl per WhatsApp Bescheid.'
                       : votedFor
                         ? `Was du hier vorbestellst, zählt, wenn ${votedFor.name} die Wahl gewinnt.`
                         : voting
-                          ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst Freitagmorgen per WhatsApp Bescheid.'
+                          ? 'Bestellen geht schon während der Wahl. Gewinnt ein anderes Restaurant, fliegt die Bestellung raus und du kriegst nach der Wahl per WhatsApp Bescheid.'
                           : 'Tippe auf ein Gericht, um es zu bestellen.'
                 }
               />

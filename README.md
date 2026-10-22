@@ -20,7 +20,7 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
   default and switched off with one tap. Pay up front with a PayPal.me link that has the
   amount filled in. After the order the host enters the real total and the split is
   corrected; reminders follow until everyone has paid. The host pays nothing to themselves.
-- **Restaurant vote**: unless the host decides, everyone votes until Thursday 23:59, on the
+- **Restaurant vote**: unless the host decides, everyone votes until Friday 16:00, on the
   page or by WhatsApp, among the restaurants that deliver to the host (or can be fetched).
   No votes or a tie keep the host's usual restaurant.
 - **Stammtruppe and guests**: the core group is asked every week. Guests keep their login,
@@ -35,11 +35,12 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Restaurants**: fees, minimum order, menus from Lieferando (bookmarklet or copy and paste,
   with a preview); anyone can add a missing dish. Every host has their own usual restaurant.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
-- **WhatsApp bot**: on Wednesday the question who comes, the invitation and order reminder
-  on Friday at 10:00, the order list for the host and everyone's payment link at 19:00, the
-  settled amounts and daily payment reminders. The host sees which messages are still to
-  come, to whom and when. People can answer with `1`, `2`, `3`, `wie immer`, `andere`,
-  `bezahlt`, `status` or `code`.
+- **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
+  the order reminder then or, when the group votes, with the result at 16:00, the order list
+  for the host and everyone's payment link at 19:00, the settled amounts and daily payment
+  reminders; nothing before 10:00. The host sees which messages are still to come, to whom
+  and when. People can answer with `1`, `2`, `3`, `wie immer`, `andere`, `bezahlt`,
+  `status` or `code`.
 
 ## Screenshots
 

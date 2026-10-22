@@ -20,7 +20,7 @@ import {
 import { ServiceError } from '@/lib/services/members';
 import { getDefault, orderSame, orderUsual } from '@/lib/services/orders';
 import { restaurantsForHost } from '@/lib/services/restaurants';
-import { optionForLetter, standings, voteLetter, votingAt } from '@/lib/vote';
+import { optionForLetter, standings, voteEndsText, voteLetter, votingAt } from '@/lib/vote';
 import { sendWhatsApp } from '@/lib/whatsapp';
 
 /** The vote while it runs, with the names of the restaurants on its ballot. */
@@ -298,7 +298,7 @@ export async function handleIncoming(
           )
         : [];
       const voting = vote
-        ? `\n🗳️ Die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}, ${
+        ? `\n🗳️ Die Restaurantwahl läuft bis ${bold(voteEndsText(date, now))}, ${
             myVote ? `deine Stimme: ${bold(vote.nameOf(myVote))}` : 'deine Stimme fehlt noch'
           }.`
         : '';
@@ -354,7 +354,7 @@ export async function handleIncoming(
         bold('Stand:'),
         ...standings(options, after.votes, nameOf),
         '',
-        `Umentscheiden geht bis ${bold('Donnerstag um 23:59')}, einfach einen anderen Buchstaben schicken.`,
+        `Umentscheiden geht bis ${bold(voteEndsText(date, now))}, einfach einen anderen Buchstaben schicken.`,
         link,
       ].join('\n');
     }

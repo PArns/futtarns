@@ -114,31 +114,34 @@ the flag on the people page, and new members get it by default.
 
 `planReminders` turns a Friday and the current time into messages with keys; the scheduler
 sends each key once. Every message has a window, so a container that was down does not send
-stale reminders afterwards.
+stale reminders afterwards. Nothing goes out before ten in the morning (`QUIET_UNTIL_HOUR`):
+whatever falls due at night, such as a cancellation or a settlement, waits until ten.
 
-| When (Berlin)        | Who                                        | What                                                  |
-| -------------------- | ------------------------------------------ | ----------------------------------------------------- |
-| Mon 18:00, Wed 10:00 | a host who is away that day                | find a substitute or cancel                           |
-| Wed 12:00 – Thu      | members who haven't answered               | whether they come, with reply options, and the vote   |
-| Wed 12:00 – Thu      | everyone else coming who hasn't voted      | the restaurant vote, if one is running                |
-| Thu 18:00            | coming, got the ballot, not voted          | the standings, while their votes could still swing    |
-| Thu 18:00, Fri 09:00 | host, no restaurant yet                    | pick one (not Thursday while the group votes)         |
-| Fri 08:00            | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't) |
-| Fri 10:00 – 17:00    | members who haven't answered               | invitation with reply options and what to order       |
-| Fri 10:00            | said yes before, uninvited, no order       | order reminder naming their default                   |
-| Fri 18:30            | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)   |
-| Fri 19:00            | host                                       | the order list, the latecomers' dishes apart          |
-| Fri 19:00            | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here  |
-| Sat–Mon 10:00        | host, not settled                          | enter what Lieferando charged                         |
-| after settlement     | open balance ≥ 50 cents either way         | amount to pay or to get back                          |
-| daily 18:00, 10 days | open balance ≥ 50 cents                    | payment reminder                                      |
-| cancelled Friday     | everyone                                   | that it's off                                         |
+| When (Berlin)         | Who                                        | What                                                                               |
+| --------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Mon 18:00, Wed 10:00  | a host who is away that day                | find a substitute or cancel                                                        |
+| Wed 12:00 – Thu       | members who haven't answered               | whether they come, with reply options, and the vote                                |
+| Wed 12:00 – Fri 16:00 | everyone else coming who hasn't voted      | the restaurant vote, if one is running                                             |
+| Thu 18:00             | coming, got the ballot, not voted          | the standings, while their votes could still swing                                 |
+| Thu 18:00, Fri 10:00  | host, no restaurant yet                    | pick one; after a vote only once it is over, at 16:00                              |
+| Fri 10:00 – 17:00     | members who haven't answered               | invitation with reply options and what to order, or the ballot while the vote runs |
+| Fri 10:00             | said yes before, uninvited, no order       | order reminder naming their default; at 16:00 after a vote                         |
+| Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                              |
+| Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                            |
+| Fri 18:30             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                |
+| Fri 19:00             | host                                       | the order list, the latecomers' dishes apart                                       |
+| Fri 19:00             | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here                               |
+| Sat–Mon 10:00         | host, not settled                          | enter what Lieferando charged                                                      |
+| after settlement      | open balance ≥ 50 cents either way         | amount to pay or to get back                                                       |
+| daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                   |
+| cancelled Friday      | everyone                                   | that it's off                                                                      |
 
 Each message goes out once per person and reason, and never right after something that
-already said the same: the Wednesday question carries the ballot, so answering it does not
-bring the ballot again; whoever says yes after the 10:00 order reminder or the 18:30 last
-call (`answeredAt`) was just told by the bot's reply or the page, so those reminders only go
-to whoever answered before them.
+already said the same: the Wednesday question carries the ballot, and so does the Friday
+invitation while the vote runs, so answering either does not bring the ballot again;
+whoever says yes after the order reminder or the 18:30 last call (`answeredAt`) was just
+told by the bot's reply or the page, so those reminders only go to whoever answered before
+them.
 
 Paying opens at the deadline (`paymentOpen`): before it, orders and with them the shares still
 change. Until then the page shows the running amount without a pay button, and neither the
@@ -181,7 +184,7 @@ desktop (`announceOrder`, `useOrderFlash`).
 ## Restaurant vote (`lib/vote.ts`)
 
 Unless the host picks the restaurant themselves (`restaurantChosen`), the group votes on it
-until Thursday 23:59. The ballot lists the restaurants that can serve this Friday's host
+until Friday 16:00 (`VOTE_CLOSE_HOUR`), three hours before the order deadline. The ballot lists the restaurants that can serve this Friday's host
 (`restaurantsForHost`): those that deliver to the host's address (`restaurant_hosts`, ticked
 under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
 pickup, marked „nur abholen“. They are lettered in the order they were created, so a
@@ -192,7 +195,7 @@ they can change or take back their vote until the end. The page and the bot's re
 who voted for what, and each restaurant's menu folds open on the page, fetched when first
 opened (`menuPreviewAction`).
 
-At midnight (`closeVote`, from the timer or the first page view) the restaurant with the
+At 16:00 (`closeVote`, from the timer or the first page view) the restaurant with the
 most votes wins. Without votes, or when two share the lead, the current restaurant (the
 host's usual one, or whatever the first order pinned) stays. A winner that does not deliver
 to the host makes the Friday a pickup Friday.
@@ -218,14 +221,16 @@ from that restaurant plus the default there of everyone who comes and has nothin
 each splits its fees among the people who would really eat if it were the one. Changing or
 taking back the vote drops what was ordered ahead (`castVote`).
 
-At midnight the winner's orders stay and all others go. Whom that leaves without an order
+At 16:00 the winner's orders stay and all others go. Whom that leaves without an order
 from the winner (`voteDroppedIds`: their orders went, their pick lost, or they said yes to
-the restaurant it replaced) gets a message at 08:00 on Friday, never at night; whoever has
-not answered yet is asked there too, instead of the 10:00 invitation. Thursday at 18:00,
-whoever is coming, got the ballot and has not voted gets a reminder with the standings, but
-only while the missing votes could still change the result (`couldSwing`). A host's pick
-ends the vote like the count does, without the messages, and the lock clears whatever is
-left.
+the restaurant it replaced) gets a message right then, in place of the order reminder or
+the restaurant's announcement due with it; whoever has not answered yet is asked there.
+Until then nobody is told to pick from a restaurant that may still change: the Friday
+invitation carries the ballot instead of the restaurant (`invite-open`), and the order
+reminder and the restaurant's announcement wait for the result. Thursday at 18:00, whoever is coming, got the ballot and has not voted gets a reminder with
+the standings, but only while the missing votes could still change the result
+(`couldSwing`). A host's pick ends the vote like the count does, without the messages, and
+the lock clears whatever is left.
 
 ## Pentecost
 

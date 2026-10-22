@@ -1,6 +1,7 @@
 import type { AttendanceStatus } from '@/lib/db/schema';
 import { parseArrival } from '@/lib/arrival';
 import { bold } from '@/lib/messages';
+import { VOTE_CLOSE_HOUR } from '@/lib/vote';
 
 export type Command =
   | { kind: 'answer'; status: AttendanceStatus; confirmed: boolean }
@@ -87,7 +88,7 @@ export const HELP_TEXT = [
   `${bold('gleiches')} – bin dabei, mit dem, was ich letztes Mal hier hatte`,
   `${bold('später 21')} – ich komm später (gegen 21 Uhr), mein Essen wird später bestellt`,
   `${bold('andere')} – was essen die anderen?`,
-  `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Donnerstag 23:59)`,
+  `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Freitag ${VOTE_CLOSE_HOUR}:00)`,
   `${bold('bezahlt')} – ich hab gezahlt`,
   `${bold('status')} – was gibt’s am Freitag?`,
   `${bold('code')} – Login-Code für die Webseite`,

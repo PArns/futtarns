@@ -1,6 +1,6 @@
-import { berlinAt, type IsoDate } from '@/lib/dates';
+import { berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
 import type { FridayMode } from '@/lib/db/schema';
-import { formatEuro } from '@/lib/format';
+import { formatEuro, formatTime } from '@/lib/format';
 
 /** A restaurant the group can vote for on a Friday, as seen from that Friday's host. */
 export type VoteOption = {
@@ -41,14 +41,23 @@ export function deliveryTerms(
 
 export type Vote = { memberId: number; restaurantId: number };
 
-/** Voting ends with Thursday: the last minute to vote is 23:59. */
+/** The vote closes on the Friday itself at this hour, three hours before the order deadline. */
+export const VOTE_CLOSE_HOUR = 16;
+
 export function voteClosesAt(date: IsoDate): Date {
-  return berlinAt(date, 0, 0);
+  return berlinAt(date, 0, VOTE_CLOSE_HOUR);
+}
+
+/** When the vote ends, as said at `now`: `Freitag um 16:00`, `morgen um 16:00` or `heute um 16:00`. */
+export function voteEndsText(date: IsoDate, now: Date): string {
+  const days = daysBetween(todayIso(now), date);
+  const day = days <= 0 ? 'heute' : days === 1 ? 'morgen' : 'Freitag';
+  return `${day} um ${formatTime(voteClosesAt(date))}`;
 }
 
 /**
  * Whether the group can still vote at `at`: a Friday with a restaurant to order from,
- * where the host has not picked one themselves, before Thursday midnight.
+ * where the host has not picked one themselves, before Friday at 16:00.
  */
 export function votingAt(
   friday: {
