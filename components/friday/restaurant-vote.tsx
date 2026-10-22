@@ -31,7 +31,7 @@ export type BallotOption = VoteOption & {
 
 /**
  * The restaurant vote: every option with who wants it, and the viewer's own pick, which
- * they can change or take back until Thursday midnight. The most votes win; without votes
+ * they can change or take back until Friday at 16:00. The most votes win; without votes
  * or on a tie it stays as it is. A dish tapped in a menu is ordered (ahead, unless the
  * Friday orders there already) and votes for its restaurant.
  */

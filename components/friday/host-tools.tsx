@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Chip } from '@/components/ui/chip';
 import { Hint, Input, Label, Select } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
+import { VOTE_CLOSE_HOUR } from '@/lib/vote';
 
 type Option = { id: number; name: string };
 
@@ -64,7 +65,8 @@ export function RestaurantPicker({
       {disabled && <Hint>Schon abgerechnet. Zum Wechseln erst die Abrechnung öffnen.</Hint>}
       {voting && !disabled && (
         <Hint>
-          Die Restaurantwahl läuft bis Donnerstag, 23:59. Wählst du hier selbst, ist sie vorbei.
+          Die Restaurantwahl läuft bis Freitag, {VOTE_CLOSE_HOUR}:00. Wählst du hier selbst, ist sie
+          vorbei.
         </Hint>
       )}
     </Label>

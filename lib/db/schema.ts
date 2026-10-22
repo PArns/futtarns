@@ -126,10 +126,10 @@ export const fridays = pgTable('fridays', {
   }),
   // The host picked the restaurant themselves, which ends the vote; a first order only pins it.
   restaurantChosen: boolean('restaurant_chosen').notNull().default(false),
-  // When the restaurant vote was counted (Thursday midnight), so it is counted once.
+  // When the restaurant vote was counted (Friday at 16:00), so it is counted once.
   voteClosedAt: timestamp('vote_closed_at', { withTimezone: true }),
   // Whom the vote left without an order from the restaurant it decided on (their orders went,
-  // their pick lost, or the restaurant changed); they are asked in the morning to pick.
+  // their pick lost, or the restaurant changed); they are asked to pick once it is counted.
   voteDroppedIds: jsonb('vote_dropped_ids').$type<number[]>().notNull().default([]),
   note: text('note'),
   lockedAt: timestamp('locked_at', { withTimezone: true }),

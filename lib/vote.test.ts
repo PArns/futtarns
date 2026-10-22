@@ -3,6 +3,7 @@ import {
   couldSwing,
   optionForLetter,
   standings,
+  voteEndsText,
   voteLetter,
   voteWinner,
   votingAt,
@@ -74,12 +75,18 @@ describe('votingAt', () => {
     voteClosed: false,
   };
 
-  it('runs until Thursday 23:59 unless the host picked a restaurant', () => {
-    expect(votingAt(friday, new Date('2026-10-15T21:59:00Z'))).toBe(true);
-    expect(votingAt(friday, new Date('2026-10-15T22:00:00Z'))).toBe(false);
+  it('runs until Friday 16:00 unless the host picked a restaurant', () => {
+    expect(votingAt(friday, new Date('2026-10-16T13:59:00Z'))).toBe(true);
+    expect(votingAt(friday, new Date('2026-10-16T14:00:00Z'))).toBe(false);
     expect(votingAt({ ...friday, restaurantChosen: true }, new Date('2026-10-14T10:00:00Z'))).toBe(
       false
     );
     expect(votingAt({ ...friday, mode: 'flat' }, new Date('2026-10-14T10:00:00Z'))).toBe(false);
+  });
+
+  it('says when it ends from where the reader stands', () => {
+    expect(voteEndsText('2026-10-16', new Date('2026-10-14T10:00:00Z'))).toBe('Freitag um 16:00');
+    expect(voteEndsText('2026-10-16', new Date('2026-10-15T16:00:00Z'))).toBe('morgen um 16:00');
+    expect(voteEndsText('2026-10-16', new Date('2026-10-16T08:00:00Z'))).toBe('heute um 16:00');
   });
 });

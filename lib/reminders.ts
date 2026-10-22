@@ -9,6 +9,7 @@ import {
   couldSwing,
   standings,
   voteClosesAt,
+  voteEndsText,
   voteLetter,
   votingAt,
   type VoteOption,
@@ -22,6 +23,14 @@ const PAY_REMINDER_DAYS = 10;
 const SETTLE_REMINDER_DAYS = 3;
 /** Differences below this are not worth a message; they show on the page all the same. */
 export const NAG_THRESHOLD_CENTS = 50;
+/** Nobody hears from the bot before ten; whatever falls due at night waits until then. */
+const QUIET_UNTIL_HOUR = 10;
+
+/** `at`, or ten that morning when `at` falls into the night's quiet. */
+function awake(at: Date): Date {
+  const morning = berlinAt(todayIso(at), 0, QUIET_UNTIL_HOUR);
+  return at < morning ? morning : at;
+}
 
 type Input = {
   view: FridayView;
@@ -88,9 +97,15 @@ function untilFriday(date: string, now: Date) {
  * The ballot, short enough for a phone: every restaurant with its letter, the current one
  * crowned, and how it ends. Menus, delivery terms and ordering ahead are behind the link.
  */
-function ballot(options: VoteOption[], current: { id: number; name: string } | null) {
+function ballot(
+  options: VoteOption[],
+  current: { id: number; name: string } | null,
+  date: IsoDate,
+  now: Date
+) {
+  const day = daysBetween(todayIso(now), date) <= 0 ? 'heute' : 'am Freitag';
   return [
-    `🗳️ ${bold('Wo bestellen wir am Freitag?')} Antworte mit dem Buchstaben:`,
+    `🗳️ ${bold(`Wo bestellen wir ${day}?`)} Antworte mit dem Buchstaben:`,
     ...options.map(
       (option, index) =>
         `${bold(voteLetter(index))} · ${option.name}${option.id === current?.id ? ' 👑' : ''}${
@@ -101,7 +116,7 @@ function ballot(options: VoteOption[], current: { id: number; name: string } | n
       current
         ? `Wählt keiner, bleibt's beim 👑 ${current.name}`
         : 'Wählt keiner, sucht der Gastgeber aus'
-    }. Abstimmen bis ${bold('Donnerstag um 23:59')}, wer abstimmt, ist dabei.`,
+    }. Abstimmen bis ${bold(voteEndsText(date, now))}, wer abstimmt, ist dabei.`,
   ].join('\n');
 }
 
@@ -129,6 +144,7 @@ export function planReminders({
   lastOrder = new Map(),
 }: Input): Outgoing[] {
   const out: Outgoing[] = [];
+  if (awake(now) > now) return out;
   const date = view.date;
   const day = formatDayShort(date);
   const link = `${appUrl}/freitag/${date}`;
@@ -182,14 +198,16 @@ export function planReminders({
 
   const voting = votingAt(view, now) && restaurants.length > 1;
   const noRestaurant = !flat && !view.restaurant;
+  const fridayMorning = berlinAt(date, 0, 10);
   if (noRestaurant && hostPhone) {
     for (const [key, at] of [
       ['thu', berlinAt(date, -1, 18)],
-      // An hour before the invitations, so they can already name the restaurant.
-      ['fri', berlinAt(date, 0, 9)],
+      // With the invitations, which then say the restaurant is still to come, or once the
+      // group has voted without deciding.
+      ['fri', restaurants.length > 1 ? voteClosesAt(date) : fridayMorning],
     ] as const) {
       // While the group still votes, a pick from the host would end the vote.
-      if (key === 'thu' && voting) continue;
+      if (voting) continue;
       if (between(now, at, view.deadline)) {
         out.push({
           key: `pick:${date}:${key}`,
@@ -211,25 +229,36 @@ export function planReminders({
 
   const what = flat
     ? `gibt's ${view.flatTitle ?? 'was Leckeres'} für ${formatEuro(view.flatPriceCents ?? 0)} pro Person`
-    : view.restaurant
-      ? `bestellen wir bei ${view.restaurant.name}${view.picker ? ` (${view.picker.name} holt ab)` : ''}`
-      : 'bestellen wir zusammen (Restaurant kommt noch)';
+    : voting
+      ? `bestellen wir zusammen (Restaurant wird bis ${formatTime(voteClosesAt(date))} gewählt)`
+      : view.restaurant
+        ? `bestellen wir bei ${view.restaurant.name}${view.picker ? ` (${view.picker.name} holt ab)` : ''}`
+        : 'bestellen wir zusammen (Restaurant kommt noch)';
   const rule = flat ? 'Dafür brauchen wir deine Zusage.' : 'Wer nichts sagt, ist dabei.';
   const unanswered = reachable.filter(
     (entry) => entry.attendance.reason === 'silent' && entry.member.id !== view.host?.id
   );
 
   // On Wednesday, once it is clear the Friday happens, a first question who comes, and,
-  // unless the host picked the restaurant, the vote on where to order. It ends with the
-  // vote; whoever still has not answered gets the invitation on Friday.
+  // unless the host picked the restaurant, the vote on where to order. The question ends
+  // where the invitations begin, the ballot with the vote.
   const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
-  if (between(now, berlinAt(date, -2, 12), voteClosesAt(date))) {
+  const vote = ballot(restaurants, view.restaurant, date, now);
+  const more = `Karten, Lieferkosten und Vorbestellen:\n${link}`;
+  /** The end of a message that asks who comes: the ballot, or that their vote is in. */
+  const voteLines = (id: number) =>
+    !voting
+      ? [link]
+      : hasVoted(id)
+        ? [
+            `Die Restaurantwahl läuft bis ${bold(voteEndsText(date, now))}. Deine Stimme ist schon drin.`,
+            link,
+          ]
+        : [vote, '', more];
+  if (between(now, berlinAt(date, -2, 12), fridayMorning)) {
     const hello = `${untilFriday(date, now)} ist wieder Freitag${place}`;
-    const vote = ballot(restaurants, view.restaurant);
-    const more = `Karten, Lieferkosten und Vorbestellen:\n${link}`;
     // The question who comes first, the vote after it; one link for everything else.
     for (const entry of unanswered) {
-      const asksVote = voting && !hasVoted(entry.member.id);
       out.push({
         key: `ask:${date}:${entry.member.id}`,
         to: entry.member.phone!,
@@ -238,36 +267,29 @@ export function planReminders({
           ANSWER_HINT,
           rule,
           '',
-          ...(asksVote
-            ? [vote, '', more]
-            : voting
-              ? [
-                  `Die Restaurantwahl läuft bis ${bold('Donnerstag um 23:59')}. Deine Stimme ist schon drin.`,
-                  link,
-                ]
-              : [link]),
+          ...voteLines(entry.member.id),
         ].join('\n'),
       });
     }
-    if (voting) {
-      for (const entry of reachable) {
-        const id = entry.member.id;
-        if (entry.attendance.status === 'out' || hasVoted(id)) continue;
-        if (unanswered.some((other) => other.member.id === id)) continue;
-        // Whoever got „Kommst du?“ got the ballot with it; answering it must not send it again.
-        if (sent.has(`ask:${date}:${id}`)) continue;
-        out.push({
-          key: `vote:${date}:${id}`,
-          to: entry.member.phone!,
-          text: `${vote}\n\n${more}`,
-        });
-      }
+  }
+  if (voting && now >= berlinAt(date, -2, 12)) {
+    for (const entry of reachable) {
+      const id = entry.member.id;
+      if (entry.attendance.status === 'out' || hasVoted(id)) continue;
+      if (unanswered.some((other) => other.member.id === id)) continue;
+      // „Kommst du?“ and the invitation carry the ballot; answering them must not send it again.
+      if (sent.has(`ask:${date}:${id}`) || invited(id)) continue;
+      out.push({
+        key: `vote:${date}:${id}`,
+        to: entry.member.phone!,
+        text: `${vote}\n\n${more}`,
+      });
     }
   }
 
   // Thursday evening, a nudge for whoever got the ballot, is coming and has not voted, as
   // long as their votes could still change what the vote decides.
-  if (voting && between(now, berlinAt(date, -1, 18), voteClosesAt(date))) {
+  if (voting && between(now, berlinAt(date, -1, 18), berlinAt(date, 0, 0))) {
     const missing = reachable.filter(
       (entry) =>
         entry.attendance.status !== 'out' &&
@@ -281,7 +303,7 @@ export function planReminders({
       const stand = standings(restaurants, view.votes, nameOf);
       const text = [
         `🗳️ ${bold('Deine Stimme kann’s noch drehen!')}`,
-        `Heute um ${bold('23:59')} schließt das Wahllokal für Freitag, und von dir fehlt noch die Stimme.`,
+        `Das Wahllokal schließt ${bold(voteEndsText(date, now))}, und von dir fehlt noch die Stimme.`,
         '',
         bold('Stand:'),
         ...(stand.length
@@ -306,22 +328,59 @@ export function planReminders({
     }
   }
 
-  // The invitation goes out on the Friday morning. Without a restaurant by then it goes out
-  // anyway, and a second message follows once one is chosen.
-  if (between(now, berlinAt(date, 0, 10), berlinAt(date, 0, 17))) {
+  // The vote left these without an order from the restaurant it chose: their orders went,
+  // their pick lost, or they said yes to the one it replaced. They hear about it as soon as
+  // it closes; whoever has not answered yet is asked here, too.
+  if (!flat && view.restaurant && !view.locked && between(now, voteClosesAt(date), view.deadline)) {
+    const restaurant = view.restaurant;
+    for (const id of view.voteDroppedIds) {
+      const entry = view.participants.find((participant) => participant.member.id === id);
+      if (!entry || entry.items.length > 0 || entry.attendance.status !== 'in') continue;
+      const { phone, prefix } = billTo(entry);
+      if (!phone) continue;
+      const pick = `Such dir bis ${bold(deadline)} dort was aus, sonst ${orderFallback(id)}.`;
+      const asks = unanswered.some((other) => other.member.id === id);
+      out.push({
+        key: `revote:${date}:${id}`,
+        to: phone,
+        text: asks
+          ? `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}${place}!\n\n${ANSWER_HINT}\n\n${rule}\n${pick}\n${link}`
+          : `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}!\n${pick}\n${link}`,
+      });
+    }
+  }
+  // The result can go out in the same pass as the invitation, the restaurant's announcement
+  // or the order reminder, so it stands in for them whether it went out before or goes out now.
+  const toldResult = (id: number) =>
+    sent.has(`revote:${date}:${id}`) ||
+    out.some((message) => message.key === `revote:${date}:${id}`);
+
+  // The invitation goes out on the Friday morning. Without a restaurant by then, or while
+  // the group still votes, it goes out anyway, and a second message follows once it is
+  // decided; during the vote it carries the ballot.
+  if (between(now, fridayMorning, berlinAt(date, 0, 17))) {
+    const open = noRestaurant || voting;
     // Silent members count as in, so the invitation also carries the order reminder.
     const orderHint = (memberId: number) =>
-      !flat && view.restaurant
+      !flat && !open
         ? `\nSuch dir bis ${bold(deadline)} was aus, sonst ${orderFallback(memberId)}.`
         : '';
     for (const entry of unanswered) {
       const id = entry.member.id;
-      // The vote's result at eight already asked them, with the restaurant it chose.
-      if (invited(id) || sent.has(`revote:${date}:${id}`)) continue;
+      // The vote's result already asked them, with the restaurant it chose.
+      if (invited(id) || toldResult(id)) continue;
       out.push({
-        key: `${noRestaurant ? 'invite-open' : 'invite'}:${date}:${id}`,
+        key: `${open ? 'invite-open' : 'invite'}:${date}:${id}`,
         to: entry.member.phone!,
-        text: `🎉 ${bold(`Es ist Freitag, ${entry.member.name}!`)}\n${bold(`Heute ${what}`)}${place}.\n\n${ANSWER_HINT}\n\n${rule}${orderHint(id)}\n${link}`,
+        text: [
+          `🎉 ${bold(`Es ist Freitag, ${entry.member.name}!`)}`,
+          `${bold(`Heute ${what}`)}${place}.`,
+          '',
+          ANSWER_HINT,
+          '',
+          `${rule}${orderHint(id)}`,
+          ...(voting ? ['', ...voteLines(id)] : [link]),
+        ].join('\n'),
       });
     }
     if (group && !sent.has(`invite:${date}:group`)) {
@@ -340,12 +399,14 @@ export function planReminders({
 
   if (!flat && view.restaurant && !view.locked && now < view.deadline) {
     const restaurant = view.restaurant;
-    for (const entry of reachable.filter(eatsWithoutOrder)) {
-      if (!sent.has(`invite-open:${date}:${entry.member.id}`)) continue;
+    // Whoever was invited before the restaurant was decided hears it once it is.
+    for (const entry of voting ? [] : reachable.filter(eatsWithoutOrder)) {
+      const id = entry.member.id;
+      if (!sent.has(`invite-open:${date}:${id}`) || toldResult(id)) continue;
       out.push({
-        key: `restaurant:${date}:${restaurant.id}:${entry.member.id}`,
+        key: `restaurant:${date}:${restaurant.id}:${id}`,
         to: entry.member.phone!,
-        text: `📣 Für heute steht es fest: ${bold(restaurant.name)}.\nSuch dir bis ${bold(deadline)} was aus:\n${link}`,
+        text: `📣 Für heute steht es fest: ${bold(restaurant.name)}.\nSuch dir bis ${bold(deadline)} was aus, sonst ${orderFallback(id)}.\n${link}`,
       });
     }
 
@@ -359,35 +420,15 @@ export function planReminders({
       }
     };
     const withoutOrder = reachable.filter(eatsWithoutOrder);
-    // The vote left these without an order from the restaurant it chose: their orders went,
-    // their pick lost, or they said yes to the one it replaced. They hear about it at eight
-    // in the morning, not at midnight; whoever has not answered yet is asked here, too.
-    if (between(now, berlinAt(date, 0, 8), view.deadline)) {
-      for (const id of view.voteDroppedIds) {
-        const entry = view.participants.find((participant) => participant.member.id === id);
-        if (!entry || entry.items.length > 0 || entry.attendance.status !== 'in') continue;
-        const { phone, prefix } = billTo(entry);
-        if (!phone) continue;
-        const pick = `Such dir bis ${bold(deadline)} dort was aus, sonst ${orderFallback(id)}.`;
-        const asks = unanswered.some((other) => other.member.id === id);
-        out.push({
-          key: `revote:${date}:${id}`,
-          to: phone,
-          text: asks
-            ? `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}${place}!\n\n${ANSWER_HINT}\n\n${rule}\n${pick}\n${link}`
-            : `🗳️ ${prefix}${bold('Das Volk hat gewählt:')} Heute gibt's ${bold(restaurant.name)}!\n${pick}\n${link}`,
-        });
-      }
-    }
     // Who says yes after a reminder's time was just told to pick something (by the bot's
     // reply, or on the page), so the reminder is only for those who answered before it.
     const answeredBefore = (entry: Participant, at: Date) =>
       entry.attendance.reason !== 'answered' ||
       (entry.answeredAt !== null && entry.answeredAt < at);
-    // Friday morning, for whoever said yes without the invitation, which already asked them
-    // to pick something, or the vote's result, which did too.
-    const orderAt = berlinAt(date, 0, 10);
-    if (between(now, orderAt, view.deadline)) {
+    // Friday morning, or once the vote has decided where, for whoever said yes without the
+    // invitation, which already asked them to pick something, or the vote's result, which
+    // did too.
+    if (!voting && between(now, fridayMorning, view.deadline)) {
       remind(
         'order',
         (entry) => {
@@ -400,9 +441,9 @@ export function planReminders({
         withoutOrder.filter(
           (entry) =>
             entry.attendance.reason === 'answered' &&
-            answeredBefore(entry, orderAt) &&
+            answeredBefore(entry, fridayMorning) &&
             !invited(entry.member.id) &&
-            !sent.has(`revote:${date}:${entry.member.id}`)
+            !toldResult(entry.member.id)
         )
       );
     }
@@ -555,9 +596,9 @@ export function planReminders({
 
 /**
  * The moments ahead at which `planReminders` sends something new for this Friday: the
- * scheduler's next pass (for whatever is due right away), each window that opens up to the
- * deadline, and the next morning and evening after it. Settle and pay reminders repeat
- * daily, so the overview shows the next one of each.
+ * scheduler's next pass (for whatever is due right away, or at ten after a quiet night),
+ * each window that opens up to the deadline, and the next morning and evening after it.
+ * Settle and pay reminders repeat daily, so the overview shows the next one of each.
  */
 function previewTimes(view: FridayView, now: Date): Date[] {
   const date = view.date;
@@ -569,14 +610,13 @@ function previewTimes(view: FridayView, now: Date): Date[] {
     .filter((at) => at > now)
     .slice(0, 2);
   return [
-    new Date(now.getTime() + SCHEDULER_INTERVAL_MS),
+    awake(new Date(now.getTime() + SCHEDULER_INTERVAL_MS)),
     berlinAt(date, -4, 18),
     berlinAt(date, -2, 10),
     berlinAt(date, -2, 12),
     berlinAt(date, -1, 18),
-    berlinAt(date, 0, 8),
-    berlinAt(date, 0, 9),
     berlinAt(date, 0, 10),
+    voteClosesAt(date),
     berlinAt(date, 0, 18, 30),
     view.deadline,
     ...afterDeadline,
