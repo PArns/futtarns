@@ -11,7 +11,7 @@ import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { attendance, members, type Member } from '@/lib/db/schema';
-import { formatDayList, formatDayShort } from '@/lib/format';
+import { formatDayList, formatDayShort, formatEuro } from '@/lib/format';
 import { parseEuroToCents, parseOptionGroups } from '@/lib/menu/options';
 import { normalizePaypalHandle } from '@/lib/paypal';
 import { normalizePhone } from '@/lib/phone';
@@ -72,6 +72,7 @@ import {
   getItem,
   removeDefaultDish,
   setDefaultDish,
+  setItemPrice,
   setItemQuantity,
   setNoFoodDefault,
 } from '@/lib/services/orders';
@@ -329,6 +330,21 @@ export async function setItemQuantityAction(
     if (!item) throw new ServiceError('Gibt es nicht mehr');
     await orderAccess(viewer, item.fridayDate, item.memberId);
     await setItemQuantity(db, item.id, z.number().int().min(0).max(20).parse(quantity));
+  });
+}
+
+/** The price of one of an order line, typed like „11,50“: only for whoever runs the Friday. */
+export async function setItemPriceAction(itemId: number, price: string): Promise<ActionResult> {
+  return run(async () => {
+    const item = await getItem(await getDb(), recordId.parse(itemId));
+    if (!item) throw new ServiceError('Gibt es nicht mehr');
+    const { viewer } = await requireFridayManager(item.fridayDate);
+    // Not on a cancelled or settled Friday.
+    const { db } = await orderAccess(viewer, item.fridayDate, item.memberId);
+    const cents = parseEuroToCents(typedAmount.parse(price));
+    if (cents === null) throw new ServiceError('Bitte den Preis wie „11,50“ eingeben');
+    await setItemPrice(db, item.id, cents);
+    return { ok: true, message: `${item.name} kostet jetzt ${formatEuro(cents)}` };
   });
 }
 

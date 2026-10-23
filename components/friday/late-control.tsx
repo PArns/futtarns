@@ -23,7 +23,7 @@ export function LateControl({
   memberId: number;
   late: boolean;
   arrivesAt: string | null;
-  /** `19:00`, by when the dish is still picked. */
+  /** `19:30`, by when the dish is still picked. */
   deadline: string;
   disabled?: boolean;
 }) {

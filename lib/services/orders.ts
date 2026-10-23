@@ -96,6 +96,7 @@ export async function addItem(
   }
   const quantity = Math.min(Math.max(Math.round(choice.quantity), 1), 20);
   const note = choice.note?.trim() || null;
+  const price = unitPriceCents(dish.priceCents, options);
 
   return db.transaction(async (tx) => {
     // The answer first: its row lock makes a second add of the same person wait for this one.
@@ -107,7 +108,8 @@ export async function addItem(
         set: { status: 'in', updatedAt: now },
       });
     // The same dish with the same options and note goes onto the line already there, so a
-    // second one shows as „2×“; the same one again within seconds is a double tap.
+    // second one shows as „2×“; the same one again within seconds is a double tap. A line
+    // whose price was changed by hand keeps that price to itself.
     const [same] = (
       await tx
         .select()
@@ -121,7 +123,12 @@ export async function addItem(
             eq(orderItems.isDefault, false)
           )
         )
-    ).filter((item) => sameOptions(item.options, options) && (item.note ?? null) === note);
+    ).filter(
+      (item) =>
+        sameOptions(item.options, options) &&
+        (item.note ?? null) === note &&
+        item.unitPriceCents === price
+    );
     if (same) {
       if (!again && now.getTime() - same.createdAt.getTime() < DOUBLE_TAP_MS) {
         return { outcome: 'repeated' as const, name: dish.name };
@@ -139,7 +146,7 @@ export async function addItem(
       dishId: dish.id,
       name: dish.name,
       category: dish.category,
-      unitPriceCents: unitPriceCents(dish.priceCents, options),
+      unitPriceCents: price,
       quantity,
       options,
       note,
@@ -176,6 +183,19 @@ export async function setItemQuantity(db: Db, itemId: number, quantity: number) 
     .update(orderItems)
     .set({ quantity: Math.min(Math.round(quantity), 20) })
     .where(eq(orderItems.id, itemId));
+}
+
+const ITEM_MAX_CENTS = 10_000;
+
+/**
+ * Sets what one of an order line costs, for what the menu does not know: a large pizza where
+ * it only lists the small one, or an extra the restaurant charges for.
+ */
+export async function setItemPrice(db: Db, itemId: number, unitPriceCents: number) {
+  if (!Number.isInteger(unitPriceCents) || unitPriceCents < 0 || unitPriceCents > ITEM_MAX_CENTS) {
+    throw new ServiceError('Preis: bitte einen Betrag zwischen 0 € und 100 € eingeben');
+  }
+  await db.update(orderItems).set({ unitPriceCents }).where(eq(orderItems.id, itemId));
 }
 
 /** Remembers what someone gets from a restaurant when they do not order themselves. */

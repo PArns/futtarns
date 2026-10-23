@@ -8,8 +8,8 @@ describe('welcomeText', () => {
     expect(text).toContain('automatische Nachricht');
     expect(text).toContain('Patrick hat dich eingetragen');
     expect(text).toContain('https://x/login/abc');
-    expect(text).toContain('Bestellschluss ist freitags um *19:00 Uhr*');
-    expect(text).toContain('Gegessen wird gegen 20:30.');
+    expect(text).toContain('Bestellschluss ist freitags um *19:30 Uhr*');
+    expect(text).toContain('Gegessen wird gegen 20:45.');
     // The link stands on a line of its own, so WhatsApp makes all of it clickable.
     expect(text.split('\n')).toContain('https://x/login/abc');
   });

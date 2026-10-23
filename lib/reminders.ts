@@ -26,6 +26,16 @@ export const NAG_THRESHOLD_CENTS = 50;
 /** Nobody hears from the bot before ten; whatever falls due at night waits until then. */
 const QUIET_UNTIL_HOUR = 10;
 
+/** Whoever would go hungry hears once more this long before the deadline. */
+const LAST_CALL_MINUTES_BEFORE = 30;
+
+/** The payment link goes out Friday at ten in the evening, when everyone has eaten. */
+const PAY_LINK_HOUR = 22;
+
+function lastCallAt(view: FridayView): Date {
+  return new Date(view.deadline.getTime() - LAST_CALL_MINUTES_BEFORE * 60_000);
+}
+
 /** `at`, or ten that morning when `at` falls into the night's quiet. */
 function awake(at: Date): Date {
   const morning = berlinAt(todayIso(at), 0, QUIET_UNTIL_HOUR);
@@ -449,7 +459,7 @@ export function planReminders({
     }
     // Whoever has no default would go hungry, so they hear once more, with what they had
     // last time here to order again by replying „gleiches“.
-    const lastCall = berlinAt(date, 0, 18, 30);
+    const lastCall = lastCallAt(view);
     if (between(now, lastCall, view.deadline)) {
       remind(
         'lastcall',
@@ -472,8 +482,11 @@ export function planReminders({
   }
 
   const sheetUntil = new Date(view.deadline.getTime() + 3 * 3_600_000);
-  // Paying opens with the deadline: before it, orders and with them the shares still change.
-  if (view.locked && between(now, view.deadline, sheetUntil)) {
+  // Paying opens with the deadline, but the link only goes out once everyone has eaten.
+  // Settled by then, the settled amounts carry the link instead.
+  const payLinkAt = berlinAt(date, 0, PAY_LINK_HOUR);
+  const settledSays = view.settled && !flat;
+  if (view.locked && !settledSays && between(now, payLinkAt, berlinAt(date, 1, 0))) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
       if (open < NAG_THRESHOLD_CENTS) continue;
@@ -566,7 +579,7 @@ export function planReminders({
       if (Math.abs(open) < NAG_THRESHOLD_CENTS) continue;
       const { phone, prefix } = billTo(entry);
       if (!phone) continue;
-      if (view.settled && !flat && dayOffset <= 7) {
+      if (settledSays && dayOffset <= 7 && now >= payLinkAt) {
         out.push({
           key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}`,
           to: phone,
@@ -617,8 +630,9 @@ function previewTimes(view: FridayView, now: Date): Date[] {
     berlinAt(date, -1, 18),
     berlinAt(date, 0, 10),
     voteClosesAt(date),
-    berlinAt(date, 0, 18, 30),
+    lastCallAt(view),
     view.deadline,
+    berlinAt(date, 0, PAY_LINK_HOUR),
     ...afterDeadline,
   ]
     .filter((at) => at > now)

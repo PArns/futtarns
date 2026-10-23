@@ -19,11 +19,14 @@ export type OrderGroup = {
 export function OrderedItems({
   groups,
   editable,
+  prices = false,
   titled = false,
   className,
 }: {
   groups: OrderGroup[];
   editable: boolean;
+  /** The viewer runs the Friday and may change prices for this order. */
+  prices?: boolean;
   titled?: boolean;
   className?: string;
 }) {
@@ -48,7 +51,7 @@ export function OrderedItems({
           )}
           <ul className="divide-border/50 divide-y">
             {group.items.map((item) => (
-              <ItemRow key={item.id} item={item} editable={editable} />
+              <ItemRow key={item.id} item={item} editable={editable} prices={prices} />
             ))}
           </ul>
         </div>

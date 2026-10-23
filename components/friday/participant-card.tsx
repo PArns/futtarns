@@ -170,7 +170,12 @@ export function ParticipantCard({
             </Badge>
           )}
         </div>
-        <OrderedItems groups={orders} editable={canEdit} titled={titled} />
+        <OrderedItems
+          groups={orders}
+          editable={canEdit}
+          prices={canManage && canEdit}
+          titled={titled}
+        />
         {(showMoney || showDrinks || showPayeeMoney || ahead.length > 0) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {showPayeeMoney && (
