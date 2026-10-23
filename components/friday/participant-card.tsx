@@ -107,7 +107,7 @@ export function ParticipantCard({
   view: FridayView;
   canEdit: boolean;
   canManage: boolean;
-  /** Paying is open (from the deadline on), so the host may book payments. */
+  /** Paying is open (the host released it), so the host may book payments. */
   payable: boolean;
   nameOf: (id: number) => string;
   /** What they ordered, by restaurant once they also ordered ahead during the vote. */

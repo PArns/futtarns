@@ -29,9 +29,6 @@ const QUIET_UNTIL_HOUR = 10;
 /** Whoever would go hungry hears once more this long before the deadline. */
 const LAST_CALL_MINUTES_BEFORE = 30;
 
-/** The payment link goes out Friday at ten in the evening, when everyone has eaten. */
-const PAY_LINK_HOUR = 22;
-
 function lastCallAt(view: FridayView): Date {
   return new Date(view.deadline.getTime() - LAST_CALL_MINUTES_BEFORE * 60_000);
 }
@@ -482,11 +479,13 @@ export function planReminders({
   }
 
   const sheetUntil = new Date(view.deadline.getTime() + 3 * 3_600_000);
-  // Paying opens with the deadline, but the link only goes out once everyone has eaten.
-  // Settled by then, the settled amounts carry the link instead.
-  const payLinkAt = berlinAt(date, 0, PAY_LINK_HOUR);
+  // Paying opens when the host releases it, and the bot tells about it only if they want it
+  // to. Settled by then, the settled amounts carry the link instead.
+  const tellsPay = view.paymentReleasedAt !== null && view.paymentNotify;
+  const today = todayIso(now);
+  const dayOffset = daysBetween(date, today);
   const settledSays = view.settled && !flat;
-  if (view.locked && !settledSays && between(now, payLinkAt, berlinAt(date, 1, 0))) {
+  if (view.locked && tellsPay && !settledSays && dayOffset <= PAY_REMINDER_DAYS) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
       if (open < NAG_THRESHOLD_CENTS) continue;
@@ -553,8 +552,6 @@ export function planReminders({
     });
   }
 
-  const today = todayIso(now);
-  const dayOffset = daysBetween(date, today);
   const morning = [berlinAt(date, dayOffset, 10), berlinAt(date, dayOffset + 1, 0)] as const;
   const evening = [berlinAt(date, dayOffset, 18), berlinAt(date, dayOffset + 1, 0)] as const;
   const hasOrders = view.participants.some((entry) => entry.items.length > 0);
@@ -579,7 +576,7 @@ export function planReminders({
       if (Math.abs(open) < NAG_THRESHOLD_CENTS) continue;
       const { phone, prefix } = billTo(entry);
       if (!phone) continue;
-      if (settledSays && dayOffset <= 7 && now >= payLinkAt) {
+      if (settledSays && tellsPay && dayOffset <= 7) {
         out.push({
           key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}`,
           to: phone,
@@ -589,8 +586,11 @@ export function planReminders({
               : `🧮 ${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`,
         });
       }
+      // The reminders start the day after the link went out.
       if (
         open > 0 &&
+        tellsPay &&
+        today > todayIso(view.paymentReleasedAt!) &&
         dayOffset >= 1 &&
         dayOffset <= PAY_REMINDER_DAYS &&
         between(now, ...evening)
@@ -632,7 +632,6 @@ function previewTimes(view: FridayView, now: Date): Date[] {
     voteClosesAt(date),
     lastCallAt(view),
     view.deadline,
-    berlinAt(date, 0, PAY_LINK_HOUR),
     ...afterDeadline,
   ]
     .filter((at) => at > now)

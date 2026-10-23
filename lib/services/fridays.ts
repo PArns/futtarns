@@ -624,11 +624,33 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
 }
 
 /**
- * Paying opens at the deadline: before it, orders and with them everyone's share still
- * change, so an amount paid early would rarely be right.
+ * Paying opens when the host releases it, once they checked the orders and prices: before
+ * that everyone's share may still change, so an amount paid early would rarely be right. A
+ * cancelled Friday pays back what was paid ahead from the deadline on.
  */
-export function paymentOpen(view: Pick<FridayView, 'date' | 'locked'>, now: Date): boolean {
-  return view.locked || isPastDeadline(view.date, now);
+export function paymentOpen(
+  view: Pick<FridayView, 'date' | 'cancelled' | 'paymentReleasedAt'>,
+  now: Date
+): boolean {
+  return view.paymentReleasedAt !== null || (view.cancelled && isPastDeadline(view.date, now));
+}
+
+/**
+ * The host releases paying after the deadline, with the bot sending everyone their payment
+ * link (and later the reminders) or silently. A silent release can still be told later.
+ */
+export async function releasePayment(db: Db, date: IsoDate, notify: boolean, now: Date) {
+  const row = await getFridayRow(db, date);
+  if (!row?.lockedAt) throw new ServiceError('Freigeben geht erst nach dem Bestellschluss');
+  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  await db
+    .update(fridays)
+    .set({
+      paymentReleasedAt: row.paymentReleasedAt ?? now,
+      paymentNotify: row.paymentNotify || notify,
+      updatedAt: now,
+    })
+    .where(eq(fridays.date, date));
 }
 
 export async function recordPayment(
@@ -801,6 +823,10 @@ export type FridayView = {
   orderTime: Date;
   locked: boolean;
   settled: boolean;
+  /** When the host released paying; null while nobody can pay yet. */
+  paymentReleasedAt: Date | null;
+  /** Whether the bot sends payment links and reminders once paying is released. */
+  paymentNotify: boolean;
   finalTotalCents: number | null;
   participants: Participant[];
   estimate: FeeEstimate | null;
@@ -1082,6 +1108,8 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     orderTime: orderTime(date),
     locked,
     settled,
+    paymentReleasedAt: row?.paymentReleasedAt ?? null,
+    paymentNotify: row?.paymentNotify ?? false,
     finalTotalCents,
     participants,
     estimate,

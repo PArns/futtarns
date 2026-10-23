@@ -38,6 +38,7 @@ import {
   hostIdFor,
   loadFriday,
   paymentOpen,
+  releasePayment,
   reopenSettlement,
   setAttendance,
   setLate,
@@ -587,6 +588,20 @@ export async function settleAction(date: string, total: string): Promise<ActionR
   });
 }
 
+/** The host releases paying, with or without the bot sending everyone their payment link. */
+export async function releasePaymentAction(date: string, notify: boolean): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    const tell = z.boolean().parse(notify);
+    await releasePayment(db, day, tell, new Date());
+    return {
+      ok: true,
+      message: tell ? 'Freigegeben – die Zahl-Links gehen raus' : 'Freigegeben, ohne Nachricht',
+    };
+  });
+}
+
 export async function reopenSettlementAction(date: string): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
@@ -636,7 +651,7 @@ export async function payAction(date: string, target: number): Promise<ActionRes
     }
     const view = await loadFriday(db, day, new Date());
     if (!paymentOpen(view, new Date())) {
-      throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
+      throw new ServiceError('Bezahlt wird erst, wenn der Gastgeber die Zahlung freigibt');
     }
     const entry = view.participants.find((participant) => participant.member.id === id);
     const booked = entry
@@ -702,7 +717,7 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
     const { db, viewer } = await requireFridayManager(day);
     const view = await loadFriday(db, day, new Date());
     if (!paymentOpen(view, new Date())) {
-      throw new ServiceError('Bezahlt wird erst nach dem Bestellschluss');
+      throw new ServiceError('Bezahlt wird erst, wenn der Gastgeber die Zahlung freigibt');
     }
     const entry = view.participants.find((participant) => participant.member.id === id);
     const open = entry?.money.openCents ?? 0;

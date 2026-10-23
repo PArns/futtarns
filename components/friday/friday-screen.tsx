@@ -1062,7 +1062,7 @@ export async function FridayScreen({
                           box.usual
                             ? 'Dann bekommst du dort deinen Standard, wenn du nichts anderes aussuchst.'
                             : `Dann zählt das statt deiner Bestellung${view.restaurant ? ` bei ${view.restaurant.name}` : ''}.`
-                        } Bezahlt wird erst nach dem Bestellschluss um ${formatTime(view.deadline)}.`}
+                        } Bezahlt wird erst, wenn der Gastgeber die Zahlung freigibt.`}
                       />
                     );
                   })}

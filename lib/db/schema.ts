@@ -135,6 +135,10 @@ export const fridays = pgTable('fridays', {
   lockedAt: timestamp('locked_at', { withTimezone: true }),
   finalTotalCents: integer('final_total_cents'),
   settledAt: timestamp('settled_at', { withTimezone: true }),
+  // When the host released paying; before it nobody pays, as the amounts may still change.
+  paymentReleasedAt: timestamp('payment_released_at', { withTimezone: true }),
+  // Whether the bot sends the payment links and reminders once paying is released.
+  paymentNotify: boolean('payment_notify').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

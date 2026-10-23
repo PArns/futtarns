@@ -130,7 +130,7 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                            |
 | Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                |
 | Fri 19:30             | host                                       | the order list, the latecomers' dishes apart                                       |
-| Fri 22:00             | open balance ≥ 50 cents                    | what to pay, with the PayPal link (paying opens at 19:30), or the settled amounts  |
+| on release            | open balance ≥ 50 cents                    | what to pay, with the PayPal link, if the host releases with messages              |
 | Sat–Mon 10:00         | host, not settled                          | enter what Lieferando charged                                                      |
 | after settlement      | open balance ≥ 50 cents either way         | amount to pay or to get back                                                       |
 | daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                   |
