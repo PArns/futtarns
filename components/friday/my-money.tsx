@@ -2,7 +2,7 @@ import { CircleCheck, Undo2 } from 'lucide-react';
 import { DrinksToggle } from '@/components/friday/drinks-toggle';
 import { PayBox } from '@/components/friday/pay-box';
 import { foodLines, isBilled, payeeOf, payeesFor, shareLines } from '@/lib/balance';
-import { formatEuro, formatTime } from '@/lib/format';
+import { formatEuro } from '@/lib/format';
 import { NAG_THRESHOLD_CENTS } from '@/lib/reminders';
 import type { FridayView, Participant } from '@/lib/services/fridays';
 
@@ -21,7 +21,7 @@ export function MyMoney({
   view: FridayView;
   me: Participant;
   canEdit: boolean;
-  /** Whether paying is open yet; it opens at the deadline. */
+  /** Whether paying is open yet; it opens when the host releases it. */
   payable: boolean;
   /** While the vote runs and they ordered ahead elsewhere: the restaurant this amount is for. */
   stays?: string;
@@ -80,7 +80,7 @@ export function MyMoney({
         box({
           label: forNow('Bis jetzt'),
           payable: false,
-          note: `Bezahlt wird nach dem Bestellschluss um ${formatTime(view.deadline)}, dann steht fest, was alle bestellt haben. Den Link bekommst du per WhatsApp.`,
+          note: `Bezahlt wird, sobald ${view.host?.name ?? 'der Gastgeber'} die Zahlung freigibt, dann steht fest, was alle bestellt haben.`,
         })
       ) : open >= NAG_THRESHOLD_CENTS || (open > 0 && isBilled(view)) ? (
         box({ payable: true })

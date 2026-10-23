@@ -236,7 +236,7 @@ export async function handleIncoming(
       ].filter((entry) => entry.debt.openCents > 0);
       if (open.length === 0) {
         return !payable && current && current.money.openCents > 0
-          ? `Bezahlt wird erst nach dem Bestellschluss um ${bold(formatTime(view.deadline))}, dann steht fest, was du zahlst. Ich schick dir den Betrag.`
+          ? `Bezahlt wird erst, wenn ${view.host?.name ?? 'der Gastgeber'} die Zahlung freigibt, dann steht fest, was du zahlst.`
           : 'Bei dir ist gerade nichts offen. Danke trotzdem!';
       }
       for (const { fridayDate, debt } of open) {

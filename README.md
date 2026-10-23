@@ -37,7 +37,7 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
 - **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
   the order reminder then or, when the group votes, with the result at 16:00, the order list
-  for the host at 19:30, everyone's payment link at 22:00, the settled amounts and daily payment
+  for the host at 19:30, everyone's payment link once the host releases paying, the settled amounts and daily payment
   reminders; nothing before 10:00. The host sees which messages are still to come, to whom
   and when. People can answer with `1`, `2`, `3`, `wie immer`, `andere`, `bezahlt`,
   `status` or `code`.

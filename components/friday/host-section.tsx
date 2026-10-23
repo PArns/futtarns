@@ -1,4 +1,13 @@
-import { Clock, Flame, Receipt, Settings2, ShoppingBag, Store, Ticket } from 'lucide-react';
+import {
+  Clock,
+  Flame,
+  HandCoins,
+  Receipt,
+  Settings2,
+  ShoppingBag,
+  Store,
+  Ticket,
+} from 'lucide-react';
 import { CopyButton } from '@/components/common/copy-button';
 import { ExtrasForm } from '@/components/friday/extras-form';
 import { FlatForm } from '@/components/friday/flat-form';
@@ -9,6 +18,7 @@ import {
   PickupPicker,
   RestaurantPicker,
 } from '@/components/friday/host-tools';
+import { ReleaseForm } from '@/components/friday/release-form';
 import { SettleForm } from '@/components/friday/settle-form';
 import { UpcomingMessages, type UpcomingMessage } from '@/components/friday/upcoming-messages';
 import { GlassCard } from '@/components/ui/glass-card';
@@ -211,6 +221,18 @@ export function HostSection({
                   : `${view.host?.name ?? 'Der Gastgeber'} hat keinen PayPal.me-Namen im Profil, also gibt es keine Zahlungslinks.`}
               </p>
             )}
+          </GlassCard>
+        )}
+        {closed && !view.cancelled && (
+          <GlassCard variant="tile" className="space-y-3 p-5">
+            <h3 className="flex items-center gap-2 font-bold">
+              <HandCoins className="text-primary size-4" /> Zahlung freigeben
+            </h3>
+            <ReleaseForm
+              date={view.date}
+              released={view.paymentReleasedAt !== null}
+              notify={view.paymentNotify}
+            />
           </GlassCard>
         )}
         <UpcomingMessages messages={messages} serverNow={serverNow} whatsappDown={whatsappDown} />

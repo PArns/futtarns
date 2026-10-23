@@ -7,7 +7,7 @@ import { LoginShell } from '@/components/login/login-shell';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { payeePurpose, payeesFor } from '@/lib/balance';
 import { getDb } from '@/lib/db';
-import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
+import { formatDayShort, formatEuro } from '@/lib/format';
 import { paypalAmount, paypalMeLink } from '@/lib/paypal';
 import { openPayLink } from '@/lib/services/pay-links';
 
@@ -56,8 +56,8 @@ export default async function PaidLinkPage(props: PageProps<'/bezahlt/[token]'>)
               <Clock className="text-primary size-5" /> Noch nicht
             </h1>
             <p className="text-muted-foreground text-sm">
-              Bezahlt wird nach dem Bestellschluss um {formatTime(view.deadline)}, dann steht fest,
-              was alle bestellt haben.
+              Bezahlt wird, sobald {view.host?.name ?? 'der Gastgeber'} die Zahlung freigibt, dann
+              steht fest, was alle bestellt haben.
             </p>
           </>
         ) : open <= 0 ? (
