@@ -1,0 +1,1 @@
+ALTER TABLE "fridays" ADD COLUMN "payment_round" integer DEFAULT 0 NOT NULL;

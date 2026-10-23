@@ -485,6 +485,11 @@ export function planReminders({
   const today = todayIso(now);
   const dayOffset = daysBetween(date, today);
   const settledSays = view.settled && !flat;
+  // Sent again after prices changed: new keys, and they say it is a correction.
+  const round = view.paymentRound ? `:r${view.paymentRound}` : '';
+  const corrected = view.paymentRound
+    ? `🔁 ${bold('Korrektur, der Betrag hat sich geändert.')}\n`
+    : '';
   if (view.locked && tellsPay && !settledSays && dayOffset <= PAY_REMINDER_DAYS) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
@@ -500,10 +505,10 @@ export function planReminders({
           ? `🥤 ${bold('Bestellschluss!')} Ohne Essen, aber nicht ohne Durst: ${amount} für die Getränke${guest ? ` von ${guest}` : ''}.`
           : `🍽️ ${bold('Bestellschluss!')} ${guest ? `Dein Gast ${guest} hat` : 'Dein Magen hat'} bestellt, jetzt darf ${guest ? 'dein' : 'der'} Geldbeutel nachziehen: ${amount}.`;
       out.push({
-        key: `due:${date}:${entry.member.id}`,
+        key: `due:${date}:${entry.member.id}${round}`,
         to: phone,
         text: [
-          opener,
+          `${corrected}${opener}`,
           '',
           ...shareLines(view, entry).map((line) => `${line.label}: ${formatEuro(line.cents)}`),
           '',
@@ -578,12 +583,13 @@ export function planReminders({
       if (!phone) continue;
       if (settledSays && tellsPay && dayOffset <= 7) {
         out.push({
-          key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}`,
+          key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}${round}`,
           to: phone,
           text:
-            open > 0
+            corrected +
+            (open > 0
               ? `🧮 ${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
-              : `🧮 ${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`,
+              : `🧮 ${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`),
         });
       }
       // The reminders start the day after the link went out.
