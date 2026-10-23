@@ -4,10 +4,10 @@ import { addDays, nextFriday as nextFridayAfter, isFriday } from 'date-fns';
 export const TIME_ZONE = 'Europe/Berlin';
 /** When the order goes out on a Friday, Berlin time. */
 export const ORDER_HOUR = 19;
-export const ORDER_MINUTE = 30;
+export const ORDER_MINUTE = 45;
 /** Orders and cancellations close this many minutes before the order goes out. */
-export const DEADLINE_MINUTES_BEFORE = 30;
-/** The restaurants take about an hour, so the food arrives around 20:30. */
+export const DEADLINE_MINUTES_BEFORE = 15;
+/** The restaurants take about an hour, so the food arrives around 20:45. */
 export const DELIVERY_MINUTES_AFTER_ORDER = 60;
 
 /** A calendar day as `YYYY-MM-DD`, the format the database stores. */

@@ -121,14 +121,14 @@ describe('reminders', () => {
     sent = [];
     await runScheduler(db, at('2026-10-16T12:01:00Z'), send, noPause);
     expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
-    // She has no default, so the last call at 18:30 still reaches her.
-    await runScheduler(db, at('2026-10-16T16:31:00Z'), send, noPause);
+    // She has no default, so the last call at 19:00 still reaches her.
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
     expect(sent.find((message) => message.to === '+491702222222')?.text).toContain('Letzte Chance');
-    // Ben says yes at 18:45: nothing but the bot's reply.
+    // Ben says yes at 19:15: nothing but the bot's reply.
     sent = [];
-    await handleIncoming(db, '+491703333333', '1', at('2026-10-16T16:45:00Z'), send);
+    await handleIncoming(db, '+491703333333', '1', at('2026-10-16T17:15:00Z'), send);
     sent = [];
-    await runScheduler(db, at('2026-10-16T16:46:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:16:00Z'), send, noPause);
     expect(sent.filter((message) => message.to === '+491703333333')).toEqual([]);
   });
 
@@ -149,7 +149,7 @@ describe('reminders', () => {
     await setAttendance(db, FRIDAY, ben.id, 'in', at('2026-10-14T10:00:00Z'));
     await setAttendance(db, FRIDAY, anna.id, 'in', at('2026-10-14T10:00:00Z'));
 
-    await runScheduler(db, at('2026-10-16T16:31:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
     const lastCall = (phone: string) =>
       sent.find((message) => message.to === phone && message.text.includes('Letzte Chance'))
         ?.text ?? '';
@@ -163,19 +163,19 @@ describe('reminders', () => {
       db,
       '+491703333333',
       'Gleiches!',
-      at('2026-10-16T16:35:00Z'),
+      at('2026-10-16T17:05:00Z'),
       send
     );
     expect(reply).toContain(': *2× Margherita*. Du bist dabei.');
-    const view = await loadFriday(db, FRIDAY, at('2026-10-16T16:36:00Z'));
+    const view = await loadFriday(db, FRIDAY, at('2026-10-16T17:06:00Z'));
     const items = view.participants.find((entry) => entry.member.id === ben.id)!.items;
     expect(items.map((item) => [item.name, item.quantity])).toEqual([['Margherita', 2]]);
     // Once he has something, „gleiches“ adds nothing more.
     expect(
-      await handleIncoming(db, '+491703333333', 'gleiches', at('2026-10-16T16:37:00Z'), send)
+      await handleIncoming(db, '+491703333333', 'gleiches', at('2026-10-16T17:07:00Z'), send)
     ).toContain('Du hast schon *Margherita* bestellt');
     expect(
-      await handleIncoming(db, '+491702222222', 'gleiches', at('2026-10-16T16:37:00Z'), send)
+      await handleIncoming(db, '+491702222222', 'gleiches', at('2026-10-16T17:07:00Z'), send)
     ).toContain('Bei *Bella Napoli* hast du noch nie bestellt');
   });
 
@@ -184,21 +184,24 @@ describe('reminders', () => {
     await setNoFoodDefault(db, anna.id, restaurant.id);
     await setNoFoodDefault(db, ben.id, restaurant.id);
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
-    await runScheduler(db, at('2026-10-16T16:35:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:05:00Z'), send, noPause);
     expect(sent.filter((message) => message.text.includes('kannst du bei'))).toEqual([]);
   });
 
   it('sends the host the order list at the deadline, and settled amounts afterwards', async () => {
     const { anna, dish } = await setup();
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 2 });
-    // Nobody is asked to pay before the deadline; right after it everyone gets the link.
-    await runScheduler(db, at('2026-10-16T16:55:00Z'), send, noPause);
+    // Nobody is asked to pay before the deadline; the host gets the order list right after it.
+    await runScheduler(db, at('2026-10-16T17:25:00Z'), send, noPause);
     expect(sent.filter((message) => message.text.includes('paypal'))).toEqual([]);
-    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:31:00Z'), send, noPause);
     const sheet = sent.find(
       (message) => message.to === '+491701111111' && message.text.includes('Bestellschluss!')
     );
     expect(sheet?.text).toContain('2× Margherita – Anna');
+    // Everyone gets the payment link at 22:00, once they have eaten.
+    expect(sent.filter((message) => message.text.includes('/bezahlt/'))).toEqual([]);
+    await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
     expect(
       sent.filter((message) => message.text.includes('/bezahlt/')).map((message) => message.to)
     ).toEqual(['+491702222222', '+491703333333']);
@@ -212,7 +215,7 @@ describe('reminders', () => {
       /^🥤 \*Bestellschluss!\* Ohne Essen, aber nicht ohne Durst: \*1,50\s€\* für die Getränke\./
     );
     // What went out is gone from the host's list, the order list (`sheet:<date>`) included.
-    const later = at('2026-10-16T17:26:00Z');
+    const later = at('2026-10-16T20:26:00Z');
     const still = (await upcomingMessages(db, await loadFriday(db, FRIDAY, later), later)).map(
       (line) => line.kind
     );
@@ -226,9 +229,9 @@ describe('reminders', () => {
       recordedById: anna.id,
     });
     // 1800 dishes, tip and delivery: 2100 in total; Anna also has the 1,50 € drinks fee.
-    await settleFriday(db, FRIDAY, 2100, at('2026-10-16T17:40:00Z'));
+    await settleFriday(db, FRIDAY, 2100, at('2026-10-16T20:40:00Z'));
     sent = [];
-    await runScheduler(db, at('2026-10-16T17:45:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T20:45:00Z'), send, noPause);
     expect(sent.map((message) => [message.to, message.text.match(/\d+,\d+\s€/)?.[0]])).toEqual([
       ['+491702222222', '12,50\u00a0€'],
       ['+491703333333', '1,50\u00a0€'],
@@ -245,23 +248,27 @@ describe('reminders', () => {
   it('stops the payment reminders once the link in one is used', async () => {
     const { anna, dish } = await setup();
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
-    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:31:00Z'), send, noPause);
     await settleFriday(db, FRIDAY, 1200, at('2026-10-16T17:40:00Z'));
     sent = [];
+    // Settled before 22:00, the settled amount waits for it and stands in for the link.
     await runScheduler(db, at('2026-10-16T17:45:00Z'), send, noPause);
+    expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+    await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
+    expect(sent.filter((message) => message.to === '+491702222222')).toHaveLength(1);
     const settled = sent.find((message) => message.to === '+491702222222');
     const token = settled?.text.match(/\/bezahlt\/(\S+)/)?.[1];
     expect(token).toBeDefined();
 
     // Opening the link (as a chat preview does) changes nothing; only the button books.
-    expect((await openPayLink(db, token!, at('2026-10-16T18:00:00Z')))?.entry.member.id).toBe(
+    expect((await openPayLink(db, token!, at('2026-10-16T20:10:00Z')))?.entry.member.id).toBe(
       anna.id
     );
-    expect(await payByLink(db, token!, at('2026-10-16T18:00:00Z'))).toBeGreaterThan(0);
-    expect(await payByLink(db, token!, at('2026-10-16T18:01:00Z'))).toBe(0);
+    expect(await payByLink(db, token!, at('2026-10-16T20:10:00Z'))).toBeGreaterThan(0);
+    expect(await payByLink(db, token!, at('2026-10-16T20:11:00Z'))).toBe(0);
     // Change the last character for sure: a random token ends in `x` one time in 64.
     const forged = `${token!.slice(0, -1)}${token!.endsWith('x') ? 'y' : 'x'}`;
-    expect(await payByLink(db, forged, at('2026-10-16T18:01:00Z'))).toBeNull();
+    expect(await payByLink(db, forged, at('2026-10-16T20:11:00Z'))).toBeNull();
 
     sent = [];
     await runScheduler(db, at('2026-10-17T16:10:00Z'), send, noPause);
@@ -355,7 +362,7 @@ describe('reminders', () => {
     await handleIncoming(db, '+491702222222', '1', now, send);
     // After the deadline (which also closes the Friday) „bezahlt“ books what is open.
     expect(
-      await handleIncoming(db, '+491702222222', 'bezahlt', at('2026-10-16T17:30:00Z'), send)
+      await handleIncoming(db, '+491702222222', 'bezahlt', at('2026-10-16T17:35:00Z'), send)
     ).toMatch(/\*1,50\s€\* sind als bezahlt/);
   });
 
@@ -377,7 +384,7 @@ describe('reminders', () => {
     expect(others).toContain('*Ben*: Margherita');
     expect(others).toContain('*Anna*: ohne Essen');
     expect(
-      await handleIncoming(db, '+491703333333', 'wie immer', at('2026-10-16T17:30:00Z'), send)
+      await handleIncoming(db, '+491703333333', 'wie immer', at('2026-10-16T17:35:00Z'), send)
     ).toContain('Bestellschluss war');
   });
 });
@@ -404,16 +411,16 @@ describe('upcoming messages', () => {
     expect(await preview(at('2026-10-16T07:00:00Z'))).toEqual([
       ['2026-10-16T08:00:00.000Z', 'Einladung', 'Ben'],
       ['2026-10-16T08:00:00.000Z', 'Noch nichts ausgesucht', 'Anna'],
-      ['2026-10-16T16:30:00.000Z', 'Letzte Chance', 'Anna'],
-      ['2026-10-16T17:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
-      ['2026-10-16T17:00:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-16T17:00:00.000Z', 'Letzte Chance', 'Anna'],
+      ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-16T20:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
     ]);
 
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
     expect(await preview(at('2026-10-16T08:10:00Z'))).toEqual([
-      ['2026-10-16T17:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
-      ['2026-10-16T17:00:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-16T20:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
       ['2026-10-17T08:00:00.000Z', 'Was hat es gekostet?', 'Patrick'],
     ]);
   });
@@ -452,7 +459,7 @@ describe('fetching the food', () => {
       [host.id, 150],
     ]);
 
-    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
     const sheet = sent.find((message) => message.text.includes('Zum Abholen'));
     expect(sheet?.to).toBe('+491702222222');
     expect(sheet?.text).toContain('*Bella Napoli*');
@@ -467,8 +474,8 @@ describe('fetching the food', () => {
     ).toContain('1,50');
 
     const token = toBen.text.match(/\/bezahlt\/(\S+)/)![1]!;
-    expect(await payByLink(db, token, at('2026-10-16T17:30:00Z'))).toBe(1050);
-    const after = await loadFriday(db, FRIDAY, at('2026-10-16T17:30:00Z'));
+    expect(await payByLink(db, token, at('2026-10-16T20:10:00Z'))).toBe(1050);
+    const after = await loadFriday(db, FRIDAY, at('2026-10-16T20:10:00Z'));
     expect(after.participants.find((entry) => entry.member.id === ben.id)!.money.openCents).toBe(0);
     await expect(setPickup(db, FRIDAY, false, null)).rejects.toThrow('schon bezahlt');
 
@@ -790,7 +797,7 @@ describe('the restaurant vote', () => {
     ).toEqual([[sushi.id, 1, 700]]);
 
     // Sushi wins, and at the deadline Anna gets her default there.
-    const locked = await loadFriday(db, NEXT, at('2026-10-23T17:05:00Z'));
+    const locked = await loadFriday(db, NEXT, at('2026-10-23T17:35:00Z'));
     expect(locked.restaurant?.id).toBe(sushi.id);
     const annaThen = locked.participants.find((entry) => entry.member.id === anna.id)!;
     expect(annaThen.items.map((item) => [item.name, item.isDefault])).toEqual([
@@ -904,7 +911,7 @@ describe('the restaurant vote', () => {
     );
     await runScheduler(db, AFTER, send, noPause);
     const result = expect.stringContaining(
-      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:00* dort was aus"
+      "*Das Volk hat gewählt:* Heute gibt's *Sakura Sushi*!\nSuch dir bis *19:30* dort was aus"
     );
     // The result stands in for the order reminder that falls due with it.
     expect(told('+491703333333')).toEqual([result]);
@@ -932,10 +939,10 @@ describe('the restaurant vote', () => {
     sent = [];
     await runScheduler(db, AFTER, send, noPause);
     expect(sent.find((message) => message.to === '+491702222222')?.text).toContain(
-      'Bis *19:00* kannst du bei *Bella Napoli* aussuchen'
+      'Bis *19:30* kannst du bei *Bella Napoli* aussuchen'
     );
     expect(sent.find((message) => message.to === '+491703333333')?.text).toContain(
-      'Für heute steht es fest: *Bella Napoli*.\nSuch dir bis *19:00* was aus, sonst bekommst du deinen Standard (*Margherita*).'
+      'Für heute steht es fest: *Bella Napoli*.\nSuch dir bis *19:30* was aus, sonst bekommst du deinen Standard (*Margherita*).'
     );
   });
 
@@ -1057,14 +1064,14 @@ describe('coming later', () => {
       send
     );
     expect(reply).toContain('🕘 Alles klar, du kommst gegen *21:30*.');
-    expect(reply).toContain('Such dir bis *19:00* trotzdem was aus');
+    expect(reply).toContain('Such dir bis *19:30* trotzdem was aus');
     await addItem(db, FRIDAY, ben.id, pizza, { now: morning });
     await addItem(db, FRIDAY, anna.id, pizza, { now: morning });
     expect(await handleIncoming(db, '+491703333333', 'status', morning, send)).toContain(
       '🕘 Du kommst später (gegen 21:30).'
     );
 
-    await runScheduler(db, at('2026-10-16T17:01:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T17:31:00Z'), send, noPause);
     const sheet = sent.find(
       (message) => message.to === '+491701111111' && message.text.includes('Bestellschluss!')
     )!.text;

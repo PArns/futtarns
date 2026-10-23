@@ -34,16 +34,16 @@ A Friday without a row is a normal Friday: the default host and that host's rest
 
 ## A Friday's life
 
-1. **Open**: anyone answers and orders until 19:00 Berlin time (`lib/dates.ts`). Silent
+1. **Open**: anyone answers and orders until 19:30 Berlin time (`lib/dates.ts`). Silent
    members count as in (`lib/attendance.ts`), or as coming without food when their default
    is „nix“; absences count as out. On a flat-price Friday only a yes counts, except for its host,
    who is there anyway.
    Without a picked restaurant the Friday uses its host's (`hostRestaurant`); the first
    order pins it, so handing the Friday to a substitute keeps the menu.
-2. **Lock at 19:00** (`lockFriday`): the first page view or scheduler tick after the
+2. **Lock at 19:30** (`lockFriday`): the first page view or scheduler tick after the
    deadline locks the Friday once, writes host and restaurant down and adds each silent
    member's default dish.
-3. **Order at 19:30**: the host copies the grouped order list into Lieferando.
+3. **Order at 19:45**: the host copies the grouped order list into Lieferando.
 4. **Settle**: the host enters what Lieferando charged; `splitTotal` (`lib/pricing.ts`)
    gives everyone their dishes plus an equal share of the rest (delivery, service fee, tip),
    cents distributed so the shares add up exactly. Flat-price Fridays skip this step.
@@ -100,7 +100,7 @@ the flag on the people page, and new members get it by default.
 
 ## Permissions (`lib/permissions.ts`)
 
-- Members change their own answer and order, and those of guests they brought, until 19:00.
+- Members change their own answer and order, and those of guests they brought, until 19:30.
 - The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
   everyone's orders after the deadline, settlement and payments.
 - Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
@@ -128,9 +128,9 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | Fri 10:00             | said yes before, uninvited, no order       | order reminder naming their default; at 16:00 after a vote                         |
 | Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                              |
 | Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                            |
-| Fri 18:30             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                |
-| Fri 19:00             | host                                       | the order list, the latecomers' dishes apart                                       |
-| Fri 19:00             | open balance ≥ 50 cents                    | what to pay, with the PayPal link: paying opens here                               |
+| Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                |
+| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart                                       |
+| Fri 22:00             | open balance ≥ 50 cents                    | what to pay, with the PayPal link (paying opens at 19:30), or the settled amounts  |
 | Sat–Mon 10:00         | host, not settled                          | enter what Lieferando charged                                                      |
 | after settlement      | open balance ≥ 50 cents either way         | amount to pay or to get back                                                       |
 | daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                   |
@@ -139,7 +139,7 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 Each message goes out once per person and reason, and never right after something that
 already said the same: the Wednesday question carries the ballot, and so does the Friday
 invitation while the vote runs, so answering either does not bring the ballot again;
-whoever says yes after the order reminder or the 18:30 last call (`answeredAt`) was just
+whoever says yes after the order reminder or the 19:00 last call (`answeredAt`) was just
 told by the bot's reply or the page, so those reminders only go to whoever answered before
 them.
 
@@ -170,7 +170,7 @@ this restaurant, `orderSame`; dishes gone from the menu are named and left out),
 
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
-picked by the deadline; the order list on the page and in the 19:00 message shows the
+picked by the deadline; the order list on the page and in the 19:30 message shows the
 latecomers' dishes in a block of their own („Später bestellen“, `sheetsByArrival`), so the
 host can order them later and they arrive warm. The people list says „kommt später (~21:00)“.
 
@@ -184,7 +184,7 @@ desktop (`announceOrder`, `useOrderFlash`).
 ## Restaurant vote (`lib/vote.ts`)
 
 Unless the host picks the restaurant themselves (`restaurantChosen`), the group votes on it
-until Friday 16:00 (`VOTE_CLOSE_HOUR`), three hours before the order deadline. The ballot lists the restaurants that can serve this Friday's host
+until Friday 16:00 (`VOTE_CLOSE_HOUR`), three and a half hours before the order deadline. The ballot lists the restaurants that can serve this Friday's host
 (`restaurantsForHost`): those that deliver to the host's address (`restaurant_hosts`, ticked
 under „Liefert zu“ on the restaurant; none ticked means everyone) and those that offer
 pickup, marked „nur abholen“. They are lettered in the order they were created, so a

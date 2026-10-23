@@ -41,7 +41,7 @@ import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
 const BEFORE = new Date('2026-10-16T12:00:00Z');
-const AFTER = new Date('2026-10-16T17:05:00Z');
+const AFTER = new Date('2026-10-16T17:35:00Z');
 
 let db: Db;
 let close: () => Promise<void>;
@@ -225,9 +225,9 @@ describe('a Friday', () => {
     expect((await loadFriday(db, next, BEFORE)).restaurant?.id).toBe(pizzeria.id);
 
     // The lock writes the host's restaurant down for a Friday nobody ordered on. The clocks
-    // went back by then, so 18:05Z is past the 19:00 deadline.
-    await lockFriday(db, later, new Date('2026-10-30T18:05:00Z'));
-    const locked = await loadFriday(db, later, new Date('2026-10-30T18:05:00Z'));
+    // went back by then, so 18:35Z is past the 19:30 deadline.
+    await lockFriday(db, later, new Date('2026-10-30T18:35:00Z'));
+    const locked = await loadFriday(db, later, new Date('2026-10-30T18:35:00Z'));
     expect(locked.restaurant?.id).toBe(sushi.id);
     expect(locked.restaurantIsDefault).toBe(false);
   });
@@ -331,8 +331,8 @@ describe('a Friday', () => {
 
     const next = '2026-10-23';
     await setCancelled(db, next, true, 'Feiertag');
-    expect(await lockDueFridays(db, new Date('2026-10-23T17:05:00Z'))).toEqual([]);
-    expect((await loadFriday(db, next, new Date('2026-10-23T17:05:00Z'))).locked).toBe(false);
+    expect(await lockDueFridays(db, new Date('2026-10-23T17:35:00Z'))).toEqual([]);
+    expect((await loadFriday(db, next, new Date('2026-10-23T17:35:00Z'))).locked).toBe(false);
   });
 
   it('drops orders when someone backs out or the restaurant changes', async () => {

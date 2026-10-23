@@ -13,8 +13,8 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Friday page**: answer (in / comes but doesn't eat / out), pick dishes with sizes and
   extras, order for guests, see who eats what and what it costs.
 - **Default dish per restaurant**: whoever says nothing counts as in and gets their default
-  when ordering closes at 19:00 (Bestellschluss). A default of „nix“ means coming without
-  eating. The order goes out at 19:30, food arrives around 20:30.
+  when ordering closes at 19:30 (Bestellschluss). A default of „nix“ means coming without
+  eating. The order goes out at 19:45, food arrives around 20:45.
 - **Money**: own dishes plus an equal share of delivery, Lieferando's 0,99 € fee and the tip
   (2,50 € unless the host changes it). A drinks fee of 1,50 € per person who comes, on by
   default and switched off with one tap. Pay up front with a PayPal.me link that has the
@@ -37,7 +37,7 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
 - **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
   the order reminder then or, when the group votes, with the result at 16:00, the order list
-  for the host and everyone's payment link at 19:00, the settled amounts and daily payment
+  for the host at 19:30, everyone's payment link at 22:00, the settled amounts and daily payment
   reminders; nothing before 10:00. The host sees which messages are still to come, to whom
   and when. People can answer with `1`, `2`, `3`, `wie immer`, `andere`, `bezahlt`,
   `status` or `code`.

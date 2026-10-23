@@ -40,16 +40,16 @@ describe('dates', () => {
     expect(addWeeks('2026-10-16', -1)).toBe('2026-10-09');
   });
 
-  it('closes at 19:00, orders at 19:30 and expects the food at 20:30 Berlin time', () => {
-    expect(orderDeadline('2026-10-16').toISOString()).toBe('2026-10-16T17:00:00.000Z');
-    expect(orderTime('2026-10-16').toISOString()).toBe('2026-10-16T17:30:00.000Z');
-    expect(deliveryTime('2026-10-16').toISOString()).toBe('2026-10-16T18:30:00.000Z');
+  it('closes at 19:30, orders at 19:45 and expects the food at 20:45 Berlin time', () => {
+    expect(orderDeadline('2026-10-16').toISOString()).toBe('2026-10-16T17:30:00.000Z');
+    expect(orderTime('2026-10-16').toISOString()).toBe('2026-10-16T17:45:00.000Z');
+    expect(deliveryTime('2026-10-16').toISOString()).toBe('2026-10-16T18:45:00.000Z');
     // After the switch to CET the same local time is an hour later in UTC.
-    expect(orderDeadline('2026-10-30').toISOString()).toBe('2026-10-30T18:00:00.000Z');
+    expect(orderDeadline('2026-10-30').toISOString()).toBe('2026-10-30T18:30:00.000Z');
   });
 
   it('closes exactly at the deadline', () => {
-    expect(isPastDeadline('2026-10-16', new Date('2026-10-16T16:59:59Z'))).toBe(false);
-    expect(isPastDeadline('2026-10-16', new Date('2026-10-16T17:00:00Z'))).toBe(true);
+    expect(isPastDeadline('2026-10-16', new Date('2026-10-16T17:29:59Z'))).toBe(false);
+    expect(isPastDeadline('2026-10-16', new Date('2026-10-16T17:30:00Z'))).toBe(true);
   });
 });
