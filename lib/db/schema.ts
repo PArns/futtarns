@@ -139,6 +139,8 @@ export const fridays = pgTable('fridays', {
   paymentReleasedAt: timestamp('payment_released_at', { withTimezone: true }),
   // Whether the bot sends the payment links and reminders once paying is released.
   paymentNotify: boolean('payment_notify').notNull().default(false),
+  // How often the host sent the payment links again, after prices changed.
+  paymentRound: integer('payment_round').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

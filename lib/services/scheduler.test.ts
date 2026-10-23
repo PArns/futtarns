@@ -5,6 +5,8 @@ import {
   castVote,
   loadFriday,
   recordPayment,
+  releasePayment,
+  resendPayLinks,
   setAttendance,
   setCancelled,
   setPickup,
@@ -36,6 +38,12 @@ const send = async (to: string, text: string) => {
 };
 const at = (iso: string) => new Date(iso);
 const noPause = async () => {};
+
+/** The host releases paying, after the deadline; loading the Friday closes it first. */
+async function release(now: Date, notify = true) {
+  await loadFriday(db, FRIDAY, now);
+  await releasePayment(db, FRIDAY, notify, now);
+}
 
 async function setup() {
   const host = (
@@ -199,9 +207,11 @@ describe('reminders', () => {
       (message) => message.to === '+491701111111' && message.text.includes('Bestellschluss!')
     );
     expect(sheet?.text).toContain('2× Margherita – Anna');
-    // Everyone gets the payment link at 22:00, once they have eaten.
-    expect(sent.filter((message) => message.text.includes('/bezahlt/'))).toEqual([]);
+    // Everyone gets the payment link once the host releases paying, not before.
     await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
+    expect(sent.filter((message) => message.text.includes('/bezahlt/'))).toEqual([]);
+    await release(at('2026-10-16T20:02:00Z'));
+    await runScheduler(db, at('2026-10-16T20:03:00Z'), send, noPause);
     expect(
       sent.filter((message) => message.text.includes('/bezahlt/')).map((message) => message.to)
     ).toEqual(['+491702222222', '+491703333333']);
@@ -245,15 +255,32 @@ describe('reminders', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('sends the payment links again after prices changed, as a correction', async () => {
+    const { anna, dish } = await setup();
+    await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+    await release(at('2026-10-16T17:35:00Z'));
+    await runScheduler(db, at('2026-10-16T17:36:00Z'), send, noPause);
+    const toAnna = () =>
+      sent.filter(
+        (message) => message.to === '+491702222222' && message.text.includes('/bezahlt/')
+      );
+    expect(toAnna()).toHaveLength(1);
+    await resendPayLinks(db, FRIDAY, at('2026-10-16T17:40:00Z'));
+    await runScheduler(db, at('2026-10-16T17:41:00Z'), send, noPause);
+    expect(toAnna()).toHaveLength(2);
+    expect(toAnna()[1]!.text).toMatch(/^🔁 \*Korrektur, der Betrag hat sich geändert\.\*\n/);
+  });
+
   it('stops the payment reminders once the link in one is used', async () => {
     const { anna, dish } = await setup();
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
     await runScheduler(db, at('2026-10-16T17:31:00Z'), send, noPause);
     await settleFriday(db, FRIDAY, 1200, at('2026-10-16T17:40:00Z'));
     sent = [];
-    // Settled before 22:00, the settled amount waits for it and stands in for the link.
+    // Settled before the release, the settled amount waits for it and stands in for the link.
     await runScheduler(db, at('2026-10-16T17:45:00Z'), send, noPause);
     expect(sent.filter((message) => message.to === '+491702222222')).toEqual([]);
+    await release(at('2026-10-16T20:00:00Z'));
     await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
     expect(sent.filter((message) => message.to === '+491702222222')).toHaveLength(1);
     const settled = sent.find((message) => message.to === '+491702222222');
@@ -337,9 +364,9 @@ describe('reminders', () => {
     expect(await handleIncoming(db, '+491702222222', 'Bin dabei!', now, send)).toContain(
       'Bella Napoli'
     );
-    // Paying opens with the deadline.
+    // Paying opens when the host releases it.
     expect(await handleIncoming(db, '+491702222222', 'bezahlt', now, send)).toContain(
-      'erst nach dem Bestellschluss'
+      'erst, wenn Patrick die Zahlung freigibt'
     );
     expect(await handleIncoming(db, '+491702222222', 'code', now, send)).toBeNull();
     // The code stands bold on a line of its own, so it is easy to copy.
@@ -360,7 +387,8 @@ describe('reminders', () => {
     expect(await handleIncoming(db, '+491702222222', '3', now, send)).toContain('3 sicher');
     expect(await handleIncoming(db, '+491702222222', '3 sicher', now, send)).toContain('raus');
     await handleIncoming(db, '+491702222222', '1', now, send);
-    // After the deadline (which also closes the Friday) „bezahlt“ books what is open.
+    // Once the host released paying, „bezahlt“ books what is open.
+    await release(at('2026-10-16T17:35:00Z'));
     expect(
       await handleIncoming(db, '+491702222222', 'bezahlt', at('2026-10-16T17:35:00Z'), send)
     ).toMatch(/\*1,50\s€\* sind als bezahlt/);
@@ -413,14 +441,12 @@ describe('upcoming messages', () => {
       ['2026-10-16T08:00:00.000Z', 'Noch nichts ausgesucht', 'Anna'],
       ['2026-10-16T17:00:00.000Z', 'Letzte Chance', 'Anna'],
       ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
-      ['2026-10-16T20:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
     ]);
 
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
     expect(await preview(at('2026-10-16T08:10:00Z'))).toEqual([
       ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
-      ['2026-10-16T20:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
       ['2026-10-17T08:00:00.000Z', 'Was hat es gekostet?', 'Patrick'],
     ]);
   });
@@ -459,6 +485,7 @@ describe('fetching the food', () => {
       [host.id, 150],
     ]);
 
+    await release(at('2026-10-16T20:00:00Z'));
     await runScheduler(db, at('2026-10-16T20:01:00Z'), send, noPause);
     const sheet = sent.find((message) => message.text.includes('Zum Abholen'));
     expect(sheet?.to).toBe('+491702222222');

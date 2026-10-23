@@ -623,6 +623,19 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
     .where(eq(fridays.date, date));
 }
 
+/** After prices changed, the host sends everyone with something open the new amount. */
+export async function resendPayLinks(db: Db, date: IsoDate, now: Date) {
+  const row = await getFridayRow(db, date);
+  if (!row?.paymentReleasedAt || !row.paymentNotify) {
+    throw new ServiceError('Erst die Zahlung mit Link freigeben');
+  }
+  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  await db
+    .update(fridays)
+    .set({ paymentRound: row.paymentRound + 1, updatedAt: now })
+    .where(eq(fridays.date, date));
+}
+
 /**
  * Paying opens when the host releases it, once they checked the orders and prices: before
  * that everyone's share may still change, so an amount paid early would rarely be right. A
@@ -827,6 +840,8 @@ export type FridayView = {
   paymentReleasedAt: Date | null;
   /** Whether the bot sends payment links and reminders once paying is released. */
   paymentNotify: boolean;
+  /** How often the host sent the payment links again; each time they go out anew. */
+  paymentRound: number;
   finalTotalCents: number | null;
   participants: Participant[];
   estimate: FeeEstimate | null;
@@ -1110,6 +1125,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     settled,
     paymentReleasedAt: row?.paymentReleasedAt ?? null,
     paymentNotify: row?.paymentNotify ?? false,
+    paymentRound: row?.paymentRound ?? 0,
     finalTotalCents,
     participants,
     estimate,

@@ -40,6 +40,7 @@ import {
   paymentOpen,
   releasePayment,
   reopenSettlement,
+  resendPayLinks,
   setAttendance,
   setLate,
   setCancelled,
@@ -599,6 +600,16 @@ export async function releasePaymentAction(date: string, notify: boolean): Promi
       ok: true,
       message: tell ? 'Freigegeben – die Zahl-Links gehen raus' : 'Freigegeben, ohne Nachricht',
     };
+  });
+}
+
+/** After prices changed, the host sends the payment links with the new amounts again. */
+export async function resendPayLinksAction(date: string): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    await resendPayLinks(db, day, new Date());
+    return { ok: true, message: 'Die Zahl-Links gehen mit den neuen Beträgen noch mal raus' };
   });
 }
 

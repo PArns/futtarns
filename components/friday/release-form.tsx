@@ -1,14 +1,15 @@
 'use client';
 
-import { BellOff, CheckCircle2, Send } from 'lucide-react';
-import { releasePaymentAction } from '@/app/actions';
+import { BellOff, CheckCircle2, RefreshCw, Send } from 'lucide-react';
+import { releasePaymentAction, resendPayLinksAction } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Hint } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
 
 /**
  * The host releases paying once orders and prices are right: with the payment links by
- * WhatsApp (and the reminders after them) or silently. A silent release can still send them.
+ * WhatsApp (and the reminders after them) or silently. A silent release can still send them,
+ * and after prices changed the links go out again with the new amounts.
  */
 export function ReleaseForm({
   date,
@@ -22,9 +23,22 @@ export function ReleaseForm({
   const { pending, execute } = useAction();
   if (released && notify) {
     return (
-      <p className="flex items-center gap-2 text-sm">
-        <CheckCircle2 className="text-primary size-4" /> Freigegeben, die Zahl-Links sind raus.
-      </p>
+      <div className="space-y-3">
+        <p className="flex items-center gap-2 text-sm">
+          <CheckCircle2 className="text-primary size-4" /> Freigegeben, die Zahl-Links sind raus.
+        </p>
+        <Button
+          variant="outline"
+          disabled={pending}
+          onClick={() => execute(() => resendPayLinksAction(date))}
+        >
+          <RefreshCw /> Zahl-Links neu schicken
+        </Button>
+        <Hint>
+          Preise geändert? Dann bekommt jeder, bei dem noch etwas offen ist, den neuen Betrag als
+          Korrektur.
+        </Hint>
+      </div>
     );
   }
   return (
