@@ -950,6 +950,7 @@ export async function FridayScreen({
                     <OrderedItems
                       groups={ordersOf(me)}
                       editable={editable(me)}
+                      prices={manage && editable(me)}
                       titled={voting && restaurants.length > 1}
                     />
                   )}

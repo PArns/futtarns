@@ -23,7 +23,7 @@ import {
   takeOverFriday,
 } from '@/lib/services/fridays';
 import { addAbsence, addGuest, createMember } from '@/lib/services/members';
-import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
+import { addItem, setDefaultDish, setItemPrice, setNoFoodDefault } from '@/lib/services/orders';
 import {
   addMissingDish,
   createDish,
@@ -250,6 +250,32 @@ describe('a Friday', () => {
       { name: 'Margherita', unitPriceCents: 800, dishId: null },
     ]);
     expect(byName.Ben!.hasDefault).toBe(false);
+  });
+
+  it('changes the price of one order line only, not the menu or the next one', async () => {
+    const { anna, pizzeria, margherita } = await setup();
+    const normal = {
+      dishId: margherita.id,
+      selection: { grosse: ['normal'] },
+      note: null,
+      quantity: 1,
+    };
+    await addItem(db, FRIDAY, anna.id, normal, { now: BEFORE });
+    const items = async () =>
+      (await loadFriday(db, FRIDAY, BEFORE)).participants.find((p) => p.member.id === anna.id)!
+        .items;
+    const [line] = await items();
+    // She wants it large, which this menu does not know at this price.
+    await setItemPrice(db, line!.id, 1150);
+    await expect(setItemPrice(db, line!.id, 10_001)).rejects.toThrow('Preis');
+
+    // Another one from the menu gets a line of its own, at the menu price.
+    await addItem(db, FRIDAY, anna.id, normal, { now: new Date(BEFORE.getTime() + 60_000) });
+    expect((await items()).map((item) => [item.quantity, item.unitPriceCents])).toEqual([
+      [1, 1150],
+      [1, 800],
+    ]);
+    expect((await listDishes(db, pizzeria.id))[0]!.priceCents).toBe(800);
   });
 
   it('takes a missing dish only once and at a sane price', async () => {
