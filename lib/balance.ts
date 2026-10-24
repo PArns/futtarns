@@ -124,14 +124,17 @@ export function collecting(
 
 /**
  * Whether a Friday's amounts are final enough to chase: a delivery once the real total is
- * entered, fetched food and a flat price from the deadline on (they cost what they say),
- * a cancelled Friday whenever someone paid in advance.
+ * entered or paying was released (the estimate stands until then), fetched food and a flat
+ * price from the deadline on (they cost what they say), a cancelled Friday whenever someone
+ * paid in advance.
  */
 export function isBilled(
-  view: Pick<FridayView, 'cancelled' | 'mode' | 'pickup' | 'locked' | 'settled'>
+  view: Pick<FridayView, 'cancelled' | 'mode' | 'pickup' | 'locked' | 'settled'> &
+    Partial<Pick<FridayView, 'paymentReleasedAt'>>
 ): boolean {
   if (view.cancelled) return true;
-  return view.mode === 'flat' || view.pickup ? view.locked : view.settled;
+  if (view.mode === 'flat' || view.pickup) return view.locked;
+  return view.settled || Boolean(view.paymentReleasedAt);
 }
 
 export type MoneyLine = { label: string; cents: number };

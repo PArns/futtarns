@@ -42,8 +42,9 @@ export function SettleForm({
         </Button>
       </form>
       <Hint>
-        Jeder zahlt seine Gerichte, der Rest (Liefergebühr, Service, Trinkgeld oder ein Rabatt) wird
-        gleichmäßig auf alle verteilt, die gegessen haben.
+        Nur nötig, wenn es von der Schätzung abweicht. Jeder zahlt seine Gerichte, der Rest
+        (Liefergebühr, Service, Trinkgeld oder ein Rabatt) wird gleichmäßig auf alle verteilt, die
+        gegessen haben. Eine Korrektur bekommt nur, wessen Betrag sich ändert.
       </Hint>
       {settled && (
         <Button

@@ -16,6 +16,7 @@ import {
 } from '@/lib/balance';
 import {
   addWeeks,
+  autoReleaseAt,
   currentFriday,
   daysBetween,
   fridaysFrom,
@@ -592,6 +593,8 @@ export async function lockDueFridays(db: Db, now: Date): Promise<IsoDate[]> {
 
 /** Splits the amount Lieferando actually charged and stores what everyone owes. */
 export async function settleFriday(db: Db, date: IsoDate, totalCents: number, now: Date) {
+  // What the links told before, for Fridays released before what they told was kept.
+  const before = duesOf(await loadFriday(db, date, now));
   await db.transaction(async (tx) => {
     const [row] = await tx.select().from(fridays).where(eq(fridays.date, date));
     if (!row?.lockedAt) throw new ServiceError('Erst nach Bestellschluss abrechnen');
@@ -613,6 +616,7 @@ export async function settleFriday(db: Db, date: IsoDate, totalCents: number, no
       .set({ finalTotalCents: totalCents, settledAt: now, updatedAt: now })
       .where(eq(fridays.date, date));
   });
+  return correctPayLinks(db, date, now, before);
 }
 
 /** Undoes the split so orders can be corrected; payments stay in the ledger. */
@@ -623,17 +627,52 @@ export async function reopenSettlement(db: Db, date: IsoDate) {
     .where(eq(fridays.date, date));
 }
 
-/** After prices changed, the host sends everyone with something open the new amount. */
+/** What everyone owes in total for a Friday, by member id: what the payment links tell. */
+function duesOf(view: FridayView): Record<string, number> {
+  return Object.fromEntries(
+    view.participants.map((entry) => [String(entry.member.id), entry.money.dueCents])
+  );
+}
+
+/**
+ * Starts a round of corrections for whoever owes something else than the payment links told
+ * them, and returns how many that are. Nothing changes before the release: the links will
+ * tell the amounts as they are then. `baseline` stands in for what was told when nothing was
+ * kept, as on Fridays released before it was.
+ */
+async function correctPayLinks(
+  db: Db,
+  date: IsoDate,
+  now: Date,
+  baseline?: Record<string, number>
+): Promise<number> {
+  const row = await getFridayRow(db, date);
+  if (!row?.paymentReleasedAt) return 0;
+  const told = Object.keys(row.paymentToldCents).length ? row.paymentToldCents : baseline;
+  const dues = duesOf(await loadFriday(db, date, now));
+  const changed = Object.keys(dues)
+    // Whoever was not told yet gets their first link, not a correction.
+    .filter((id) => told && id in told && dues[id] !== told[id])
+    .map(Number);
+  await db
+    .update(fridays)
+    .set({
+      paymentToldCents: dues,
+      ...(changed.length ? { paymentRound: row.paymentRound + 1, paymentChangedIds: changed } : {}),
+      updatedAt: now,
+    })
+    .where(eq(fridays.date, date));
+  return changed.length;
+}
+
+/** After prices changed, the host sends the new amount to whoever's changed; returns how many. */
 export async function resendPayLinks(db: Db, date: IsoDate, now: Date) {
   const row = await getFridayRow(db, date);
   if (!row?.paymentReleasedAt || !row.paymentNotify) {
     throw new ServiceError('Erst die Zahlung mit Link freigeben');
   }
   if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
-  await db
-    .update(fridays)
-    .set({ paymentRound: row.paymentRound + 1, updatedAt: now })
-    .where(eq(fridays.date, date));
+  return correctPayLinks(db, date, now);
 }
 
 /**
@@ -653,14 +692,18 @@ export function paymentOpen(
  * link (and later the reminders) or silently. A silent release can still be told later.
  */
 export async function releasePayment(db: Db, date: IsoDate, notify: boolean, now: Date) {
+  const view = await loadFriday(db, date, now);
   const row = await getFridayRow(db, date);
   if (!row?.lockedAt) throw new ServiceError('Freigeben geht erst nach dem Bestellschluss');
   if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  // The links tell the amounts as they are when they first go out.
+  const tellsNow = !row.paymentReleasedAt || (notify && !row.paymentNotify);
   await db
     .update(fridays)
     .set({
       paymentReleasedAt: row.paymentReleasedAt ?? now,
       paymentNotify: row.paymentNotify || notify,
+      ...(tellsNow ? { paymentToldCents: duesOf(view) } : {}),
       updatedAt: now,
     })
     .where(eq(fridays.date, date));
@@ -842,6 +885,8 @@ export type FridayView = {
   paymentNotify: boolean;
   /** How often the host sent the payment links again; each time they go out anew. */
   paymentRound: number;
+  /** Whom the last correction is for: their amount changed since the links told them. */
+  paymentChangedIds: number[];
   finalTotalCents: number | null;
   participants: Participant[];
   estimate: FeeEstimate | null;
@@ -1096,7 +1141,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     };
   });
 
-  return {
+  const view: FridayView = {
     date,
     host,
     hostIsDefault: !row?.hostId,
@@ -1126,6 +1171,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     paymentReleasedAt: row?.paymentReleasedAt ?? null,
     paymentNotify: row?.paymentNotify ?? false,
     paymentRound: row?.paymentRound ?? 0,
+    paymentChangedIds: row?.paymentChangedIds ?? [],
     finalTotalCents,
     participants,
     estimate,
@@ -1136,6 +1182,22 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     voucherCents: row?.voucherCents ?? null,
     drinksTotalCents: participants.reduce((sum, entry) => sum + entry.money.drinksCents, 0),
   };
+  // Unless the host released paying, silently or not, the links go out the next morning
+  // with the amounts as they are then.
+  if (locked && !cancelled && !view.paymentReleasedAt && now >= autoReleaseAt(date)) {
+    await db
+      .update(fridays)
+      .set({
+        paymentReleasedAt: now,
+        paymentNotify: true,
+        paymentToldCents: duesOf(view),
+        updatedAt: now,
+      })
+      .where(and(eq(fridays.date, date), isNull(fridays.paymentReleasedAt)));
+    view.paymentReleasedAt = now;
+    view.paymentNotify = true;
+  }
+  return view;
 }
 
 export type CalendarEntry = {

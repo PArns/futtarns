@@ -141,6 +141,14 @@ export const fridays = pgTable('fridays', {
   paymentNotify: boolean('payment_notify').notNull().default(false),
   // How often the host sent the payment links again, after prices changed.
   paymentRound: integer('payment_round').notNull().default(0),
+  // What everyone owes in total by member id, as the payment links last told them, so a
+  // correction only goes to whoever's amount changed since.
+  paymentToldCents: jsonb('payment_told_cents')
+    .$type<Record<string, number>>()
+    .notNull()
+    .default({}),
+  // Whom the last correction (`paymentRound`) is for: their amount changed.
+  paymentChangedIds: jsonb('payment_changed_ids').$type<number[]>().notNull().default([]),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

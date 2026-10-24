@@ -1,5 +1,5 @@
 import { isBilled, payeeOf, payeePurpose, payeesFor, shareLines, type Money } from '@/lib/balance';
-import { berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
+import { autoReleaseAt, berlinAt, daysBetween, todayIso, type IsoDate } from '@/lib/dates';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold } from '@/lib/messages';
 import { orderSheetText, sheetsByArrival } from '@/lib/order-sheet';
@@ -20,7 +20,7 @@ export type Outgoing = { key: string; to: string; text: string };
 /** How often the scheduler runs (`instrumentation.ts`). */
 export const SCHEDULER_INTERVAL_MS = 60_000;
 const PAY_REMINDER_DAYS = 10;
-const SETTLE_REMINDER_DAYS = 3;
+const SETTLE_REMINDER_DAYS = 1;
 /** Differences below this are not worth a message; they show on the page all the same. */
 export const NAG_THRESHOLD_CENTS = 50;
 /** Nobody hears from the bot before ten; whatever falls due at night waits until then. */
@@ -479,23 +479,35 @@ export function planReminders({
   }
 
   const sheetUntil = new Date(view.deadline.getTime() + 3 * 3_600_000);
-  // Paying opens when the host releases it, and the bot tells about it only if they want it
-  // to. Settled by then, the settled amounts carry the link instead.
+  // Paying opens when the host releases it (or the next morning on its own), and the bot
+  // tells about it unless the host released it silently.
   const tellsPay = view.paymentReleasedAt !== null && view.paymentNotify;
   const today = todayIso(now);
   const dayOffset = daysBetween(date, today);
   const settledSays = view.settled && !flat;
-  // Sent again after prices changed: new keys, and they say it is a correction.
-  const round = view.paymentRound ? `:r${view.paymentRound}` : '';
-  const corrected = view.paymentRound
-    ? `🔁 ${bold('Korrektur, der Betrag hat sich geändert.')}\n`
-    : '';
-  if (view.locked && tellsPay && !settledSays && dayOffset <= PAY_REMINDER_DAYS) {
+  const refundFrom = (money: Money) =>
+    payeeOf(view, money.debts.find((debt) => debt.openCents < 0) ?? { payeeId: null })?.name ??
+    host;
+  // What someone owes as settled, or gets back.
+  const settledText = (entry: Participant, open: number, prefix: string) =>
+    open > 0
+      ? `🧮 ${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
+      : `🧮 ${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`;
+  if (view.locked && tellsPay && dayOffset <= PAY_REMINDER_DAYS) {
     for (const entry of view.participants) {
       const open = entry.money.openCents;
-      if (open < NAG_THRESHOLD_CENTS) continue;
-      const { phone } = billTo(entry);
+      if ((settledSays ? Math.abs(open) : open) < NAG_THRESHOLD_CENTS) continue;
+      const { phone, prefix } = billTo(entry);
       if (!phone) continue;
+      // Settled by the time the link goes out, it tells the settled amount.
+      if (settledSays) {
+        out.push({
+          key: `due:${date}:${entry.member.id}`,
+          to: phone,
+          text: settledText(entry, open, prefix),
+        });
+        continue;
+      }
       const guest = entry.member.kind === 'guest' ? entry.member.name : null;
       const amount = bold(formatEuro(open));
       // What the money is for, said with a wink: a seat, a meal, or only the drinks.
@@ -505,10 +517,10 @@ export function planReminders({
           ? `🥤 ${bold('Bestellschluss!')} Ohne Essen, aber nicht ohne Durst: ${amount} für die Getränke${guest ? ` von ${guest}` : ''}.`
           : `🍽️ ${bold('Bestellschluss!')} ${guest ? `Dein Gast ${guest} hat` : 'Dein Magen hat'} bestellt, jetzt darf ${guest ? 'dein' : 'der'} Geldbeutel nachziehen: ${amount}.`;
       out.push({
-        key: `due:${date}:${entry.member.id}${round}`,
+        key: `due:${date}:${entry.member.id}`,
         to: phone,
         text: [
-          `${corrected}${opener}`,
+          opener,
           '',
           ...shareLines(view, entry).map((line) => `${line.label}: ${formatEuro(line.cents)}`),
           '',
@@ -519,6 +531,29 @@ export function planReminders({
           '',
           `Schon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`,
         ].join('\n'),
+      });
+    }
+  }
+
+  // After the host settled or sent the links again, only whoever's amount changed hears the
+  // new one; the others' links still tell the right amount.
+  if (view.locked && tellsPay && view.paymentRound > 0 && dayOffset <= PAY_REMINDER_DAYS) {
+    for (const entry of view.participants) {
+      if (!view.paymentChangedIds.includes(entry.member.id)) continue;
+      const open = entry.money.openCents;
+      if (Math.abs(open) < NAG_THRESHOLD_CENTS) continue;
+      const { phone, prefix } = billTo(entry);
+      if (!phone) continue;
+      out.push({
+        key: `fix:${date}:${entry.member.id}:r${view.paymentRound}`,
+        to: phone,
+        text: `🔁 ${bold('Korrektur, der Betrag hat sich geändert.')}\n${
+          settledSays
+            ? settledText(entry, open, prefix)
+            : open > 0
+              ? `${prefix}Jetzt noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
+              : `${prefix}${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`
+        }`,
       });
     }
   }
@@ -560,9 +595,6 @@ export function planReminders({
   const morning = [berlinAt(date, dayOffset, 10), berlinAt(date, dayOffset + 1, 0)] as const;
   const evening = [berlinAt(date, dayOffset, 18), berlinAt(date, dayOffset + 1, 0)] as const;
   const hasOrders = view.participants.some((entry) => entry.items.length > 0);
-  const refundFrom = (money: Money) =>
-    payeeOf(view, money.debts.find((debt) => debt.openCents < 0) ?? { payeeId: null })?.name ??
-    host;
 
   // Fetched food costs the menu prices, so there is no real total to ask for.
   if (!flat && !view.pickup && view.locked && !view.settled && hasOrders && hostPhone) {
@@ -570,7 +602,7 @@ export function planReminders({
       out.push({
         key: `settle:${date}:${today}`,
         to: hostPhone,
-        text: `🧾 ${bold(`Was hat Freitag (${day}) bei Lieferando gekostet?`)}\nTrag den Betrag ein, dann bekommen alle ihre Abrechnung:\n${link}`,
+        text: `🧾 ${bold(`Was hat Freitag (${day}) bei Lieferando gekostet?`)}\nWeicht es von der Schätzung ab, trag den Betrag ein, dann bekommt eine Korrektur, wessen Betrag sich ändert. Sonst bleibt es bei der Schätzung:\n${link}`,
       });
     }
   }
@@ -581,17 +613,6 @@ export function planReminders({
       if (Math.abs(open) < NAG_THRESHOLD_CENTS) continue;
       const { phone, prefix } = billTo(entry);
       if (!phone) continue;
-      if (settledSays && tellsPay && dayOffset <= 7) {
-        out.push({
-          key: `settled:${date}:${entry.member.id}:${view.finalTotalCents}${round}`,
-          to: phone,
-          text:
-            corrected +
-            (open > 0
-              ? `🧮 ${prefix}${bold('Abgerechnet:')} noch ${bold(formatEuro(open))} offen.\n\n${payLines(view, entry.money)}\n\nSchon gezahlt? Hier abhaken:\n${paidLink(entry.member.id)}`
-              : `🧮 ${prefix}${bold('Abgerechnet:')} ${bold(formatEuro(-open))} zu viel gezahlt, ${refundFrom(entry.money)} gibt das zurück.`),
-        });
-      }
       // The reminders start the day after the link went out.
       if (
         open > 0 &&
@@ -638,6 +659,7 @@ function previewTimes(view: FridayView, now: Date): Date[] {
     voteClosesAt(date),
     lastCallAt(view),
     view.deadline,
+    autoReleaseAt(date),
     ...afterDeadline,
   ]
     .filter((at) => at > now)
@@ -663,8 +685,13 @@ export function previewReminders(
   const closes = voteClosesAt(input.view.date);
   for (const at of previewTimes(input.view, now)) {
     const state = afterVote && at >= closes ? afterVote : input;
-    const view =
-      at >= state.view.deadline && !state.view.cancelled
+    const closed = at >= state.view.deadline && !state.view.cancelled;
+    // Unless the host releases paying first, it is released the next morning.
+    const released =
+      closed && !state.view.paymentReleasedAt && at >= autoReleaseAt(state.view.date);
+    const view = released
+      ? { ...state.view, locked: true, paymentReleasedAt: at, paymentNotify: true }
+      : closed
         ? { ...state.view, locked: true }
         : state.view;
     for (const message of planReminders({
@@ -700,6 +727,7 @@ const MESSAGE_KINDS: Record<string, string> = {
   sheet: 'Bestellliste',
   settle: 'Was hat es gekostet?',
   settled: 'Abrechnung',
+  fix: 'Korrektur',
   pay: 'Zahl-Erinnerung',
 };
 

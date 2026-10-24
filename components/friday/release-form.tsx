@@ -35,8 +35,8 @@ export function ReleaseForm({
           <RefreshCw /> Zahl-Links neu schicken
         </Button>
         <Hint>
-          Preise geändert? Dann bekommt jeder, bei dem noch etwas offen ist, den neuen Betrag als
-          Korrektur.
+          Preise geändert? Dann bekommt jeder, dessen Betrag sich geändert hat, den neuen als
+          Korrektur. Die anderen bekommen nichts.
         </Hint>
       </div>
     );
@@ -60,7 +60,7 @@ export function ReleaseForm({
       <Hint>
         {released
           ? 'Freigegeben ohne Nachricht: Bezahlen geht, aber der Bot schickt keine Zahl-Links und keine Erinnerungen.'
-          : 'Erst nach der Freigabe kann bezahlt werden. Prüf vorher die Bestellungen und Preise.'}
+          : 'Erst nach der Freigabe kann bezahlt werden. Prüf vorher die Bestellungen und Preise. Gibst du nicht frei, gehen die Zahl-Links morgen um 10 Uhr von selbst raus.'}
       </Hint>
     </div>
   );

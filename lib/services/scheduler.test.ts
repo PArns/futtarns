@@ -15,7 +15,7 @@ import {
 } from '@/lib/services/fridays';
 import { handleIncoming } from '@/lib/services/incoming';
 import { addAbsence, addGuestWithPhone, createMember } from '@/lib/services/members';
-import { addItem, setDefaultDish, setNoFoodDefault } from '@/lib/services/orders';
+import { addItem, setDefaultDish, setItemPrice, setNoFoodDefault } from '@/lib/services/orders';
 import {
   createDish,
   createRestaurant,
@@ -242,10 +242,13 @@ describe('reminders', () => {
     await settleFriday(db, FRIDAY, 2100, at('2026-10-16T20:40:00Z'));
     sent = [];
     await runScheduler(db, at('2026-10-16T20:45:00Z'), send, noPause);
+    // Only Anna's amount changed; Ben still pays the 1,50 € his link told him.
     expect(sent.map((message) => [message.to, message.text.match(/\d+,\d+\s€/)?.[0]])).toEqual([
       ['+491702222222', '12,50\u00a0€'],
-      ['+491703333333', '1,50\u00a0€'],
     ]);
+    expect(sent[0]!.text).toMatch(
+      /^🔁 \*Korrektur, der Betrag hat sich geändert\.\*\n🧮 \*Abgerechnet:\*/
+    );
 
     sent = [];
     await runScheduler(db, at('2026-10-17T16:10:00Z'), send, noPause);
@@ -253,6 +256,17 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('Kleine Erinnerung');
     await runScheduler(db, at('2026-10-17T16:20:00Z'), send, noPause);
     expect(sent).toHaveLength(2);
+  });
+
+  it('sends the payment links the next morning when the host released nothing', async () => {
+    const { anna, dish } = await setup();
+    await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
+    const links = () =>
+      sent.filter((message) => message.text.includes('/bezahlt/')).map((message) => message.to);
+    await runScheduler(db, at('2026-10-16T20:00:00Z'), send, noPause);
+    expect(links()).toEqual([]);
+    await runScheduler(db, at('2026-10-17T08:01:00Z'), send, noPause);
+    expect(links()).toEqual(['+491702222222', '+491703333333']);
   });
 
   it('sends the payment links again after prices changed, as a correction', async () => {
@@ -265,8 +279,15 @@ describe('reminders', () => {
         (message) => message.to === '+491702222222' && message.text.includes('/bezahlt/')
       );
     expect(toAnna()).toHaveLength(1);
-    await resendPayLinks(db, FRIDAY, at('2026-10-16T17:40:00Z'));
+    // Nothing changed, so nobody hears anything.
+    expect(await resendPayLinks(db, FRIDAY, at('2026-10-16T17:38:00Z'))).toBe(0);
+    const view = await loadFriday(db, FRIDAY, at('2026-10-16T17:39:00Z'));
+    const [line] = view.participants.find((entry) => entry.member.id === anna.id)!.items;
+    await setItemPrice(db, line!.id, 1200);
+    expect(await resendPayLinks(db, FRIDAY, at('2026-10-16T17:40:00Z'))).toBe(1);
+    sent = sent.filter((message) => message.to === '+491702222222');
     await runScheduler(db, at('2026-10-16T17:41:00Z'), send, noPause);
+    expect(sent.map((message) => message.to)).not.toContain('+491703333333');
     expect(toAnna()).toHaveLength(2);
     expect(toAnna()[1]!.text).toMatch(/^🔁 \*Korrektur, der Betrag hat sich geändert\.\*\n/);
   });
@@ -441,12 +462,15 @@ describe('upcoming messages', () => {
       ['2026-10-16T08:00:00.000Z', 'Noch nichts ausgesucht', 'Anna'],
       ['2026-10-16T17:00:00.000Z', 'Letzte Chance', 'Anna'],
       ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
+      // Nobody released paying, so the links go out on Saturday at ten.
+      ['2026-10-17T08:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
     ]);
 
     await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
     await addItem(db, FRIDAY, anna.id, { dishId: dish.id, selection: {}, note: null, quantity: 1 });
     expect(await preview(at('2026-10-16T08:10:00Z'))).toEqual([
       ['2026-10-16T17:30:00.000Z', 'Bestellliste', 'Patrick'],
+      ['2026-10-17T08:00:00.000Z', 'Betrag und Zahl-Link', 'Anna, Ben'],
       ['2026-10-17T08:00:00.000Z', 'Was hat es gekostet?', 'Patrick'],
     ]);
   });
@@ -533,6 +557,8 @@ describe('the restaurant vote', () => {
 
   async function voteSetup() {
     const base = await setup();
+    // Last week's Friday is done with, or its payment links would go out this week.
+    await release(at('2026-10-16T17:35:00Z'), false);
     await setHostRestaurant(db, base.host.id, base.restaurant.id);
     const sushi = await createRestaurant(db, {
       name: 'Sakura Sushi',

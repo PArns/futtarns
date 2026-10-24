@@ -81,6 +81,11 @@ export function orderDeadline(friday: IsoDate): Date {
   return new Date(orderTime(friday).getTime() - DEADLINE_MINUTES_BEFORE * 60_000);
 }
 
+/** Without the host releasing paying, the payment links go out at ten the next morning. */
+export function autoReleaseAt(friday: IsoDate): Date {
+  return berlinAt(friday, 1, 10);
+}
+
 export function isPastDeadline(friday: IsoDate, now: Date = new Date()): boolean {
   return now.getTime() >= orderDeadline(friday).getTime();
 }
