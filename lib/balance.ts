@@ -137,6 +137,23 @@ export function isBilled(
   return view.settled || Boolean(view.paymentReleasedAt);
 }
 
+/**
+ * Who of everyone coming chips into the drinks kitty and who does not; the host is left out,
+ * as the kitty is theirs.
+ */
+export function drinksKitty(view: Pick<FridayView, 'participants' | 'host'>): {
+  payers: Participant[];
+  skippers: Participant[];
+} {
+  const coming = view.participants.filter(
+    (entry) => entry.attendance.status !== 'out' && entry.member.id !== view.host?.id
+  );
+  return {
+    payers: coming.filter((entry) => !entry.drinksOptOut),
+    skippers: coming.filter((entry) => entry.drinksOptOut),
+  };
+}
+
 export type MoneyLine = { label: string; cents: number };
 
 /** Some of a person's debts for a Friday as lines, when nothing more is known than the totals. */

@@ -18,7 +18,7 @@ const STATUS_BADGE = {
   out: { label: 'Raus', variant: 'outline' },
 } as const;
 
-function subline(participant: Participant, view: FridayView, nameOf: (id: number) => string) {
+function subline(participant: Participant, nameOf: (id: number) => string) {
   if (participant.member.kind === 'guest' || !participant.member.core) {
     return `Gast${participant.addedById ? ` von ${nameOf(participant.addedById)}` : ''}`;
   }
@@ -27,13 +27,6 @@ function subline(participant: Participant, view: FridayView, nameOf: (id: number
     return participant.projectedDefault
       ? `noch keine Antwort · Standard: ${participant.projectedDefault.name}`
       : 'noch keine Antwort';
-  }
-  if (
-    participant.drinksOptOut &&
-    participant.attendance.status !== 'out' &&
-    view.drinksFeeCents > 0
-  ) {
-    return 'ohne Getränkepauschale';
   }
   return '';
 }
@@ -125,10 +118,16 @@ export function ParticipantCard({
     : STATUS_BADGE[participant.attendance.status];
   const money = participant.money;
   const showMoney = money.dueCents !== 0 || money.paidCents !== 0;
-  const showDrinks =
-    canEdit && !isHost && participant.attendance.status !== 'out' && view.drinksFeeCents > 0;
+  // Whether they chip into the drinks kitty shows for everyone; who may change it gets a switch.
+  const inKitty =
+    !isHost &&
+    !view.cancelled &&
+    participant.attendance.status !== 'out' &&
+    view.drinksFeeCents > 0;
+  const showDrinks = canEdit && inKitty;
+  const showKitty = !canEdit && inKitty;
   const showPayeeMoney = (isHost || isPicker) && !view.cancelled;
-  const sub = subline(participant, view, nameOf);
+  const sub = subline(participant, nameOf);
 
   return (
     <li
@@ -176,7 +175,7 @@ export function ParticipantCard({
           prices={canManage && canEdit}
           titled={titled}
         />
-        {(showMoney || showDrinks || showPayeeMoney || ahead.length > 0) && (
+        {(showMoney || showDrinks || showKitty || showPayeeMoney || ahead.length > 0) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {showPayeeMoney && (
               <PayeeMoney
@@ -200,6 +199,20 @@ export function ParticipantCard({
                 <Vote /> falls {entry.name}: ~{formatEuro(entry.cents)}
               </Pill>
             ))}
+            {showKitty &&
+              (participant.drinksOptOut ? (
+                <Pill
+                  tone="muted"
+                  className="line-through"
+                  title="Zahlt nicht in die Getränkekasse"
+                >
+                  <CupSoda /> Getränkekasse
+                </Pill>
+              ) : (
+                <Pill tone="success" title="Zahlt in die Getränkekasse">
+                  <CupSoda /> Getränkekasse
+                </Pill>
+              ))}
             {showDrinks && (
               <DrinksToggle
                 date={view.date}

@@ -12,8 +12,9 @@ import { AmountRow } from '@/components/ui/amount-row';
 import { Badge } from '@/components/ui/badge';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
+import { Pill } from '@/components/ui/pill';
 import { formatEuro } from '@/lib/format';
-import type { Money } from '@/lib/balance';
+import { drinksKitty, type Money } from '@/lib/balance';
 import type { FridayView } from '@/lib/services/fridays';
 
 /**
@@ -72,8 +73,8 @@ export function CostsSection({
   const eaters = view.shares.length;
   const feesEach = !flat && estimate && eaters > 0 ? Math.round(estimate.sharedCents / eaters) : 0;
 
-  const drinkers =
-    view.drinksFeeCents > 0 ? Math.round(view.drinksTotalCents / view.drinksFeeCents) : 0;
+  // Everyone sees who chips into the drinks kitty, and who does not.
+  const kitty = drinksKitty(view);
 
   return (
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_1.4fr]">
@@ -182,11 +183,38 @@ export function CostsSection({
                 Co., geht an {view.host?.name ?? 'den Gastgeber'}
                 {flat ? '.' : ' und nicht an Lieferando.'}
               </p>
-              <p className="mt-1 text-xs font-medium">
-                {drinkers > 0
-                  ? `${drinkers} × ${formatEuro(view.drinksFeeCents)}${view.settled ? '' : ' bisher'}`
+              <p className="mt-3 text-xs font-medium">
+                {kitty.payers.length > 0
+                  ? `Zahlen ein: ${kitty.payers.length} × ${formatEuro(view.drinksFeeCents)}${view.settled ? '' : ' bisher'}`
                   : 'Bisher zahlt noch keiner ein.'}
               </p>
+              {kitty.payers.length > 0 && (
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                  {kitty.payers.map((entry) => (
+                    <li key={entry.member.id}>
+                      <Pill tone="success">
+                        <CupSoda /> {entry.member.name}
+                      </Pill>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {kitty.skippers.length > 0 && (
+                <>
+                  <p className="text-muted-foreground mt-3 text-xs font-medium">
+                    Zahlen nicht ein: {kitty.skippers.length}
+                  </p>
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {kitty.skippers.map((entry) => (
+                      <li key={entry.member.id}>
+                        <Pill tone="muted" className="line-through">
+                          {entry.member.name}
+                        </Pill>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
           </GlassCard>
         )}
