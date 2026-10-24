@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['**/*.test.ts'],
+    setupFiles: ['test/setup.ts'],
     exclude: ['node_modules/**', '.next/**', 'bot/**'],
     testTimeout: 20_000,
     // beforeEach starts an in-memory Postgres and runs every migration; on a busy machine
