@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isBilled, moneyFor } from '@/lib/balance';
+import { drinksKitty, isBilled, moneyFor } from '@/lib/balance';
+import type { FridayView, Participant } from '@/lib/services/fridays';
 
 const HOST = 1;
 const PICKER = 2;
@@ -80,5 +81,19 @@ describe('isBilled', () => {
     expect(isBilled({ ...friday, locked: true, settled: true })).toBe(true);
     expect(isBilled({ ...friday, pickup: true, locked: true, settled: false })).toBe(true);
     expect(isBilled({ ...friday, pickup: true, locked: false, settled: false })).toBe(false);
+  });
+});
+
+describe('drinksKitty', () => {
+  const person = (id: number, status: 'in' | 'nofood' | 'out', drinksOptOut = false) =>
+    ({ member: { id }, attendance: { status }, drinksOptOut }) as unknown as Participant;
+
+  it('lists who of those coming chips in and who does not, without the host', () => {
+    const kitty = drinksKitty({
+      host: { id: 1 } as FridayView['host'],
+      participants: [person(1, 'in'), person(2, 'in'), person(3, 'nofood', true), person(4, 'out')],
+    });
+    expect(kitty.payers.map((entry) => entry.member.id)).toEqual([2]);
+    expect(kitty.skippers.map((entry) => entry.member.id)).toEqual([3]);
   });
 });
