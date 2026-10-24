@@ -584,8 +584,13 @@ export async function settleAction(date: string, total: string): Promise<ActionR
     const cents = parseEuroToCents(typedAmount.parse(total));
     if (cents === null || cents <= 0)
       throw new ServiceError('Bitte den Betrag wie „87,40“ eingeben');
-    await settleFriday(db, day, cents, new Date());
-    return { ok: true, message: 'Abgerechnet – die Zahlungslinks sind da' };
+    const changed = await settleFriday(db, day, cents, new Date());
+    return {
+      ok: true,
+      message: changed
+        ? `Abgerechnet – Korrektur geht an ${changed === 1 ? 'eine Person' : `${changed} Leute`}`
+        : 'Abgerechnet',
+    };
   });
 }
 
@@ -608,8 +613,13 @@ export async function resendPayLinksAction(date: string): Promise<ActionResult> 
   return run(async () => {
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
-    await resendPayLinks(db, day, new Date());
-    return { ok: true, message: 'Die Zahl-Links gehen mit den neuen Beträgen noch mal raus' };
+    const changed = await resendPayLinks(db, day, new Date());
+    return {
+      ok: true,
+      message: changed
+        ? `Korrektur geht an ${changed === 1 ? 'eine Person' : `${changed} Leute`}`
+        : 'Bei niemandem hat sich der Betrag geändert, es geht nichts raus',
+    };
   });
 }
 

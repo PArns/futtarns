@@ -117,24 +117,24 @@ sends each key once. Every message has a window, so a container that was down do
 stale reminders afterwards. Nothing goes out before ten in the morning (`QUIET_UNTIL_HOUR`):
 whatever falls due at night, such as a cancellation or a settlement, waits until ten.
 
-| When (Berlin)         | Who                                        | What                                                                                                                                    |
-| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Mon 18:00, Wed 10:00  | a host who is away that day                | find a substitute or cancel                                                                                                             |
-| Wed 12:00 – Thu       | members who haven't answered               | whether they come, with reply options, and the vote                                                                                     |
-| Wed 12:00 – Fri 16:00 | everyone else coming who hasn't voted      | the restaurant vote, if one is running                                                                                                  |
-| Thu 18:00             | coming, got the ballot, not voted          | the standings, while their votes could still swing                                                                                      |
-| Thu 18:00, Fri 10:00  | host, no restaurant yet                    | pick one; after a vote only once it is over, at 16:00                                                                                   |
-| Fri 10:00 – 17:00     | members who haven't answered               | invitation with reply options and what to order, or the ballot while the vote runs                                                      |
-| Fri 10:00             | said yes before, uninvited, no order       | order reminder naming their default; at 16:00 after a vote                                                                              |
-| Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                                                                                   |
-| Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                                                                                 |
-| Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                                                                     |
-| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart                                                                                            |
-| on release            | open balance ≥ 50 cents                    | what to pay, with the PayPal link, if the host releases with messages; again as a correction when the host resends after prices changed |
-| Sat–Mon 10:00         | host, not settled                          | enter what Lieferando charged                                                                                                           |
-| after settlement      | open balance ≥ 50 cents either way         | amount to pay or to get back                                                                                                            |
-| daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                                                                        |
-| cancelled Friday      | everyone                                   | that it's off                                                                                                                           |
+| When (Berlin)         | Who                                        | What                                                                                                                              |
+| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| Mon 18:00, Wed 10:00  | a host who is away that day                | find a substitute or cancel                                                                                                       |
+| Wed 12:00 – Thu       | members who haven't answered               | whether they come, with reply options, and the vote                                                                               |
+| Wed 12:00 – Fri 16:00 | everyone else coming who hasn't voted      | the restaurant vote, if one is running                                                                                            |
+| Thu 18:00             | coming, got the ballot, not voted          | the standings, while their votes could still swing                                                                                |
+| Thu 18:00, Fri 10:00  | host, no restaurant yet                    | pick one; after a vote only once it is over, at 16:00                                                                             |
+| Fri 10:00 – 17:00     | members who haven't answered               | invitation with reply options and what to order, or the ballot while the vote runs                                                |
+| Fri 10:00             | said yes before, uninvited, no order       | order reminder naming their default; at 16:00 after a vote                                                                        |
+| Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                                                                             |
+| Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                                                                           |
+| Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                                                               |
+| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart                                                                                      |
+| on release            | open balance ≥ 50 cents                    | what to pay, with the PayPal link, if the host releases with messages; without a release by Sat 10:00 it goes out then on its own |
+| Sat 10:00             | host, not settled                          | enter what Lieferando charged, if it differs from the estimate (which stands otherwise)                                           |
+| settling or resending | whose total changed since their link       | the corrected amount to pay or to get back; nobody else hears anything                                                            |
+| daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                                                                  |
+| cancelled Friday      | everyone                                   | that it's off                                                                                                                     |
 
 Each message goes out once per person and reason, and never right after something that
 already said the same: the Wednesday question carries the ballot, and so does the Friday

@@ -1,0 +1,2 @@
+ALTER TABLE "fridays" ADD COLUMN "payment_told_cents" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "fridays" ADD COLUMN "payment_changed_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;
