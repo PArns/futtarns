@@ -95,7 +95,7 @@ export function PhaseBar({
   return (
     <div className="space-y-3">
       <ol
-        className="grid max-w-2xl text-center text-xs"
+        className="grid text-center text-xs"
         style={{ gridTemplateColumns: `repeat(${phases.length}, minmax(0, 1fr))` }}
         aria-label="Ablauf des Freitags"
       >
