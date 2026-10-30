@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { canManageFriday, canSetArrival, canSetHost, canTakeOver } from '@/lib/permissions';
+import {
+  canClearHost,
+  canManageFriday,
+  canSetArrival,
+  canSetHost,
+  canTakeOver,
+} from '@/lib/permissions';
 
 const member = { id: 2, isAdmin: false, assignsHosts: false };
 const hostRole = { id: 3, isAdmin: false, assignsHosts: true };
@@ -17,6 +23,12 @@ describe('canSetHost', () => {
   it('gives the Vertretungen role nothing else of the Friday', () => {
     expect(canManageFriday(hostRole, 1)).toBe(false);
   });
+
+  it('leaves putting a Friday at nobody’s place to admins', () => {
+    expect(canClearHost(admin)).toBe(true);
+    expect(canClearHost(hostRole)).toBe(false);
+    expect(canClearHost(member)).toBe(false);
+  });
 });
 
 describe('canTakeOver', () => {
@@ -31,6 +43,13 @@ describe('canTakeOver', () => {
 
   it('lets anyone of the Stammtruppe step in for a host who is away', () => {
     expect(canTakeOver(anna, away)).toBe(true);
+  });
+
+  it('lets them take over a Friday that has no host at all', () => {
+    expect(canTakeOver(anna, { ...away, hostId: null, hostAbsent: false })).toBe(true);
+    expect(canTakeOver(anna, { ...away, hostId: null, hostAbsent: false, locked: true })).toBe(
+      false
+    );
   });
 
   it('only while the host is away, the Friday open and they are around themselves', () => {

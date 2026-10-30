@@ -4,6 +4,7 @@ import type { Db } from '@/lib/db/client';
 import { charges, orderItems } from '@/lib/db/schema';
 import { parseOptionGroups } from '@/lib/menu/options';
 import {
+  clearHost,
   hostedFridaysBetween,
   loadCalendar,
   loadFriday,
@@ -599,6 +600,25 @@ describe('a Friday', () => {
     // Not after the deadline: then the order is due and the host was written down.
     await setHost(db, FRIDAY, null);
     await expect(takeOverFriday(db, FRIDAY, anna.id, AFTER)).rejects.toThrow('weg ist');
+  });
+
+  it('puts a Friday at nobody’s place until someone takes it over, then locks with them', async () => {
+    const { patrick, anna, ben } = await setup();
+    await clearHost(db, FRIDAY);
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    expect(view.host).toBeNull();
+    expect([view.noHost, view.hostIsDefault]).toEqual([true, false]);
+    expect((await loadCalendar(db, FRIDAY, 1))[0]).toMatchObject({ host: null, noHost: true });
+    await takeOverFriday(db, FRIDAY, anna.id, BEFORE);
+    expect((await loadFriday(db, FRIDAY, BEFORE)).noHost).toBe(false);
+    // Only one can take it: once Anna hosts and is around, it is hers.
+    await expect(takeOverFriday(db, FRIDAY, ben.id, BEFORE)).rejects.toThrow('weg ist');
+    await lockFriday(db, FRIDAY, AFTER);
+    expect((await loadFriday(db, FRIDAY, AFTER)).host?.id).toBe(anna.id);
+    // Back to the usual host on the next Friday at nobody's place.
+    await clearHost(db, '2026-10-23');
+    await setHost(db, '2026-10-23', null);
+    expect((await loadFriday(db, '2026-10-23', BEFORE)).host?.id).toBe(patrick.id);
   });
 
   it('tips what the restaurant asks for, unless the host sets another amount', async () => {

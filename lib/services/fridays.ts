@@ -72,11 +72,30 @@ export async function getFridayRow(db: Db, date: IsoDate): Promise<Friday | null
   return row ?? null;
 }
 
-/** The host of a Friday: the one entered for it, otherwise the default host. */
-export async function hostIdFor(db: Db, date: IsoDate): Promise<number | null> {
-  const row = await getFridayRow(db, date);
-  if (row?.hostId) return row.hostId;
+/**
+ * Who hosts a Friday with this row: nobody when an admin put it at nobody's place, else
+ * the one entered for it, else the default host.
+ */
+function hostIdOf(
+  row: Pick<Friday, 'hostId' | 'noHost'> | null | undefined,
+  defaultHostId: number | null
+): number | null {
+  if (row?.noHost) return null;
+  return row?.hostId ?? defaultHostId;
+}
+
+/** `hostIdOf`, asking for the default host only when it matters. */
+async function resolveHostId(
+  db: Db,
+  row: Pick<Friday, 'hostId' | 'noHost'> | null | undefined
+): Promise<number | null> {
+  if (row?.noHost || row?.hostId) return hostIdOf(row, null);
   return (await getDefaultHost(db))?.id ?? null;
+}
+
+/** The host of a Friday: the one entered for it, nobody, or the default host. */
+export async function hostIdFor(db: Db, date: IsoDate): Promise<number | null> {
+  return resolveHostId(db, await getFridayRow(db, date));
 }
 
 async function touch(db: Db, date: IsoDate, values: Partial<Friday>) {
@@ -95,8 +114,7 @@ export async function currentRestaurantId(db: Db, date: IsoDate): Promise<number
   const row = await getFridayRow(db, date);
   if (row?.mode === 'flat') return null;
   if (row?.restaurantId) return row.restaurantId;
-  const hostId = row?.hostId ?? (await getDefaultHost(db))?.id ?? null;
-  return (await hostRestaurant(db, hostId))?.id ?? null;
+  return (await hostRestaurant(db, await resolveHostId(db, row)))?.id ?? null;
 }
 
 /**
@@ -123,17 +141,27 @@ async function dropOrdersExcept(
   return deleted.length;
 }
 
+/** Hands a Friday to a host, or with `null` back to the default host. */
 export async function setHost(db: Db, date: IsoDate, hostId: number | null) {
-  await touch(db, date, { hostId });
+  await touch(db, date, { hostId, noHost: false });
 }
 
 /**
- * A member steps in for a host who is away that day. Checked here against the database,
- * not the page: the host must be away, the member around and in the Stammtruppe.
+ * Puts a Friday at nobody's place: no host, not even the default one, so the group sorts
+ * out among themselves who takes it over (`takeOverFriday`).
+ */
+export async function clearHost(db: Db, date: IsoDate) {
+  await touch(db, date, { hostId: null, noHost: true });
+}
+
+/**
+ * A member steps in for a host who is away that day, or on a Friday without a host.
+ * Checked here against the database, not the page: the host must be away or missing, the
+ * member around and in the Stammtruppe.
  */
 export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
   const row = await getFridayRow(db, date);
-  const hostId = row?.hostId ?? (await getDefaultHost(db))?.id ?? null;
+  const hostId = await resolveHostId(db, row);
   const absent = await absencesOverlapping(db, date, date);
   const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
   const allowed =
@@ -145,8 +173,11 @@ export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, no
       locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
       cancelled: row?.cancelled ?? false,
     });
-  if (!allowed)
-    throw new ServiceError('Übernehmen geht nur, wenn der Gastgeber an dem Tag weg ist');
+  if (!allowed) {
+    throw new ServiceError(
+      'Übernehmen geht nur, wenn es keinen Gastgeber gibt oder er an dem Tag weg ist'
+    );
+  }
   await setHost(db, date, memberId);
 }
 
@@ -200,7 +231,7 @@ export async function setRestaurant(
     const [restaurant] = restaurantId
       ? await tx.select().from(restaurants).where(eq(restaurants.id, restaurantId))
       : [];
-    const hostId = row!.hostId ?? (await getDefaultHost(tx))?.id ?? null;
+    const hostId = await resolveHostId(tx, row);
     const area = restaurant ? await restaurantHostIds(tx, restaurant.id) : [];
     const delivers = area.length === 0 || (hostId !== null && area.includes(hostId));
     // Orders from the old restaurant go; what was ordered ahead from the new one stays.
@@ -237,7 +268,7 @@ export async function closeVote(db: Db, date: IsoDate, now: Date): Promise<boole
     return false;
   }
   if (claimed.lockedAt || claimed.settledAt) return false;
-  const hostId = claimed.hostId ?? (await getDefaultHost(db))?.id ?? null;
+  const hostId = await resolveHostId(db, claimed);
   const options = await restaurantsForHost(db, hostId);
   const allVotes = await db
     .select()
@@ -499,10 +530,10 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
     // if the default host changes later. The same goes for the host's usual restaurant
     // when nobody picked one.
     const [current] = await tx
-      .select({ hostId: fridays.hostId })
+      .select({ hostId: fridays.hostId, noHost: fridays.noHost })
       .from(fridays)
       .where(eq(fridays.date, date));
-    const hostId = current?.hostId ?? (await getDefaultHost(tx))?.id ?? null;
+    const hostId = await resolveHostId(tx, current);
     const restaurantId = (await hostRestaurant(tx, hostId))?.id ?? null;
     const [row] = await tx
       .update(fridays)
@@ -840,6 +871,8 @@ export type FridayView = {
   date: IsoDate;
   host: Member | null;
   hostIsDefault: boolean;
+  /** An admin put the Friday at nobody's place: the group sorts out who takes it over. */
+  noHost: boolean;
   /** The host is away that day, so someone has to take over or the Friday is called off. */
   hostAbsent: boolean;
   cancelled: boolean;
@@ -932,7 +965,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
       )
     )
     .orderBy(asc(members.name));
-  const hostId = row?.hostId ?? defaultHost?.id ?? null;
+  const hostId = hostIdOf(row, defaultHost?.id ?? null);
   const host =
     people.find((person) => person.id === hostId) ??
     (hostId ? ((await db.select().from(members).where(eq(members.id, hostId)))[0] ?? null) : null);
@@ -1144,7 +1177,8 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const view: FridayView = {
     date,
     host,
-    hostIsDefault: !row?.hostId,
+    hostIsDefault: !row?.hostId && !row?.noHost,
+    noHost: row?.noHost ?? false,
     hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
     cancelled,
     cancelReason: row?.cancelReason ?? null,
@@ -1204,6 +1238,8 @@ export type CalendarEntry = {
   date: IsoDate;
   host: Member | null;
   hostIsDefault: boolean;
+  /** Put at nobody's place by an admin; someone has to take it over. */
+  noHost: boolean;
   cancelled: boolean;
   cancelReason: string | null;
   note: string | null;
@@ -1242,7 +1278,7 @@ export async function loadCalendar(
   const votingFirst =
     now !== undefined &&
     voteOpenAt(first, from, now) &&
-    (await restaurantsForHost(db, first?.hostId ?? defaultHost?.id ?? null)).length > 1;
+    (await restaurantsForHost(db, hostIdOf(first, defaultHost?.id ?? null))).length > 1;
   const allRestaurants = await db
     .select({
       id: restaurants.id,
@@ -1264,9 +1300,8 @@ export async function loadCalendar(
 
   return dates.map((date) => {
     const row = rows.find((entry) => entry.date === date);
-    const host = row?.hostId
-      ? (everyone.find((member) => member.id === row.hostId) ?? null)
-      : defaultHost;
+    const hostId = hostIdOf(row, defaultHost?.id ?? null);
+    const host = everyone.find((member) => member.id === hostId) ?? null;
     const absentMemberIds = [
       ...new Set(
         absent
@@ -1309,7 +1344,8 @@ export async function loadCalendar(
       people: hostLast(people, host?.id ?? null, (person) => person.id),
       date,
       host,
-      hostIsDefault: !row?.hostId,
+      hostIsDefault: !row?.hostId && !row?.noHost,
+      noHost: row?.noHost ?? false,
       cancelled: row?.cancelled ?? false,
       cancelReason: row?.cancelReason ?? null,
       note: row?.note ?? null,

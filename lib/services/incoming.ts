@@ -3,7 +3,7 @@ import { appUrl } from '@/lib/auth-tokens';
 import { HELP_TEXT, parseCommand } from '@/lib/commands';
 import { currentFriday, isPastDeadline } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
-import { members, type OrderItem } from '@/lib/db/schema';
+import { members, type AttendanceStatus, type OrderItem } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold, loginCodeText } from '@/lib/messages';
 import { requestLoginCode } from '@/lib/services/auth';
@@ -15,6 +15,7 @@ import {
   recordPayment,
   setAttendance,
   setLate,
+  takeOverFriday,
   type FridayView,
 } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
@@ -94,6 +95,96 @@ function othersText(view: FridayView, ahead: ((restaurantId: number) => string) 
   return [bold(`Freitag (${formatDayShort(view.date)}): ${what}`), '', ...lines].join('\n');
 }
 
+/**
+ * Records whether someone comes, unless the Friday is off, past its deadline or the answer
+ * would throw away an order without „sicher“ (`again` is what to send to confirm).
+ */
+async function answer(
+  db: Db,
+  memberId: number,
+  status: AttendanceStatus,
+  confirmed: boolean,
+  now: Date,
+  again = `${status === 'out' ? '3' : '2'} sicher`
+): Promise<{ ok: true; reply: string; view: FridayView } | { ok: false; reply: string }> {
+  const date = currentFriday(now);
+  const view = await loadFriday(db, date, now);
+  if (view.cancelled) return { ok: false, reply: `Freitag (${formatDayShort(date)}) fällt aus.` };
+  if (view.locked || isPastDeadline(date, now)) {
+    return {
+      ok: false,
+      reply: `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`,
+    };
+  }
+  const mine = view.participants.find((entry) => entry.member.id === memberId);
+  if (status !== 'in' && mine?.items.length && !confirmed) {
+    return {
+      ok: false,
+      reply: `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt.\nWenn das weg soll, antworte mit ${bold(again)}.`,
+    };
+  }
+  await setAttendance(db, date, memberId, status, now);
+  return { ok: true, reply: ANSWER_REPLY[status], view };
+}
+
+/** Casts a vote for the restaurant behind a ballot letter, and says where the vote stands. */
+async function vote(db: Db, memberId: number, letter: string, now: Date): Promise<string> {
+  const date = currentFriday(now);
+  const link = `${appUrl()}/freitag/${date}`;
+  const view = await loadFriday(db, date, now);
+  const options = await restaurantsForHost(db, view.host?.id ?? null);
+  if (!votingAt(view, now) || options.length < 2) {
+    return view.restaurant && view.mode === 'delivery' && !view.cancelled
+      ? `Gerade läuft keine Restaurantwahl. Freitag gibt's ${bold(view.restaurant.name)}. 🍽️`
+      : 'Gerade läuft keine Restaurantwahl.';
+  }
+  const option = optionForLetter(options, letter);
+  if (!option) {
+    return [
+      'Den Buchstaben gibt’s nicht. Zur Wahl stehen:',
+      ...options.map((entry, index) => `${bold(voteLetter(index))} · ${entry.name}`),
+    ].join('\n');
+  }
+  let cast: Awaited<ReturnType<typeof castVote>>;
+  try {
+    cast = await castVote(db, date, memberId, option.id, now);
+  } catch (error) {
+    if (error instanceof ServiceError) return error.message;
+    throw error;
+  }
+  const after = await loadFriday(db, date, now);
+  const nameOf = (id: number) =>
+    after.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
+  // A vote is a yes; without a dish from there, their default there is what they get,
+  // unless they come without food.
+  const eats =
+    after.participants.find((entry) => entry.member.id === memberId)?.attendance.status === 'in';
+  const usual = eats ? (await getDefault(db, memberId, option.id))?.dish : null;
+  const orderedThere = [
+    ...after.participants.flatMap((entry) => entry.items),
+    ...after.preorders,
+  ].some((item) => item.memberId === memberId && item.restaurantId === option.id);
+  return [
+    `🗳️ Stimme gezählt: ${bold(option.name)}!`,
+    ...(cast.joined ? ['Damit bist du am Freitag dabei.'] : []),
+    ...(usual && !orderedThere
+      ? [`Sagst du nichts anderes, bekommst du dort deinen Standard (${bold(usual.name)}).`]
+      : []),
+    ...(cast.dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
+    ...(option.id !== after.restaurant?.id
+      ? [
+          `Auf der Seite kannst du bei ${option.name} schon vorbestellen, das zählt, wenn es gewinnt.`,
+        ]
+      : []),
+    '',
+    bold('Stand:'),
+    ...standings(options, after.votes, nameOf),
+    '',
+    `Umentscheiden geht bis ${bold(voteEndsText(date, now))}, einfach einen anderen Buchstaben schicken.`,
+    link,
+  ].join('\n');
+}
+
 /** Answers a WhatsApp command from a member; strangers and plain chat get no reply. */
 export async function handleIncoming(
   db: Db,
@@ -114,17 +205,9 @@ export async function handleIncoming(
 
   switch (command.kind) {
     case 'answer': {
-      const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
-      if (view.locked || isPastDeadline(date, now)) {
-        return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
-      }
-      const mine = view.participants.find((entry) => entry.member.id === member.id);
-      if (command.status !== 'in' && mine?.items.length && !command.confirmed) {
-        const answer = command.status === 'out' ? '3' : '2';
-        return `Du hast schon ${bold(mine.items.map((item) => item.name).join(', '))} bestellt.\nWenn das weg soll, antworte mit ${bold(`${answer} sicher`)}.`;
-      }
-      await setAttendance(db, date, member.id, command.status, now);
+      const answered = await answer(db, member.id, command.status, command.confirmed, now);
+      if (!answered.ok) return answered.reply;
+      const view = answered.view;
       const order =
         command.status === 'in' && view.mode === 'delivery'
           ? view.restaurant
@@ -133,7 +216,30 @@ export async function handleIncoming(
           : command.status === 'in' && view.mode === 'flat'
             ? `\n\n${bold(view.flatTitle ?? 'Pauschale')}: ${formatEuro(view.flatPriceCents ?? 0)} pro Person.\nBezahlt wird nach dem Anmeldeschluss:\n${link}`
             : '';
-      return `${ANSWER_REPLY[command.status]}${order}`;
+      return `${answered.reply}${order}`;
+    }
+
+    case 'answerVote': {
+      // „1E“: the answer first, then the vote; while no vote runs, the answer still counts.
+      const again = `${command.status === 'in' ? '1' : '2'}${command.letter.toUpperCase()} sicher`;
+      const answered = await answer(db, member.id, command.status, command.confirmed, now, again);
+      if (!answered.ok) return answered.reply;
+      return `${answered.reply}\n\n${await vote(db, member.id, command.letter, now)}`;
+    }
+
+    case 'takeOver': {
+      try {
+        await takeOverFriday(db, date, member.id, now);
+      } catch (error) {
+        if (error instanceof ServiceError) {
+          const view = await loadFriday(db, date, now);
+          return view.host && !view.hostAbsent
+            ? `Freitag (${formatDayShort(date)}) ist schon ${view.host.id === member.id ? 'bei dir' : `bei ${bold(view.host.name)}`}. 🏠`
+            : `${error.message}.`;
+        }
+        throw error;
+      }
+      return `🏠 Danke! Freitag (${formatDayShort(date)}) ist jetzt ${bold('bei dir')}: Du bestellst, und das Geld geht an dich.\n${link}`;
     }
 
     case 'usual': {
@@ -307,57 +413,8 @@ export async function handleIncoming(
       return `${bold(`Freitag (${formatDayShort(date)})`)} bei ${view.host?.name ?? '?'}: ${bold(what)}${vote ? ' (Stand jetzt)' : ''}\n${status}${items}${ahead.join('')}${voting}${money}\n${link}`;
     }
 
-    case 'vote': {
-      const view = await loadFriday(db, date, now);
-      const options = await restaurantsForHost(db, view.host?.id ?? null);
-      if (!votingAt(view, now) || options.length < 2) {
-        return view.restaurant && view.mode === 'delivery' && !view.cancelled
-          ? `Gerade läuft keine Restaurantwahl. Freitag gibt's ${bold(view.restaurant.name)}. 🍽️`
-          : 'Gerade läuft keine Restaurantwahl.';
-      }
-      const option = optionForLetter(options, command.letter);
-      if (!option) {
-        return [
-          'Den Buchstaben gibt’s nicht. Zur Wahl stehen:',
-          ...options.map((entry, index) => `${bold(voteLetter(index))} · ${entry.name}`),
-        ].join('\n');
-      }
-      let cast: Awaited<ReturnType<typeof castVote>>;
-      try {
-        cast = await castVote(db, date, member.id, option.id, now);
-      } catch (error) {
-        if (error instanceof ServiceError) return error.message;
-        throw error;
-      }
-      const after = await loadFriday(db, date, now);
-      const nameOf = (id: number) =>
-        after.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
-      // A vote is a yes; without a dish from there, their default there is what they get.
-      const usual = (await getDefault(db, member.id, option.id))?.dish;
-      const orderedThere = [
-        ...after.participants.flatMap((entry) => entry.items),
-        ...after.preorders,
-      ].some((item) => item.memberId === member.id && item.restaurantId === option.id);
-      return [
-        `🗳️ Stimme gezählt: ${bold(option.name)}!`,
-        ...(cast.joined ? ['Damit bist du am Freitag dabei.'] : []),
-        ...(usual && !orderedThere
-          ? [`Sagst du nichts anderes, bekommst du dort deinen Standard (${bold(usual.name)}).`]
-          : []),
-        ...(cast.dropped ? ['Deine Vorbestellung beim anderen Restaurant ist damit raus.'] : []),
-        ...(option.id !== after.restaurant?.id
-          ? [
-              `Auf der Seite kannst du bei ${option.name} schon vorbestellen, das zählt, wenn es gewinnt.`,
-            ]
-          : []),
-        '',
-        bold('Stand:'),
-        ...standings(options, after.votes, nameOf),
-        '',
-        `Umentscheiden geht bis ${bold(voteEndsText(date, now))}, einfach einen anderen Buchstaben schicken.`,
-        link,
-      ].join('\n');
-    }
+    case 'vote':
+      return vote(db, member.id, command.letter, now);
 
     case 'help':
       return HELP_TEXT;

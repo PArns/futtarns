@@ -1,0 +1,1 @@
+ALTER TABLE "fridays" ADD COLUMN "no_host" boolean DEFAULT false NOT NULL;

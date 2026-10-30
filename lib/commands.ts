@@ -13,12 +13,21 @@ export type Command =
   /** Comes on time after all. */
   | { kind: 'onTime' }
   | { kind: 'others' }
+  /** Steps in as host on a Friday without one, or whose host is away. */
+  | { kind: 'takeOver' }
   | { kind: 'paid' }
   | { kind: 'login' }
   | { kind: 'status' }
   | { kind: 'help' }
   /** A letter from the restaurant vote's ballot. */
   | { kind: 'vote'; letter: string }
+  /** An answer and a ballot letter in one go: `1E`, `1 E`, `E1` or `E 1`. */
+  | {
+      kind: 'answerVote';
+      status: Exclude<AttendanceStatus, 'out'>;
+      letter: string;
+      confirmed: boolean;
+    }
   | { kind: 'unknown' };
 
 /** `später`, `ich komm später`, `später 21`, `komme später gegen 21:30 Uhr`. */
@@ -45,6 +54,7 @@ const WORDS: [RegExp, Command][] = [
   ],
   [/^(pünktlich|doch pünktlich|bin pünktlich|komme pünktlich)$/, { kind: 'onTime' }],
   [/^(andere|die anderen|wer isst was|was essen die anderen|bestellungen)$/, { kind: 'others' }],
+  [/^(übernehme|ich übernehme|übernehmen|ich bin gastgeber)$/, { kind: 'takeOver' }],
   [/^(bezahlt|gezahlt|hab bezahlt|habe bezahlt|paid|überwiesen)$/, { kind: 'paid' }],
   [/^(login|code|link|anmelden|einloggen)$/, { kind: 'login' }],
   [/^(status|info|was gibts|was gibt es|\?)$/, { kind: 'status' }],
@@ -74,6 +84,22 @@ export function parseCommand(text: string): Command {
   const confirmed = / sicher$/.test(normalized);
   const plain = normalized.replace(/ sicher$/, '');
   if (/^[a-z]$/.test(plain)) return { kind: 'vote', letter: plain };
+  // A vote is a yes, so only „dabei“ and „ohne Essen“ go with a letter, in either order.
+  const digitFirst = /^([12]) ?([a-z])$/.exec(plain);
+  const letterFirst = /^([a-z]) ?([12])$/.exec(plain);
+  const both = digitFirst
+    ? { digit: digitFirst[1], letter: digitFirst[2]! }
+    : letterFirst
+      ? { digit: letterFirst[2], letter: letterFirst[1]! }
+      : null;
+  if (both) {
+    return {
+      kind: 'answerVote',
+      status: both.digit === '1' ? 'in' : 'nofood',
+      letter: both.letter,
+      confirmed,
+    };
+  }
   const command = WORDS.find(([pattern]) => pattern.test(plain))?.[1] ?? { kind: 'unknown' };
   return command.kind === 'answer' ? { ...command, confirmed } : command;
 }
@@ -89,6 +115,8 @@ export const HELP_TEXT = [
   `${bold('später 21')} – ich komm später (gegen 21 Uhr), mein Essen wird später bestellt`,
   `${bold('andere')} – was essen die anderen?`,
   `${bold('A')}, ${bold('B')}, … – Restaurant wählen (bis Freitag ${VOTE_CLOSE_HOUR}:00)`,
+  `${bold('1B')} – bin dabei und wähle B, alles in einem (${bold('B1')} geht auch)`,
+  `${bold('übernehme')} – ich mach den Gastgeber, wenn keiner da ist`,
   `${bold('bezahlt')} – ich hab gezahlt`,
   `${bold('status')} – was gibt’s am Freitag?`,
   `${bold('code')} – Login-Code für die Webseite`,

@@ -3,6 +3,7 @@ import type { Db } from '@/lib/db/client';
 import { restaurantVotes } from '@/lib/db/schema';
 import {
   castVote,
+  clearHost,
   loadFriday,
   recordPayment,
   releasePayment,
@@ -357,6 +358,36 @@ describe('reminders', () => {
     expect(invites[0]!.text).not.toContain('bei Patrick');
   });
 
+  it('asks the Stammtruppe to sort it out on a Friday at nobody’s place, and „übernehme“ does', async () => {
+    const { anna, ben } = await setup();
+    await addAbsence(db, ben.id, '2026-10-16', '2026-10-16', null);
+    await clearHost(db, FRIDAY);
+    expect((await loadFriday(db, FRIDAY, at('2026-10-12T16:00:00Z'))).host).toBeNull();
+    await runScheduler(db, at('2026-10-12T17:05:00Z'), send, noPause);
+    // Ben is away that day, so only those around hear about it.
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
+    expect(sent[0]!.text).toContain('Macht das unter euch aus');
+    expect(sent[0]!.text).toContain('*übernehme*');
+    sent = [];
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    const ask = sent.find((message) => message.to === '+491702222222')!;
+    expect(ask.text).toContain('wo, klären wir noch');
+
+    const now = at('2026-10-14T12:00:00Z');
+    expect(await handleIncoming(db, '+491703333333', 'übernehme', now, send)).toContain('weg ist');
+    expect(await handleIncoming(db, '+491702222222', 'Ich übernehme', now, send)).toContain(
+      'jetzt *bei dir*'
+    );
+    expect((await loadFriday(db, FRIDAY, now)).host?.id).toBe(anna.id);
+    expect(await handleIncoming(db, '+491701111111', 'übernehme', now, send)).toContain(
+      'schon bei *Anna*'
+    );
+    // Once someone took it over, nobody hears about it again.
+    sent = [];
+    await runScheduler(db, at('2026-10-14T12:05:00Z'), send, noPause);
+    expect(sent.filter((message) => message.text.includes('unter euch'))).toEqual([]);
+  });
+
   it('sends nothing before ten: what falls due at night waits until then', async () => {
     await setup();
     await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
@@ -606,6 +637,7 @@ describe('the restaurant vote', () => {
     expect(await handleIncoming(db, '+491701111111', 'x', WEDNESDAY, send)).toContain(
       'Den Buchstaben gibt’s nicht'
     );
+    expect(ask.text).toContain('Beides in einem geht auch: *1B* heißt dabei und B.');
 
     const view = await loadFriday(db, NEXT, AFTER);
     expect(view.restaurant?.id).toBe(sushi.id);
@@ -625,6 +657,41 @@ describe('the restaurant vote', () => {
     sent = [];
     await runScheduler(db, at('2026-10-23T14:10:00Z'), send, noPause);
     expect(toAnna()).toEqual([]);
+  });
+
+  it('takes the answer and the vote in one reply, the digit first or the letter', async () => {
+    const { anna, ben, host, sushi } = await voteSetup();
+    const both = await handleIncoming(db, '+491703333333', '1 B', WEDNESDAY, send);
+    expect(both).toMatch(/^Alles klar, du bist dabei\.\n\n🗳️ Stimme gezählt: \*Sakura Sushi\*!/);
+    expect(both).not.toContain('Damit bist du am Freitag dabei');
+    expect(await handleIncoming(db, '+491701111111', 'b1', WEDNESDAY, send)).toContain(
+      'Sakura Sushi 2 (Ben, Patrick)'
+    );
+    // Coming without food: the vote counts, the answer stays and there is no default to get.
+    await createDish(db, sushi.id, {
+      category: null,
+      name: 'Maki',
+      description: null,
+      priceCents: 700,
+      optionGroups: [],
+    });
+    const [maki] = await listDishes(db, sushi.id);
+    await setDefaultDish(db, anna.id, sushi.id, { dishId: maki!.id, selection: {}, note: null });
+    const nofood = await handleIncoming(db, '+491702222222', 'B 2', WEDNESDAY, send);
+    expect(nofood).toContain('isst aber nichts mit');
+    expect(nofood).toContain('Stimme gezählt');
+    expect(nofood).not.toContain('Standard');
+    const view = await loadFriday(db, NEXT, WEDNESDAY);
+    const status = (id: number) =>
+      view.participants.find((entry) => entry.member.id === id)!.attendance.status;
+    expect([status(ben.id), status(host.id), status(anna.id)]).toEqual(['in', 'in', 'nofood']);
+    expect(view.votes).toHaveLength(3);
+    // Without a vote running the answer still counts.
+    expect(
+      await handleIncoming(db, '+491703333333', '1A', at('2026-10-23T14:30:00Z'), send)
+    ).toContain(
+      "Alles klar, du bist dabei.\n\nGerade läuft keine Restaurantwahl. Freitag gibt's *Sakura Sushi*"
+    );
   });
 
   it('does not send the ballot again to someone who answers the question it came with', async () => {

@@ -150,16 +150,27 @@ export function PickupPicker({
   );
 }
 
+/** What a host picker's value means: the default host (``), nobody, or a member's id. */
+export function hostChoice(value: string): number | 'none' | null {
+  return value === 'none' ? 'none' : value ? Number(value) : null;
+}
+
 export function HostPicker({
   date,
   hostId,
   hostIsDefault,
+  noHost,
+  canClear,
   defaultHostName,
   members,
 }: {
   date: string;
   hostId: number | null;
   hostIsDefault: boolean;
+  /** Put at nobody's place: the group sorts out who takes it over. */
+  noHost: boolean;
+  /** Admins may put a Friday at nobody's place. */
+  canClear: boolean;
   defaultHostName: string | null;
   members: Option[];
 }) {
@@ -168,21 +179,30 @@ export function HostPicker({
     <Label>
       Gastgeber
       <Select
-        value={hostIsDefault ? '' : (hostId ?? '')}
+        value={noHost ? 'none' : hostIsDefault ? '' : (hostId ?? '')}
         disabled={pending}
-        onChange={(event) =>
-          execute(() => setHostAction(date, event.target.value ? Number(event.target.value) : null))
-        }
+        onChange={(event) => execute(() => setHostAction(date, hostChoice(event.target.value)))}
       >
         <option value="">
           {defaultHostName ? `${defaultHostName} (wie immer)` : '– Standard –'}
         </option>
+        {(canClear || noHost) && (
+          <option value="none" disabled={!canClear}>
+            Bei niemandem (macht das unter euch aus)
+          </option>
+        )}
         {members.map((member) => (
           <option key={member.id} value={member.id}>
             {member.name}
           </option>
         ))}
       </Select>
+      {noHost && (
+        <Hint>
+          Keiner ist Gastgeber. Wer aus der Stammtruppe kann, übernimmt den Freitag auf seiner
+          Seite.
+        </Hint>
+      )}
     </Label>
   );
 }

@@ -106,6 +106,9 @@ export const fridays = pgTable('fridays', {
   date: date('date', { mode: 'string' }).primaryKey(),
   // null means the default host.
   hostId: integer('host_id').references(() => members.id, { onDelete: 'set null' }),
+  // An admin put this Friday at nobody's place: no host, not even the default one, until
+  // someone of the group takes it over.
+  noHost: boolean('no_host').notNull().default(false),
   cancelled: boolean('cancelled').notNull().default(false),
   cancelReason: text('cancel_reason'),
   mode: text('mode').$type<FridayMode>().notNull().default('delivery'),

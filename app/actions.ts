@@ -20,7 +20,13 @@ import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/wha
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
-import { canEditOrderOf, canManageFriday, canSetArrival, canSetHost } from '@/lib/permissions';
+import {
+  canClearHost,
+  canEditOrderOf,
+  canManageFriday,
+  canSetArrival,
+  canSetHost,
+} from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
   createSession,
@@ -31,6 +37,7 @@ import {
 import {
   bookOpen,
   castVote,
+  clearHost,
   clearPayments,
   currentRestaurantId,
   getFridayRow,
@@ -533,7 +540,11 @@ export async function setPickupAction(
   });
 }
 
-export async function setHostAction(date: string, hostId: number | null): Promise<ActionResult> {
+/** Hands a Friday to a host, back to the default one (`null`), or to nobody (`'none'`). */
+export async function setHostAction(
+  date: string,
+  hostId: number | 'none' | null
+): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
@@ -543,11 +554,18 @@ export async function setHostAction(date: string, hostId: number | null): Promis
         'Den Gastgeber tauschen dürfen nur Admins, der Gastgeber selbst und die Rolle „Vertretungen“'
       );
     }
+    if (hostId === 'none') {
+      if (!canClearHost(viewer)) {
+        throw new ServiceError('Einen Freitag ohne Gastgeber machen nur Admins');
+      }
+      await clearHost(db, day);
+      return;
+    }
     await setHost(db, day, hostId === null ? null : memberId.parse(hostId));
   });
 }
 
-/** The viewer steps in as host for a Friday whose host is away. */
+/** The viewer steps in as host for a Friday whose host is away or missing. */
 export async function takeOverAction(date: string): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);

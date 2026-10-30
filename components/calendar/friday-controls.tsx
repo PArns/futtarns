@@ -2,6 +2,7 @@
 
 import { Ban, CalendarCheck } from 'lucide-react';
 import { setCancelledAction, setHostAction } from '@/app/actions';
+import { hostChoice } from '@/components/friday/host-tools';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/input';
 import { useAction } from '@/lib/hooks/use-action';
@@ -15,6 +16,8 @@ export function FridayControls({
   date,
   hostId,
   hostIsDefault,
+  noHost,
+  canClear,
   defaultHostName,
   members,
   cancelled,
@@ -24,6 +27,10 @@ export function FridayControls({
   date: string;
   hostId: number | null;
   hostIsDefault: boolean;
+  /** Put at nobody's place: the group sorts out who takes it over. */
+  noHost: boolean;
+  /** Admins may put a Friday at nobody's place. */
+  canClear: boolean;
   defaultHostName: string | null;
   members: { id: number; name: string }[];
   cancelled: boolean;
@@ -38,11 +45,9 @@ export function FridayControls({
         variant="sm"
         containerClassName="min-w-0 flex-1"
         aria-label="Gastgeber"
-        value={hostIsDefault ? '' : (hostId ?? '')}
+        value={noHost ? 'none' : hostIsDefault ? '' : (hostId ?? '')}
         disabled={pending}
-        onChange={(event) =>
-          execute(() => setHostAction(date, event.target.value ? Number(event.target.value) : null))
-        }
+        onChange={(event) => execute(() => setHostAction(date, hostChoice(event.target.value)))}
         className={cn(
           'h-8 rounded-md font-normal max-sm:h-10',
           needsSubstitute && 'border-warning/60 ring-warning/30 ring-2'
@@ -53,6 +58,11 @@ export function FridayControls({
             ? `${defaultHostName} (${needsSubstitute && hostIsDefault ? 'ist weg' : 'wie immer'})`
             : 'Standard'}
         </option>
+        {(canClear || noHost) && (
+          <option value="none" disabled={!canClear}>
+            Bei niemandem
+          </option>
+        )}
         {members.map((member) => (
           <option key={member.id} value={member.id}>
             {member.name}

@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AttendancePills } from '@/components/common/attendance-pills';
 import { FridayControls } from '@/components/calendar/friday-controls';
+import { TakeOverButton } from '@/components/friday/take-over-button';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { CopyButton } from '@/components/common/copy-button';
 import { PageHero } from '@/components/layout/page-hero';
@@ -15,11 +16,11 @@ import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
 import { answerKind } from '@/lib/attendance';
 import { calendarLink } from '@/lib/auth-tokens';
-import { todayIso } from '@/lib/dates';
+import { isPastDeadline, todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatMonth } from '@/lib/format';
 import { isHollandFriday } from '@/lib/pentecost';
-import { canManageFriday, canSetHost } from '@/lib/permissions';
+import { canClearHost, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
 import { getGroupContext } from '@/lib/session';
 import { loadCalendar } from '@/lib/services/fridays';
 import { getDefaultHost, listAbsences, listMembers } from '@/lib/services/members';
@@ -86,7 +87,15 @@ export default async function CalendarPage() {
                 // An absent host already reads „Du bist weg“ in the notice above the picker.
                 const meAway =
                   entry.absentMemberIds.includes(viewer.id) && entry.host?.id !== viewer.id;
-                const needsSubstitute = entry.hostAbsent && !entry.cancelled;
+                // Away, or put at nobody's place: someone has to take the Friday over.
+                const needsSubstitute = (entry.hostAbsent || !entry.host) && !entry.cancelled;
+                const mayTakeOver = canTakeOver(viewer, {
+                  hostId: entry.host?.id ?? null,
+                  hostAbsent: entry.hostAbsent,
+                  viewerAbsent: entry.absentMemberIds.includes(viewer.id),
+                  locked: isPastDeadline(entry.date, new Date(now)),
+                  cancelled: entry.cancelled,
+                });
                 const holland = isHollandFriday(entry.date);
                 return (
                   <GlassCard
@@ -145,6 +154,23 @@ export default async function CalendarPage() {
                       </div>
                     </Link>
 
+                    {needsSubstitute && !entry.host && (
+                      <Notice className="flex items-start gap-2">
+                        <TriangleAlert className="text-warning" />
+                        <span className="space-y-2">
+                          <strong className="text-warning block">
+                            Noch kein Gastgeber – macht das unter euch aus!
+                          </strong>
+                          {mayTakeOver ? (
+                            <TakeOverButton date={entry.date} />
+                          ) : (
+                            <span className="text-muted-foreground block">
+                              Wer aus der Stammtruppe kann, übernimmt den Freitag.
+                            </span>
+                          )}
+                        </span>
+                      </Notice>
+                    )}
                     {needsSubstitute && entry.host && (
                       <Notice className="flex items-start gap-2">
                         <TriangleAlert className="text-warning" />
@@ -164,7 +190,7 @@ export default async function CalendarPage() {
                       </Notice>
                     )}
                     {(entry.date === currentFriday ||
-                      (!entry.hostIsDefault && !entry.cancelled) ||
+                      (!entry.hostIsDefault && entry.host && !entry.cancelled) ||
                       meAway ||
                       holland) && (
                       <div className="flex flex-wrap gap-1.5">
@@ -176,7 +202,7 @@ export default async function CalendarPage() {
                             <DutchFlag className="h-2.5 w-[15px]" /> Pfingsten in Holland
                           </Badge>
                         )}
-                        {!entry.hostIsDefault && !entry.cancelled && (
+                        {!entry.hostIsDefault && entry.host && !entry.cancelled && (
                           <Badge variant="soft">Vertretung</Badge>
                         )}
                         {meAway && (
@@ -206,6 +232,8 @@ export default async function CalendarPage() {
                           date={entry.date}
                           hostId={entry.host?.id ?? null}
                           hostIsDefault={entry.hostIsDefault}
+                          noHost={entry.noHost}
+                          canClear={canClearHost(viewer)}
                           defaultHostName={defaultHost?.name ?? null}
                           members={active.map(({ id, name }) => ({ id, name }))}
                           cancelled={entry.cancelled}

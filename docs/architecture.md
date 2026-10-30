@@ -31,6 +31,9 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                                                            |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
+An admin can put a Friday at nobody's place (`no_host`, „Bei niemandem“, `clearHost`): then
+it has no host, not even the default one, and the Stammtruppe sorts out among themselves who
+takes it over (see Permissions).
 
 ## A Friday's life
 
@@ -105,8 +108,10 @@ the flag on the people page, and new members get it by default.
   everyone's orders after the deadline, settlement and payments.
 - Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
-- When a Friday's host is away that day, anyone of the Stammtruppe who is around may take
-  it over themselves („Ich übernehme“, `canTakeOver`, `takeOverFriday`) until the deadline.
+- When a Friday's host is away that day, or it has none, anyone of the Stammtruppe who is
+  around may take it over themselves („Ich übernehme“ on the page and in the calendar, or
+  „übernehme“ to the bot; `canTakeOver`, `takeOverFriday`) until the deadline.
+- Only admins put a Friday at nobody's place (`canClearHost`), in the host pickers.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 
@@ -120,6 +125,7 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | When (Berlin)         | Who                                        | What                                                                                                                              |
 | --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
 | Mon 18:00, Wed 10:00  | a host who is away that day                | find a substitute or cancel                                                                                                       |
+| Mon 18:00             | the Stammtruppe around, on a hostless day  | nobody hosts, sort it out: „übernehme“ or the page; the group chat too                                                            |
 | Wed 12:00 – Thu       | members who haven't answered               | whether they come, with reply options, and the vote                                                                               |
 | Wed 12:00 – Fri 16:00 | everyone else coming who hasn't voted      | the restaurant vote, if one is running                                                                                            |
 | Thu 18:00             | coming, got the ballot, not voted          | the standings, while their votes could still swing                                                                                |
@@ -166,7 +172,9 @@ Besides answers, the bot understands „wie immer“ (orders the default dish no
 without food for a „nix“ default), „gleiches“ (orders again what they had the last time at
 this restaurant, `orderSame`; dishes gone from the menu are named and left out), „später“
 („Ich komm später“, optionally with a time: `später 21:30`; „pünktlich“ takes it back) and
-„andere“ (who eats what this Friday).
+„andere“ (who eats what this Friday). An answer and a ballot letter fit into one reply, in
+either order and with or without a space (`1E`, `E 1`, `2B`): the answer counts first, then
+the vote; without a vote running, the answer still does.
 
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
@@ -205,8 +213,11 @@ and gets their default at the winner unless they pick something else; coming wit
 stays (`castVote`). The money box then also shows the voted restaurant with that default,
 when nothing was ordered ahead there.
 
-While the vote runs, the Friday page says so at the top (`VoteBanner`: countdown and who
-leads), and so do the calendar and the bot's „status“. Ordering already works: from the
+While the vote runs, the Friday page names no restaurant at the top („Wo essen wir?“), and
+its phase bar (`PhaseBar`: Wahl, Bestellen, Essen, Zahlen, the current one lit, with a
+countdown and who leads) says it is not settled until 16:00; so do the calendar and the
+bot's „status“. When the clock moves the page into the next phase, it asks the server again,
+which counts the vote or locks the orders. Ordering already works: from the
 current restaurant as usual, and ahead from the restaurant a member votes for (`addItem`
 with `from`). Each item carries its restaurant; only the Friday's counts, the rest stays out
 of the participants, prices and order list (`preorders`) and shows grouped under its
