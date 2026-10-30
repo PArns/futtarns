@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Flame,
   House,
+  PartyPopper,
   ShoppingBag,
   Sparkles,
   Store,
@@ -47,6 +48,7 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
+import { Pill } from '@/components/ui/pill';
 import { addWeeks, autoReleaseAt, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
@@ -79,13 +81,21 @@ import { botState } from '@/lib/whatsapp';
 import { cn } from '@/lib/utils';
 
 /** Answer, pick, pay: where the viewer stands this Friday, as ticks. */
-function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
+function Steps({
+  steps,
+}: {
+  /** `later`: nothing to do about it yet, such as paying before it is released. */
+  steps: { label: string; done: boolean; later?: boolean }[];
+}) {
   // Three steps don't fit the narrowest phones: there only the step up next keeps its label,
   // or the last one once all are done.
   const next = steps.findIndex((step) => !step.done);
   const labelled = next === -1 ? steps.length - 1 : next;
+  // Everything there is to do right now is done; paying may still come later.
+  const ready = steps.every((step) => step.done || step.later);
+  const finished = steps.every((step) => step.done);
   return (
-    <ol className="flex max-w-md items-center gap-1.5 text-xs font-semibold">
+    <ol className="flex items-center gap-1.5 text-xs font-semibold">
       {steps.map((step, index) => (
         <li key={step.label} className={cn('flex items-center gap-1.5', index > 0 && 'flex-1')}>
           {index > 0 && <span className="bg-border h-px min-w-2 flex-1" aria-hidden />}
@@ -103,13 +113,24 @@ function Steps({ steps }: { steps: { label: string; done: boolean }[] }) {
             className={cn(
               'whitespace-nowrap',
               step.done ? 'text-foreground' : 'text-muted-foreground',
-              steps.length > 2 && index !== labelled && 'max-[360px]:sr-only'
+              // Once ready, the pill at the end says it all on a phone.
+              ready
+                ? 'max-sm:sr-only'
+                : steps.length > 2 && index !== labelled && 'max-[360px]:sr-only'
             )}
           >
             {step.label}
           </span>
         </li>
       ))}
+      {ready && (
+        <li className="flex flex-1 items-center gap-1.5">
+          <span className="bg-success/50 h-px min-w-2 flex-1" aria-hidden />
+          <Pill tone="success" title={finished ? undefined : 'Gezahlt wird nach dem Essen'}>
+            <PartyPopper /> {finished ? 'Alles erledigt' : 'Du bist ready'}
+          </Pill>
+        </li>
+      )}
     </ol>
   );
 }
@@ -764,7 +785,7 @@ export async function FridayScreen({
                             me.attendance.status !== 'in',
                         },
                       ]),
-                  ...(amHost ? [] : [{ label: 'Zahlen', done: payDone }]),
+                  ...(amHost ? [] : [{ label: 'Zahlen', done: payDone, later: !payable }]),
                 ]}
               />
             )}
