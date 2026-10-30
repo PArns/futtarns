@@ -118,15 +118,22 @@ export function PhaseBar({
                   )}
                 />
               )}
+              {/* Above the lines, which would otherwise run through the dot before them. */}
               <span
                 className={cn(
-                  'relative flex size-7 items-center justify-center rounded-full border text-[11px] font-bold tabular-nums',
+                  'relative z-10 flex size-7 items-center justify-center rounded-full border text-[11px] font-bold tabular-nums',
                   done && 'border-success/50 bg-badge-success text-white',
                   isCurrent &&
                     'border-primary bg-primary text-primary-foreground ring-primary/30 ring-4',
                   !done && !isCurrent && 'border-border bg-background text-muted-foreground'
                 )}
               >
+                {isCurrent && (
+                  <span
+                    aria-hidden
+                    className="phase-pulse bg-primary absolute inset-0 -z-10 rounded-full"
+                  />
+                )}
                 {done ? <Check className="size-3.5" /> : index + 1}
               </span>
               <span

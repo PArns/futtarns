@@ -139,6 +139,69 @@ const ANSWER_HINT = ['Bist du dabei? Antworte mit', ...ANSWER_OPTIONS].join('\n'
 /** In the messages that ask something, when Claude reads along. */
 export const CHAT_HINT = `💬 Oder schreib mir einfach, was du willst, z. B. „bestell mir das Übliche“, „was ist bei Tasty gut?“ oder „ich raff das nicht“. Ich kümmer mich um den Rest.`;
 
+/** Why someone is reminded on request: no answer yet, nothing picked yet, or just a hello. */
+export type NudgeReason = 'unanswered' | 'no_order' | 'hello';
+
+/**
+ * A reminder the host or an admin asked the bot for, naming who asked: whether they come,
+ * or what they eat, by the deadline.
+ */
+export function nudgeText({
+  reason,
+  name,
+  sender,
+  restaurant,
+  date,
+  deadline,
+  flat,
+  link,
+  key,
+  now,
+}: {
+  reason: NudgeReason;
+  name: string;
+  sender: string;
+  restaurant: string | null;
+  date: IsoDate;
+  deadline: string;
+  flat: boolean;
+  link: string;
+  key: string;
+  now: Date;
+}): string {
+  const days = daysBetween(todayIso(now), date);
+  const when = days <= 0 ? 'heute' : days === 1 ? 'morgen' : 'am Freitag';
+  const closes = flat ? 'Anmeldeschluss' : 'Bestellschluss';
+  const head = pick(
+    reason === 'unanswered'
+      ? ([
+          `👋 ${bold(`${name}, kommst du ${when}?`)} ${sender} fragt nach.`,
+          `🔔 ${bold(`${name}, ${sender} vermisst deine Antwort!`)}`,
+          `📣 ${bold(`Hallo ${name}!`)} ${sender} will wissen, ob du ${when} dabei bist.`,
+        ] as const)
+      : reason === 'no_order'
+        ? ([
+            `🍕 ${bold(`${name}, du hast noch nichts ausgesucht!`)} ${sender} erinnert dich.`,
+            `⏰ ${bold(`${name}, der Hunger kommt bestimmt!`)} ${sender} schickt mich.`,
+            `🍽️ ${bold(`${name}, dein Teller ist noch leer!`)} Sagt ${sender}.`,
+          ] as const)
+        : ([
+            `👋 ${bold(`Grüße von ${sender}, ${name}!`)}`,
+            `📣 ${bold(`${name}, kurze Erinnerung von ${sender}!`)}`,
+          ] as const),
+    key
+  );
+  const body =
+    reason === 'unanswered'
+      ? [ANSWER_HINT, `${closes}: ${bold(deadline)}`]
+      : reason === 'no_order'
+        ? [
+            `Bei ${bold(restaurant ?? 'dem Restaurant')} geht’s bis ${bold(deadline)}, sonst gibt’s für dich nichts.`,
+          ]
+        : [`${closes} ist um ${bold(deadline)}.`];
+  return [head, ...body, '', CHAT_HINT, link].join('\n');
+}
+
 /**
  * Every WhatsApp message one Friday calls for at `now`. Each message has a key; the
  * scheduler sends a key once, so this can run every minute. Every window ends, so a

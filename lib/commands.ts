@@ -18,6 +18,12 @@ export type Command =
   | { kind: 'takeOver' }
   /** The host or an admin settles the restaurant, through the assistant; it ends the vote. */
   | { kind: 'pickRestaurant'; restaurantId: number; confirmed: boolean }
+  /** The host or an admin has the bot remind people, through the assistant. */
+  | {
+      kind: 'remind';
+      group: 'unanswered' | 'no_order' | 'open' | null;
+      memberIds: number[];
+    }
   /**
    * Only through the assistant (`lib/assistant.ts`); no text parses to these. A dish by its
    * number with the choices Claude picked, checked against the menu when it runs.

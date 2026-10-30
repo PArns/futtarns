@@ -17,14 +17,22 @@ import type { Db } from '@/lib/db/client';
 import {
   dishes,
   members,
+  notifications,
   type AttendanceStatus,
   type Member,
   type OrderItem,
 } from '@/lib/db/schema';
 import { formatDayList, formatDayShort, formatEuro, formatTime } from '@/lib/format';
 import { bold, loginCodeText } from '@/lib/messages';
+import { nudgeText, type Outgoing } from '@/lib/reminders';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
-import { assistantFacts, assistantResearch, getAssistantKey } from '@/lib/services/assistant';
+import {
+  assistantFacts,
+  assistantResearch,
+  getAssistantKey,
+  nudgeReason,
+} from '@/lib/services/assistant';
+import { deliver, pauseBetweenMessages } from '@/lib/services/scheduler';
 import { requestLoginCode } from '@/lib/services/auth';
 import {
   castVote,
@@ -52,7 +60,7 @@ import {
 } from '@/lib/services/orders';
 import { getRestaurant, restaurantsForHost } from '@/lib/services/restaurants';
 import { optionForLetter, standings, voteEndsText, voteLetter, votingAt } from '@/lib/vote';
-import { sendWhatsApp } from '@/lib/whatsapp';
+import { sendWhatsApp, type SendResult } from '@/lib/whatsapp';
 
 /** The vote while it runs, with the names of the restaurants on its ballot. */
 async function runningVote(db: Db, view: FridayView, now: Date) {
@@ -241,7 +249,28 @@ function itemLabel(item: OrderItem): string {
   return `${item.name}${item.options.length ? ` (${item.options.map((option) => option.choiceName).join(', ')})` : ''}`;
 }
 
-type Send = (to: string, text: string) => Promise<unknown>;
+type Send = (to: string, text: string) => Promise<SendResult>;
+
+/** Reminders asked for through the bot, sent one by one once the answer went back. */
+let outbox: Promise<unknown> = Promise.resolve();
+
+function sendLater(db: Db, messages: Outgoing[], send: Send, pause: () => Promise<unknown>) {
+  outbox = outbox.then(async () => {
+    for (const [index, message] of messages.entries()) {
+      if (index > 0) await pause();
+      try {
+        await deliver(db, message, send);
+      } catch (error) {
+        console.error('[remind] could not send', error);
+      }
+    }
+  });
+}
+
+/** Resolves once every reminder asked for so far went out. */
+export function remindersSent(): Promise<unknown> {
+  return outbox;
+}
 
 /** A little less than the 20 seconds the bot waits for the app's answer. */
 const BOT_PATIENCE_MS = 18_000;
@@ -260,7 +289,8 @@ export async function handleIncoming(
   text: string,
   now: Date,
   send: Send = sendWhatsApp,
-  interpreter?: Interpreter | null
+  interpreter?: Interpreter | null,
+  pause: () => Promise<unknown> = pauseBetweenMessages
 ): Promise<string | null> {
   const [member] = await db
     .select()
@@ -268,7 +298,7 @@ export async function handleIncoming(
     .where(and(eq(members.phone, phone), eq(members.active, true), eq(members.kind, 'member')));
   if (!member) return null;
   const command = parseCommand(text);
-  if (command.kind !== 'unknown') return runCommand(db, member, command, now, send);
+  if (command.kind !== 'unknown') return runCommand(db, member, command, now, send, pause);
 
   // The bot waits 20 seconds for the answer; the time counts from here.
   const started = Date.now();
@@ -302,7 +332,7 @@ export async function handleIncoming(
   if (understood.command && Date.now() - started > BOT_PATIENCE_MS) return null;
   // Claude's lead-in first, then what the command itself says happened.
   const outcome = understood.command
-    ? await runCommand(db, member, understood.command, now, send)
+    ? await runCommand(db, member, understood.command, now, send, pause)
     : null;
   return [understood.reply, outcome].filter(Boolean).join('\n\n') || null;
 }
@@ -313,7 +343,8 @@ async function runCommand(
   member: Member,
   command: Command,
   now: Date,
-  send: Send
+  send: Send,
+  pause: () => Promise<unknown>
 ): Promise<string | null> {
   const phone = member.phone!;
   const date = currentFriday(now);
@@ -727,6 +758,93 @@ async function runCommand(
         ...(ends ? ['Die Restaurantwahl ist damit vorbei.'] : []),
         ...(dropped ? ['Bestellungen bei anderen Restaurants sind damit raus.'] : []),
         link,
+      ].join('\n');
+    }
+
+    case 'remind': {
+      const view = await loadFriday(db, date, now);
+      if (!canManageFriday(member, view.host?.id ?? null)) {
+        return 'Erinnerungen verschicken nur der Gastgeber und Admins.';
+      }
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.locked || isPastDeadline(date, now)) {
+        return 'Bestellschluss ist vorbei, da bringt eine Erinnerung nichts mehr.';
+      }
+      const reachable = view.participants.filter(
+        (entry) =>
+          entry.member.id !== member.id &&
+          entry.member.kind === 'member' &&
+          entry.member.active &&
+          entry.member.phone
+      );
+      const named = reachable.filter((entry) => command.memberIds.includes(entry.member.id));
+      const wanted = [
+        ...reachable.filter((entry) => {
+          const reason = nudgeReason(view, entry);
+          return (
+            reason !== null &&
+            (command.group === 'open' || command.group === reason) &&
+            !command.memberIds.includes(entry.member.id)
+          );
+        }),
+        ...named,
+      ];
+      // Whoever is away or said no stays in peace, whatever the host asked for.
+      const resting = wanted.filter(
+        (entry) =>
+          entry.attendance.reason === 'absent' ||
+          (entry.attendance.reason === 'answered' && entry.attendance.status === 'out')
+      );
+      const hour = Math.floor(now.getTime() / 3_600_000);
+      const messages: Outgoing[] = [];
+      const recently: string[] = [];
+      for (const entry of wanted) {
+        if (resting.includes(entry)) continue;
+        const key = `remind:${date}:${entry.member.id}:${hour}`;
+        const [sentBefore] = await db
+          .select({ key: notifications.key })
+          .from(notifications)
+          .where(eq(notifications.key, key));
+        if (sentBefore) {
+          recently.push(entry.member.name);
+          continue;
+        }
+        messages.push({
+          key,
+          to: entry.member.phone!,
+          text: nudgeText({
+            reason: nudgeReason(view, entry) ?? 'hello',
+            name: entry.member.name,
+            sender: member.name,
+            restaurant: view.restaurant?.name ?? null,
+            date,
+            deadline: formatTime(view.deadline),
+            flat: view.mode === 'flat',
+            link,
+            key,
+            now,
+          }),
+        });
+      }
+      // WhatsApp blocks bursts, so they go out one by one after this answer.
+      sendLater(db, messages, send, pause);
+      const names = (list: string[]) => list.join(', ');
+      return [
+        messages.length
+          ? `📣 Erinnerung geht gleich raus an ${bold(names(messages.map((message) => wanted.find((entry) => entry.member.phone === message.to)!.member.name)))}.`
+          : wanted.length === 0
+            ? 'Da ist keiner zu erinnern: alle haben geantwortet und was ausgesucht. 👌'
+            : 'Diesmal geht keine Erinnerung raus.',
+        ...(recently.length
+          ? [
+              `${names(recently)} ${recently.length === 1 ? 'hatte' : 'hatten'} gerade erst eine, das reicht für diese Stunde.`,
+            ]
+          : []),
+        ...(resting.length
+          ? [
+              `${names(resting.map((entry) => entry.member.name))} ${resting.length === 1 ? 'ist' : 'sind'} raus oder weg, die lass ich in Ruhe.`,
+            ]
+          : []),
       ].join('\n');
     }
 

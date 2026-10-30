@@ -193,7 +193,11 @@ the member's own command (`understand`, then `runCommand`), with the page's rule
 voting (also by the restaurant's name), ordering a dish (checked against the menu; another
 restaurant than the Friday's only from the ballot while the vote runs), replacing or removing
 their own order lines, defaults, the drinks fee, absences, coming later, taking a Friday over;
-the host and admins can also settle the restaurant. It never books a payment, only asks for
+the host and admins can also settle the restaurant („sicher“ when that ends the vote or
+throws orders away) and have the bot remind people („erinner Guido“, „erinner alle, die noch
+nichts bestellt haben“): the bot writes each a reminder that names who asked, according to
+what they still have to do (`nudgeText`), sends them one by one after its answer, at most one
+per person and hour, never to whoever is away or said no, and only until the deadline. It never books a payment, only asks for
 „bezahlt“, and answers never come confirmed, so throwing an order away still needs „sicher“.
 Everything else is a short reply Claude writes itself: explaining where the Friday stands,
 advice from the member's history and the others' picks, banter; work outside the Friday
