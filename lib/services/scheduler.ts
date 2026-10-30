@@ -67,7 +67,7 @@ async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
  * Sends a message unless its key went out before. A refused send is retried next run; one
  * that timed out is not, because it may have arrived.
  */
-async function deliver(db: Db, message: Outgoing, send: Send) {
+export async function deliver(db: Db, message: Outgoing, send: Send) {
   const claimed = await db
     .insert(notifications)
     .values({ key: message.key })
@@ -82,7 +82,7 @@ async function deliver(db: Db, message: Outgoing, send: Send) {
 }
 
 // A burst of identical-looking messages is what gets a linked device blocked.
-const pauseBetweenMessages = () =>
+export const pauseBetweenMessages = () =>
   new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 3000));
 
 /**

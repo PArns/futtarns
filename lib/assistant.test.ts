@@ -20,6 +20,8 @@ const reading = (fields: Partial<Interpretation>): Interpretation => ({
   arrives_at: null,
   dish_id: null,
   restaurant_id: null,
+  remind_group: null,
+  member_ids: [],
   item_id: null,
   replace: null,
   from_date: null,

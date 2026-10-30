@@ -98,7 +98,16 @@ function Steps({
     <ol className="flex items-center gap-1.5 text-xs font-semibold">
       {steps.map((step, index) => (
         <li key={step.label} className={cn('flex items-center gap-1.5', index > 0 && 'flex-1')}>
-          {index > 0 && <span className="bg-border h-px min-w-2 flex-1" aria-hidden />}
+          {index > 0 && (
+            <span
+              aria-hidden
+              className={cn(
+                'h-0.5 min-w-2 flex-1',
+                // Green between done steps, as in the phase bar above.
+                step.done && steps[index - 1]!.done ? 'bg-success/60' : 'bg-border'
+              )}
+            />
+          )}
           <span
             className={cn(
               'flex size-6 items-center justify-center rounded-full border text-[11px] tabular-nums',
@@ -125,7 +134,7 @@ function Steps({
       ))}
       {ready && (
         <li className="flex flex-1 items-center gap-1.5">
-          <span className="bg-success/50 h-px min-w-2 flex-1" aria-hidden />
+          <span className="bg-success/60 h-0.5 min-w-2 flex-1" aria-hidden />
           <Pill tone="success" title={finished ? undefined : 'Gezahlt wird nach dem Essen'}>
             <PartyPopper /> {finished ? 'Alles erledigt' : 'Du bist ready'}
           </Pill>

@@ -74,6 +74,24 @@ const MENTIONED_MENUS = 2;
 
 const STATUS = { in: 'dabei', nofood: 'kommt ohne Essen', out: 'raus' } as const;
 
+/**
+ * Why someone would be reminded on request: no answer yet, or coming to eat with nothing
+ * picked and no default to fall back on; null when there is nothing for them to do.
+ */
+export function nudgeReason(
+  view: FridayView,
+  entry: FridayView['participants'][number]
+): 'unanswered' | 'no_order' | null {
+  if (entry.attendance.reason === 'silent') return 'unanswered';
+  return view.mode === 'delivery' &&
+    entry.attendance.status === 'in' &&
+    entry.items.length === 0 &&
+    !entry.projectedDefault &&
+    entry.member.id !== view.host?.id
+    ? 'no_order'
+    : null;
+}
+
 /** Whether a message names a restaurant: its whole name, or one of its longer words. */
 export function mentions(text: string, name: string): boolean {
   const said = text.toLowerCase();
@@ -207,7 +225,7 @@ export async function assistantFacts(
           : member.core
             ? 'Stammtruppe'
             : 'Gast, nicht in der Stammtruppe'
-    }. ${settles ? 'Du darfst das Restaurant für alle festlegen.' : 'Das Restaurant legen nur der Gastgeber und Admins fest, du stimmst ab.'}`,
+    }. ${settles ? 'Du darfst das Restaurant für alle festlegen und Leute per Bot erinnern.' : 'Das Restaurant legen nur der Gastgeber und Admins fest, du stimmst ab; erinnern dürfen nur sie.'}`,
     `Restaurants (Nummer · Name · Küche): ${options
       .map(
         (option) =>
@@ -215,6 +233,25 @@ export async function assistantFacts(
       )
       .join('; ')}.`
   );
+  if (settles && open) {
+    lines.push(
+      `Erinnern kannst du (Nummer · Name · Stand): ${
+        view.participants
+          .filter(
+            (entry) =>
+              entry.member.id !== member.id &&
+              entry.member.kind === 'member' &&
+              entry.attendance.reason !== 'absent' &&
+              !(entry.attendance.reason === 'answered' && entry.attendance.status === 'out')
+          )
+          .map(
+            (entry) =>
+              `${entry.member.id} · ${entry.member.name} · ${nudgeReason(view, entry) === 'unanswered' ? 'keine Antwort' : nudgeReason(view, entry) === 'no_order' ? 'dabei, nichts ausgesucht' : STATUS[entry.attendance.status]}`
+          )
+          .join('; ') || 'keiner'
+      }.`
+    );
+  }
   if (!view.cancelled && !flat) {
     const others = view.participants.filter(
       (entry) => entry.member.id !== member.id && entry.attendance.status !== 'out'

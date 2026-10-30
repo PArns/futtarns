@@ -15,7 +15,7 @@ import {
   settleFriday,
 } from '@/lib/services/fridays';
 import { assistantKeyInfo, setAssistantKey } from '@/lib/services/assistant';
-import { handleIncoming } from '@/lib/services/incoming';
+import { handleIncoming, remindersSent } from '@/lib/services/incoming';
 import { addAbsence, addGuestWithPhone, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setItemPrice, setNoFoodDefault } from '@/lib/services/orders';
 import {
@@ -479,6 +479,8 @@ describe('the assistant', () => {
     arrives_at: null,
     dish_id: null,
     restaurant_id: null,
+    remind_group: null,
+    member_ids: [],
     item_id: null,
     replace: null,
     from_date: null,
@@ -587,6 +589,8 @@ describe('what the assistant may do', () => {
     arrives_at: null,
     dish_id: null,
     restaurant_id: null,
+    remind_group: null,
+    member_ids: [],
     item_id: null,
     replace: null,
     from_date: null,
@@ -707,6 +711,46 @@ describe('what the assistant may do', () => {
       await handleIncoming(db, '+491701111111', 'Sakura Sushi festlegen sicher', now, send, pick)
     ).toContain("Steht fest: Freitag gibt's *Sakura Sushi*");
     expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(sushi.id);
+  });
+
+  it('reminds people when the host or an admin asks, at most once an hour', async () => {
+    const { anna: member, ben } = await setup();
+    await setAttendance(db, FRIDAY, member.id, 'in', now);
+    const remind = (fields: Partial<Interpretation>) => says({ action: 'remind', ...fields });
+    const ask = (phone: string, interpreter: Interpreter, when = now) =>
+      handleIncoming(db, phone, 'erinner die anderen', when, send, interpreter, noPause);
+    // Only the host and admins have the bot write to others.
+    expect(await ask('+491702222222', remind({ remind_group: 'open' }))).toBe(
+      'Erinnerungen verschicken nur der Gastgeber und Admins.'
+    );
+    let facts = '';
+    const open: Interpreter = async (input) => {
+      facts = input.facts;
+      return reading({ action: 'remind', remind_group: 'open' });
+    };
+    sent = [];
+    expect(await ask('+491701111111', open)).toBe('📣 Erinnerung geht gleich raus an *Anna, Ben*.');
+    expect(facts).toContain(`${member.id} · Anna · dabei, nichts ausgesucht`);
+    expect(facts).toContain(`${ben.id} · Ben · keine Antwort`);
+    await remindersSent();
+    expect(sent.find((message) => message.to === '+491702222222')!.text).toMatch(
+      /^🍕 \*Anna, du hast noch nichts ausgesucht!\* Patrick erinnert dich\./
+    );
+    expect(sent.find((message) => message.to === '+491703333333')!.text).toMatch(
+      /^👋 \*Ben, kommst du am Freitag\?\* Patrick fragt nach\.\nBist du dabei\?/
+    );
+    // Within the hour nobody hears it twice; whoever said no stays in peace.
+    expect(await ask('+491701111111', remind({ member_ids: [ben.id] }))).toBe(
+      'Diesmal geht keine Erinnerung raus.\nBen hatte gerade erst eine, das reicht für diese Stunde.'
+    );
+    await setAttendance(db, FRIDAY, ben.id, 'out', now);
+    expect(
+      await ask('+491701111111', remind({ member_ids: [ben.id] }), at('2026-10-14T13:05:00Z'))
+    ).toBe('Diesmal geht keine Erinnerung raus.\nBen ist raus oder weg, die lass ich in Ruhe.');
+    // After the deadline it would come too late.
+    expect(
+      await ask('+491701111111', remind({ remind_group: 'open' }), at('2026-10-16T17:40:00Z'))
+    ).toBe('Bestellschluss ist vorbei, da bringt eine Erinnerung nichts mehr.');
   });
 
   it('shows Claude only what the member may see, and researches for them alone', async () => {
@@ -871,6 +915,8 @@ describe('the restaurant vote', () => {
     arrives_at: null,
     dish_id: null,
     restaurant_id: null,
+    remind_group: null,
+    member_ids: [],
     item_id: null,
     replace: null,
     from_date: null,
