@@ -6,13 +6,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Coins,
-  Crown,
   ExternalLink,
   Flame,
   House,
+  ShoppingBag,
   Sparkles,
   Store,
   TriangleAlert,
+  Truck,
   Users,
   UtensilsCrossed,
   Vote,
@@ -22,7 +23,6 @@ import Link from 'next/link';
 import { AddGuestForm } from '@/components/friday/add-guest-form';
 import { AnswerControl } from '@/components/friday/answer-control';
 import { CostsSection } from '@/components/friday/costs-section';
-import { DeadlinePill } from '@/components/friday/deadline-pill';
 import type { OrderTarget } from '@/components/friday/dish-dialog';
 import { HostSection } from '@/components/friday/host-section';
 import { LateControl } from '@/components/friday/late-control';
@@ -35,10 +35,9 @@ import { OrderGlow } from '@/components/friday/order-glow';
 import { OrderedItems, type OrderGroup } from '@/components/friday/ordered-items';
 import { ParticipantCard } from '@/components/friday/participant-card';
 import { PayBox } from '@/components/friday/pay-box';
+import { PhaseBar, type Phase } from '@/components/friday/phase-bar';
 import { RestaurantVote } from '@/components/friday/restaurant-vote';
 import { TakeOverButton } from '@/components/friday/take-over-button';
-import { TimeLine } from '@/components/friday/time-line';
-import { VoteBanner } from '@/components/friday/vote-banner';
 import { AttendancePills } from '@/components/common/attendance-pills';
 import { attendanceSummary } from '@/lib/attendance';
 import { ChapterHeading } from '@/components/common/chapter-heading';
@@ -48,14 +47,16 @@ import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
-import { addWeeks, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
+import { addWeeks, autoReleaseAt, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
 import { sheetsByArrival } from '@/lib/order-sheet';
 import { debtLines, feeLines, toPayee } from '@/lib/balance';
+import { NAG_THRESHOLD_CENTS } from '@/lib/reminders';
 import { unitPriceCents } from '@/lib/menu/options';
 import {
+  canClearHost,
   canEditOrderOf,
   canManageFriday,
   canSetArrival,
@@ -358,11 +359,15 @@ export async function FridayScreen({
     locked: closed,
     cancelled: view.cancelled,
   });
+  // While the group votes, the restaurant is not settled, so none stands at the top.
+  const voteOpen = voting && restaurants.length > 1;
   const title = view.cancelled
     ? 'Fällt aus'
     : flat
       ? (view.flatTitle ?? 'Pauschale')
-      : (view.restaurant?.name ?? 'Was essen wir?');
+      : voteOpen
+        ? 'Wo essen wir?'
+        : (view.restaurant?.name ?? 'Was essen wir?');
 
   const silentHint = !me
     ? ''
@@ -502,6 +507,107 @@ export async function FridayScreen({
       ]
     : [];
 
+  // The Friday's phases for the bar at the top: the vote (when the group votes), ordering,
+  // the evening itself and paying. Each ends by the clock, paying when the host releases it.
+  const voteHeld = voteOpen || (view.voteClosed && !view.restaurantChosen && view.votes.length > 0);
+  const deadline = formatTime(view.deadline);
+  const fetcher = view.pickup ? (view.picker ?? view.host) : null;
+  const releaser = view.host?.name ?? 'der Gastgeber';
+  const stillOpen = view.participants.filter(
+    (entry) => Math.abs(entry.money.openCents) >= NAG_THRESHOLD_CENTS
+  );
+  const myOpen = me?.money.openCents ?? 0;
+  const phases: Phase[] = view.cancelled
+    ? []
+    : [
+        ...(voteHeld
+          ? [
+              {
+                key: 'vote',
+                label: 'Wahl',
+                time: `bis ${formatTime(voteClosesAt(date))}`,
+                endsAt: voteClosesAt(date).getTime(),
+                icon: <Vote />,
+                title: 'Restaurantwahl läuft',
+                countdown: 'schließt',
+                body: [
+                  `${standing}.`,
+                  `Fest steht das Restaurant erst ${voteEndsText(date, now)}.`,
+                  ...(showVote
+                    ? [
+                        myVote
+                          ? `Deine Stimme: ${restaurantName(myVote)}.`
+                          : 'Deine Stimme fehlt noch.',
+                      ]
+                    : []),
+                ].join(' '),
+                action: ballotShown
+                  ? { href: '#wahl', label: myVote ? 'Ändern' : 'Abstimmen' }
+                  : undefined,
+              },
+            ]
+          : []),
+        {
+          key: 'order',
+          label: flat ? 'Anmelden' : 'Bestellen',
+          time: `bis ${deadline}`,
+          endsAt: view.deadline.getTime(),
+          icon: flat ? <Flame /> : <UtensilsCrossed />,
+          title: flat ? 'Anmeldung läuft' : 'Bestellen läuft',
+          countdown: 'Schluss',
+          body: flat
+            ? `${formatEuro(view.flatPriceCents ?? 0)} pro Person. Wer kommt, sagt bis ${deadline} zu.`
+            : view.restaurant
+              ? `${view.restaurant.name} steht fest${fetcher ? `, ${fetcher.name} holt ab` : ''}. Aussuchen geht bis ${deadline}.`
+              : view.host
+                ? `Das Restaurant steht noch nicht fest, ${view.host.name} sucht es aus.`
+                : 'Das Restaurant steht noch nicht fest. Erst braucht es einen Gastgeber.',
+          action: menus.length > 0 ? { href: '#karte', label: 'Zur Karte' } : undefined,
+        },
+        {
+          key: 'food',
+          label: 'Essen',
+          time: flat ? null : `~${formatTime(deliveryTime(date))}`,
+          endsAt: view.paymentReleasedAt?.getTime() ?? null,
+          icon: flat ? <Flame /> : fetcher ? <ShoppingBag /> : <Truck />,
+          title: flat ? 'Anmeldeschluss vorbei' : 'Bestellschluss vorbei',
+          body: [
+            ...(flat
+              ? []
+              : [
+                  fetcher
+                    ? `${fetcher.name} bestellt um ${formatTime(view.orderTime)} und holt das Essen ab.`
+                    : `${view.host?.name ?? 'Der Gastgeber'} bestellt um ${formatTime(view.orderTime)}, das Essen kommt gegen ${formatTime(deliveryTime(date))}.`,
+                ]),
+            `Bezahlt wird, sobald ${releaser} die Zahlung freigibt, spätestens ${formatWeekdayTime(autoReleaseAt(date))}.`,
+          ].join(' '),
+        },
+        {
+          key: 'pay',
+          label: 'Zahlen',
+          time: null,
+          // Over once nobody owes anything or waits for money back.
+          endsAt:
+            payable && stillOpen.length === 0 ? (view.paymentReleasedAt?.getTime() ?? 0) : null,
+          icon: <Wallet />,
+          title: view.settled ? 'Abgerechnet, jetzt wird bezahlt' : 'Jetzt wird bezahlt',
+          body: [
+            ...(me && !amHost && myOpen >= NAG_THRESHOLD_CENTS
+              ? [`Du zahlst noch ${formatEuro(myOpen)}.`]
+              : me && !amHost && myOpen <= -NAG_THRESHOLD_CENTS
+                ? [`Du bekommst ${formatEuro(-myOpen)} zurück.`]
+                : me && !amHost
+                  ? ['Bei dir ist alles erledigt.']
+                  : []),
+            `Offen ist es noch bei ${stillOpen.length} ${stillOpen.length === 1 ? 'Person' : 'Leuten'}.`,
+          ].join(' '),
+          action:
+            me && !amHost && myOpen >= NAG_THRESHOLD_CENTS
+              ? { href: '#bestellung', label: 'Bezahlen' }
+              : undefined,
+        },
+      ];
+
   const orderAside = !view.cancelled && Boolean(me);
 
   // The chapters are numbered in reading order. „Deine Bestellung“ goes without a number:
@@ -537,19 +643,7 @@ export async function FridayScreen({
             </Link>
           </>
         }
-        title={
-          voteRuns && view.restaurant ? (
-            <>
-              {title}{' '}
-              {/* Only what it stays at if nobody votes: the vote decides on Friday at 16:00. */}
-              <span className="text-warning inline-flex items-center gap-1 align-middle text-sm font-semibold tracking-normal whitespace-nowrap">
-                <Crown className="size-4" /> bisher
-              </span>
-            </>
-          ) : (
-            title
-          )
-        }
+        title={title}
       >
         <div className="hero-item mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           {/*
@@ -585,6 +679,11 @@ export async function FridayScreen({
               )}
             </span>
           )}
+          {!view.host && !view.cancelled && (
+            <span className="text-warning inline-flex items-center gap-2 font-semibold">
+              <House className="size-4" /> Noch kein Gastgeber
+            </span>
+          )}
           {!view.cancelled && flat && view.flatPriceCents && (
             <span className="inline-flex items-center gap-1.5 font-semibold">
               <Flame className="text-primary size-3.5" /> {formatEuro(view.flatPriceCents)} pro
@@ -592,13 +691,14 @@ export async function FridayScreen({
             </span>
           )}
         </div>
-        {view.hostAbsent && view.host && !view.cancelled && !view.settled && (
+        {(view.hostAbsent || !view.host) && !view.cancelled && !view.settled && (
           <Notice className="hero-item mt-4 flex items-start gap-2 text-sm">
             <TriangleAlert className="text-warning mt-0.5" />
             <span className="min-w-0 flex-1 space-y-2">
               <strong className="text-warning block">
-                {amHost ? 'Du bist' : `${view.host.name} ist`} an dem Tag weg – wer macht den
-                Gastgeber?
+                {!view.host
+                  ? 'Keiner ist Gastgeber – macht das unter euch aus!'
+                  : `${amHost ? 'Du bist' : `${view.host.name} ist`} an dem Tag weg – wer macht den Gastgeber?`}
               </strong>
               {mayTakeOver && (
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -613,21 +713,38 @@ export async function FridayScreen({
                   href={manage ? '#chefsache' : '#vertretung'}
                   className="text-primary block font-semibold hover:underline"
                 >
-                  {mayTakeOver ? 'Oder jemand anderen eintragen' : 'Vertretung eintragen'}
+                  {mayTakeOver
+                    ? 'Oder jemand anderen eintragen'
+                    : view.host
+                      ? 'Vertretung eintragen'
+                      : 'Gastgeber eintragen'}
                 </a>
               ) : (
                 !mayTakeOver && (
                   <span className="text-muted-foreground block">
-                    Sag {amHost ? 'einem Admin' : `${view.host.name} oder einem Admin`} Bescheid,
-                    wer übernimmt.
+                    {view.host
+                      ? `Sag ${amHost ? 'einem Admin' : `${view.host.name} oder einem Admin`} Bescheid, wer übernimmt.`
+                      : 'Wer aus der Stammtruppe da ist, kann ihn hier übernehmen.'}
                   </span>
                 )
               )}
             </span>
           </Notice>
         )}
+        {phases.length > 0 && (
+          <div className="hero-item mt-5">
+            <PhaseBar
+              phases={phases}
+              serverNow={now.getTime()}
+              finished={{ title: 'Erledigt', body: 'Alle haben bezahlt. Bis nächsten Freitag!' }}
+            />
+          </div>
+        )}
         {!view.cancelled && me && (
-          <div className="hero-item mt-5 space-y-3">
+          <div className="hero-item mt-6 space-y-3">
+            <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+              Und du?
+            </p>
             {/* Someone who is out has nothing to tick off; the answer below says so. */}
             {me.attendance.status !== 'out' && (
               <Steps
@@ -675,7 +792,10 @@ export async function FridayScreen({
           </div>
         )}
         {canJoin && (
-          <div className="hero-item mt-5 space-y-3">
+          <div className="hero-item mt-6 space-y-3">
+            <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+              Und du?
+            </p>
             <AnswerControl
               date={date}
               memberId={viewer.id}
@@ -695,57 +815,6 @@ export async function FridayScreen({
               <Avatar name={view.host.name} id={view.host.id} className="size-7 text-[10px]" />
             )}
             <p className="bg-muted/50 rounded-2xl rounded-tl-sm px-3.5 py-2 text-sm">{view.note}</p>
-          </div>
-        )}
-        {voteRuns && (
-          <div className="hero-item mt-4">
-            <VoteBanner
-              closesAt={voteClosesAt(date).getTime()}
-              serverNow={now.getTime()}
-              standing={standing}
-              canVote={ballotShown}
-            />
-          </div>
-        )}
-        {!view.cancelled && (
-          <div className="hero-item mt-4">
-            <TimeLine
-              serverNow={now.getTime()}
-              moments={[
-                {
-                  label: flat ? 'Anmeldeschluss' : 'Bestellschluss',
-                  at: view.deadline.getTime(),
-                  time: formatTime(view.deadline),
-                },
-                ...(flat
-                  ? []
-                  : [
-                      {
-                        label: `${view.host?.name ?? 'Gastgeber'} bestellt`,
-                        at: view.orderTime.getTime(),
-                        time: formatTime(view.orderTime),
-                      },
-                      {
-                        label: 'Essen gegen',
-                        at: deliveryTime(date).getTime(),
-                        time: formatTime(deliveryTime(date)),
-                      },
-                    ]),
-              ]}
-            />
-          </div>
-        )}
-        {!view.cancelled && (
-          <div className="hero-item mt-4 empty:hidden">
-            <DeadlinePill
-              deadline={view.deadline.getTime()}
-              deadlineLabel={formatTime(view.deadline)}
-              serverNow={now.getTime()}
-              locked={closed}
-              settled={view.settled}
-              cancelled={view.cancelled}
-              flat={flat}
-            />
           </div>
         )}
         {!view.cancelled && attendancePeople.length > 0 && (
@@ -840,7 +909,7 @@ export async function FridayScreen({
                 number={++chapter}
                 icon={Vote}
                 kicker="Restaurantwahl"
-                title="Wo essen wir?"
+                title="Gib deine Stimme ab"
                 hint={
                   view.restaurant
                     ? `Wählt keiner, bleibt's bei ${view.restaurant.name}, sonst entscheidet die Mehrheit. Abstimmen bis ${voteEndsText(date, now)}.`
@@ -1170,6 +1239,7 @@ export async function FridayScreen({
                 voting={voting}
                 members={hostOptions}
                 defaultHostName={defaultHost?.name ?? null}
+                canClearHost={canClearHost(viewer)}
                 viewerIsHost={amHost}
                 messages={messages.map((message) => ({
                   at: message.at.getTime(),
@@ -1197,6 +1267,8 @@ export async function FridayScreen({
                   date={view.date}
                   hostId={hostId}
                   hostIsDefault={view.hostIsDefault}
+                  noHost={view.noHost}
+                  canClear={canClearHost(viewer)}
                   defaultHostName={defaultHost?.name ?? null}
                   members={hostOptions}
                 />

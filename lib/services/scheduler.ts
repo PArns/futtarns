@@ -2,6 +2,7 @@ import { eq, like, or } from 'drizzle-orm';
 import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
+import { getAssistantKey } from '@/lib/services/assistant';
 import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
 import {
   planReminders,
@@ -98,6 +99,7 @@ export async function runScheduler(
   const thisWeek = currentFriday(now);
   const dates: IsoDate[] = [addWeeks(thisWeek, -2), addWeeks(thisWeek, -1), thisWeek];
   const paidLink = await payLinkMaker(db);
+  const assistant = Boolean(await getAssistantKey(db));
   let sent = 0;
   for (const date of dates) {
     // Past Fridays nobody touched have nothing to remind anyone of.
@@ -113,6 +115,7 @@ export async function runScheduler(
       paidLink: (memberId) => paidLink(date, memberId),
       restaurants: await restaurantsForHost(db, view.host?.id ?? null),
       lastOrder: date === thisWeek ? await lastOrderTexts(db, view) : undefined,
+      assistant,
     });
     for (const message of messages) {
       if (await deliver(db, message, send)) {

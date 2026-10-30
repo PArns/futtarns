@@ -44,6 +44,7 @@ export function HostSection({
   restaurants,
   members,
   defaultHostName,
+  canClearHost,
   viewerIsHost,
   messages,
   serverNow,
@@ -61,6 +62,8 @@ export function HostSection({
   restaurants: { id: number; name: string; isDefault: boolean }[];
   members: { id: number; name: string }[];
   defaultHostName: string | null;
+  /** Admins may put the Friday at nobody's place. */
+  canClearHost: boolean;
   viewerIsHost: boolean;
   messages: UpcomingMessage[];
   serverNow: number;
@@ -117,7 +120,7 @@ export function HostSection({
         )}
 
         <GlassCard variant="tile" className="p-5">
-          <details open={view.cancelled || view.hostAbsent}>
+          <details open={view.cancelled || view.hostAbsent || !view.host}>
             <summary className="flex cursor-pointer list-none items-center gap-2 font-bold">
               <Settings2 className="text-primary size-4" /> Gastgeber, Trinkgeld, Getränke, Absage
             </summary>
@@ -126,6 +129,8 @@ export function HostSection({
                 date={view.date}
                 hostId={view.host?.id ?? null}
                 hostIsDefault={view.hostIsDefault}
+                noHost={view.noHost}
+                canClear={canClearHost}
                 defaultHostName={defaultHostName}
                 members={members}
               />

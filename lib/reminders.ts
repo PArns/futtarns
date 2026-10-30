@@ -58,6 +58,8 @@ type Input = {
    * offer „gleiches“; e.g. `HDD Döner Teller, 2× Pommes`.
    */
   lastOrder?: Map<number, { date: IsoDate; items: string }>;
+  /** Claude reads what no command matches (`lib/assistant.ts`), so people can just write. */
+  assistant?: boolean;
 };
 
 function between(now: Date, from: Date, to: Date) {
@@ -134,6 +136,9 @@ const ANSWER_OPTIONS = [
 ];
 const ANSWER_HINT = ['Bist du dabei? Antworte mit', ...ANSWER_OPTIONS].join('\n');
 
+/** In the messages that ask something, when Claude reads along. */
+export const CHAT_HINT = `💬 Oder schreib mir einfach, was du willst, z. B. „bestell mir das Übliche“, „was ist bei Tasty gut?“ oder „ich raff das nicht“. Ich kümmer mich um den Rest.`;
+
 /**
  * Every WhatsApp message one Friday calls for at `now`. Each message has a key; the
  * scheduler sends a key once, so this can run every minute. Every window ends, so a
@@ -149,6 +154,7 @@ export function planReminders({
   paidLink,
   restaurants,
   lastOrder = new Map(),
+  assistant = false,
 }: Input): Outgoing[] {
   const out: Outgoing[] = [];
   if (awake(now) > now) return out;
@@ -156,7 +162,7 @@ export function planReminders({
   const day = formatDayShort(date);
   const link = `${appUrl}/freitag/${date}`;
   const host = view.host?.name ?? 'uns';
-  const place = view.hostAbsent ? ' (wo, klären wir noch)' : `, bei ${host}`;
+  const place = view.hostAbsent || !view.host ? ' (wo, klären wir noch)' : `, bei ${host}`;
   const hostPhone = view.host?.phone ?? null;
   const flat = view.mode === 'flat';
   const reachable = view.participants.filter(
@@ -220,6 +226,29 @@ export function planReminders({
     }
   }
 
+  // Put at nobody's place: the Stammtruppe sorts out among themselves who takes it over.
+  if (!view.host && view.noHost && between(now, berlinAt(date, -4, 18), view.deadline)) {
+    const text = (key: string) =>
+      [
+        pick(
+          [
+            `🏠 ${bold(`Freitag (${day}) hat noch keinen Gastgeber.`)}`,
+            `🏚️ ${bold(`Für Freitag (${day}) fehlt noch ein Dach.`)} Keiner ist Gastgeber.`,
+            `🛋️ ${bold(`Freitag (${day}): Wessen Sofa darf's sein?`)} Noch ist keiner Gastgeber.`,
+          ],
+          key
+        ),
+        `Macht das unter euch aus: Wer kann, antwortet mit ${bold('übernehme')} oder tippt auf der Seite auf „Ich übernehme“.`,
+        link,
+      ].join('\n');
+    for (const entry of reachable) {
+      if (!entry.member.core || entry.attendance.reason === 'absent') continue;
+      const key = `nohost:${date}:${entry.member.id}`;
+      out.push({ key, to: entry.member.phone!, text: text(key) });
+    }
+    if (group) out.push({ key: `nohost:${date}:group`, to: group, text: text('group') });
+  }
+
   const voting = votingAt(view, now) && restaurants.length > 1;
   const noRestaurant = !flat && !view.restaurant;
   const fridayMorning = berlinAt(date, 0, 10);
@@ -278,6 +307,8 @@ export function planReminders({
   const hasVoted = (id: number) => view.votes.some((vote) => vote.memberId === id);
   const vote = ballot(restaurants, view.restaurant, date, now);
   const more = `Karten, Lieferkosten und Vorbestellen:\n${link}`;
+  // Answer and vote fit into one reply, the digit first or the letter.
+  const both = `Beides in einem geht auch: ${bold(`1${voteLetter(1)}`)} heißt dabei und ${voteLetter(1)}.`;
   /** The end of a message that asks who comes: the ballot, or that their vote is in. */
   const voteLines = (id: number) =>
     !voting
@@ -287,7 +318,7 @@ export function planReminders({
             `Die Restaurantwahl läuft bis ${bold(voteEndsText(date, now))}. Deine Stimme ist schon drin.`,
             link,
           ]
-        : [vote, '', more];
+        : [vote, both, '', more];
   if (between(now, berlinAt(date, -2, 12), fridayMorning)) {
     const hello = `${untilFriday(date, now)} ist wieder Freitag${place}`;
     // The question who comes first, the vote after it; one link for everything else.
@@ -307,6 +338,7 @@ export function planReminders({
           )}${voting ? '' : ` Diesmal ${what}.`}`,
           ANSWER_HINT,
           rule,
+          ...(assistant ? ['', CHAT_HINT] : []),
           '',
           ...voteLines(entry.member.id),
         ].join('\n'),
@@ -456,6 +488,7 @@ export function planReminders({
           ANSWER_HINT,
           '',
           `${rule}${orderHint(id)}`,
+          ...(assistant ? ['', CHAT_HINT] : []),
           ...(voting ? ['', ...voteLines(id)] : [link]),
         ].join('\n'),
       });
@@ -889,6 +922,7 @@ export function previewReminders(
 const MESSAGE_KINDS: Record<string, string> = {
   cancel: 'Absage',
   hostaway: 'Gastgeber ist weg, wer übernimmt?',
+  nohost: 'Kein Gastgeber, wer übernimmt?',
   pick: 'Restaurant aussuchen',
   ask: 'Kommst du?',
   vote: 'Restaurantwahl',

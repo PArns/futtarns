@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
 import type { MenuDish } from '@/components/friday/dish-dialog';
+import { ASSISTANT_MODEL, checkApiKey } from '@/lib/assistant';
 import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -20,7 +21,13 @@ import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/wha
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
-import { canEditOrderOf, canManageFriday, canSetArrival, canSetHost } from '@/lib/permissions';
+import {
+  canClearHost,
+  canEditOrderOf,
+  canManageFriday,
+  canSetArrival,
+  canSetHost,
+} from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
   createSession,
@@ -31,6 +38,7 @@ import {
 import {
   bookOpen,
   castVote,
+  clearHost,
   clearPayments,
   currentRestaurantId,
   getFridayRow,
@@ -78,6 +86,7 @@ import {
   setItemQuantity,
   setNoFoodDefault,
 } from '@/lib/services/orders';
+import { clearAssistantKey, setAssistantKey } from '@/lib/services/assistant';
 import { payByLink } from '@/lib/services/pay-links';
 import { loginCodeText } from '@/lib/messages';
 import {
@@ -533,7 +542,11 @@ export async function setPickupAction(
   });
 }
 
-export async function setHostAction(date: string, hostId: number | null): Promise<ActionResult> {
+/** Hands a Friday to a host, back to the default one (`null`), or to nobody (`'none'`). */
+export async function setHostAction(
+  date: string,
+  hostId: number | 'none' | null
+): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
@@ -543,11 +556,18 @@ export async function setHostAction(date: string, hostId: number | null): Promis
         'Den Gastgeber tauschen dürfen nur Admins, der Gastgeber selbst und die Rolle „Vertretungen“'
       );
     }
+    if (hostId === 'none') {
+      if (!canClearHost(viewer)) {
+        throw new ServiceError('Einen Freitag ohne Gastgeber machen nur Admins');
+      }
+      await clearHost(db, day);
+      return;
+    }
     await setHost(db, day, hostId === null ? null : memberId.parse(hostId));
   });
 }
 
-/** The viewer steps in as host for a Friday whose host is away. */
+/** The viewer steps in as host for a Friday whose host is away or missing. */
 export async function takeOverAction(date: string): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
@@ -890,6 +910,44 @@ export async function relinkWhatsAppAction(phoneInput: string): Promise<ActionRe
         ? 'Abgemeldet – gleich steht hier der Code für die neue Nummer'
         : 'Abgemeldet – gleich steht hier ein neuer QR-Code',
     };
+  });
+}
+
+/**
+ * An admin enters the Claude API key for the bot's assistant. It is checked with Anthropic
+ * first and never sent back to the browser.
+ */
+export async function setAssistantKeyAction(input: string): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    const key = z
+      .string()
+      .trim()
+      .min(20, 'Das sieht nicht nach einem API-Key aus')
+      .max(300)
+      .parse(input);
+    const check = await checkApiKey(key);
+    if (check === 'rejected') throw new ServiceError('Anthropic nimmt diesen Key nicht an');
+    if (check === 'model') {
+      throw new ServiceError(
+        `Der Key passt, aber ${ASSISTANT_MODEL} ist dafür nicht freigeschaltet`
+      );
+    }
+    if (check === 'unreachable') {
+      throw new ServiceError('Anthropic ist gerade nicht erreichbar, versuch es gleich nochmal');
+    }
+    await setAssistantKey(await getDb(), key);
+    return { ok: true, message: 'Gespeichert – der Bot liest ab jetzt mit Claude mit' };
+  });
+}
+
+export async function clearAssistantKeyAction(): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    await clearAssistantKey(await getDb());
+    return { ok: true, message: 'Key gelöscht' };
   });
 }
 

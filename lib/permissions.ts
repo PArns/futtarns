@@ -19,9 +19,9 @@ export function canSetHost(
 }
 
 /**
- * Whether someone may take a Friday over themselves because its host is away that day:
- * any active member of the Stammtruppe who is not the host and not away too, while the
- * Friday is still open.
+ * Whether someone may take a Friday over themselves because its host is away that day or
+ * it has none: any active member of the Stammtruppe who is not the host and not away too,
+ * while the Friday is still open.
  */
 export function canTakeOver(
   viewer: Pick<Member, 'id' | 'kind' | 'active' | 'core'>,
@@ -34,7 +34,7 @@ export function canTakeOver(
   }
 ): boolean {
   return (
-    friday.hostAbsent &&
+    (friday.hostAbsent || friday.hostId === null) &&
     !friday.viewerAbsent &&
     !friday.locked &&
     !friday.cancelled &&
@@ -43,6 +43,11 @@ export function canTakeOver(
     viewer.active &&
     viewer.core
   );
+}
+
+/** Only admins put a Friday at nobody's place, so the group sorts out who hosts it. */
+export function canClearHost(viewer: Viewer): boolean {
+  return viewer.isAdmin;
 }
 
 /** Adding members and editing restaurants: admins and the host of the coming Friday. */

@@ -34,6 +34,8 @@ services:
       PAIRING_PHONE: ${PAIRING_PHONE:-}
       WHATSAPP_GROUP: ${WHATSAPP_GROUP:-}
       WHATSAPP: ${WHATSAPP:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-}
     volumes:
       # The WhatsApp login; without it the bot has to be linked again after every deploy.
       - /data/freitach/whatsapp:/data/whatsapp
