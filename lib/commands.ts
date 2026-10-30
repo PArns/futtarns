@@ -17,7 +17,7 @@ export type Command =
   /** Steps in as host on a Friday without one, or whose host is away. */
   | { kind: 'takeOver' }
   /** The host or an admin settles the restaurant, through the assistant; it ends the vote. */
-  | { kind: 'pickRestaurant'; restaurantId: number }
+  | { kind: 'pickRestaurant'; restaurantId: number; confirmed: boolean }
   /**
    * Only through the assistant (`lib/assistant.ts`); no text parses to these. A dish by its
    * number with the choices Claude picked, checked against the menu when it runs.
@@ -29,7 +29,7 @@ export type Command =
       /** Takes out what they ordered at that restaurant first. */
       replace: boolean;
     }
-  | { kind: 'removeOrder'; itemId: number | null }
+  | { kind: 'removeOrder'; itemId: number | null; confirmed: boolean }
   | { kind: 'setDefault'; dishId: number; options: { group: string; choice: string }[] }
   | { kind: 'drinks'; on: boolean }
   | { kind: 'absence'; from: IsoDate; to: IsoDate }

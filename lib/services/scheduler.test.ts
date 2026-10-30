@@ -675,8 +675,14 @@ describe('what the assistant may do', () => {
     ).toMatchObject({ status: 'out', reason: 'absent' });
   });
 
-  it('lets only the host and admins settle the restaurant', async () => {
-    const { restaurant } = await setup();
+  it('lets only the host and admins settle the restaurant, sure when it costs orders', async () => {
+    const { anna: member, dish, restaurant } = await setup();
+    await addItem(db, FRIDAY, member.id, {
+      dishId: dish.id,
+      selection: {},
+      note: null,
+      quantity: 1,
+    });
     const sushi = await createRestaurant(db, {
       name: 'Sakura Sushi',
       cuisine: null,
@@ -692,9 +698,14 @@ describe('what the assistant may do', () => {
       FALLBACK_REPLY
     );
     expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(restaurant.id);
-    expect(await handleIncoming(db, '+491701111111', 'mach Sushi fest', now, send, pick)).toContain(
-      "Steht fest: Freitag gibt's *Sakura Sushi*"
+    // It throws Anna's order away, so the host has to say they are sure.
+    expect(await handleIncoming(db, '+491701111111', 'mach Sushi fest', now, send, pick)).toBe(
+      '*Sakura Sushi* festlegen wirft 1 Bestellung bei anderen Restaurants raus.\nWenn du dir sicher bist, schreib: *Sakura Sushi festlegen sicher*'
     );
+    expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(restaurant.id);
+    expect(
+      await handleIncoming(db, '+491701111111', 'Sakura Sushi festlegen sicher', now, send, pick)
+    ).toContain("Steht fest: Freitag gibt's *Sakura Sushi*");
     expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(sushi.id);
   });
 

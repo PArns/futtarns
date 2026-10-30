@@ -1,8 +1,10 @@
 import { and, eq } from 'drizzle-orm';
 import { appUrl } from '@/lib/auth-tokens';
 import {
+  ASSISTANT_BUDGET_MS,
   claudeInterpreter,
   completeSelection,
+  ERROR_REPLY,
   DailyLimit,
   LIMIT_TEXT,
   understand,
@@ -46,6 +48,7 @@ import {
   orderUsual,
   removeItem,
   setDefaultDish,
+  setItemQuantity,
 } from '@/lib/services/orders';
 import { getRestaurant, restaurantsForHost } from '@/lib/services/restaurants';
 import { optionForLetter, standings, voteEndsText, voteLetter, votingAt } from '@/lib/vote';
@@ -240,6 +243,9 @@ function itemLabel(item: OrderItem): string {
 
 type Send = (to: string, text: string) => Promise<unknown>;
 
+/** A little less than the 20 seconds the bot waits for the app's answer. */
+const BOT_PATIENCE_MS = 18_000;
+
 /** How often each member may get Claude's reading per day. */
 const assistantLimit = new DailyLimit();
 
@@ -264,6 +270,8 @@ export async function handleIncoming(
   const command = parseCommand(text);
   if (command.kind !== 'unknown') return runCommand(db, member, command, now, send);
 
+  // The bot waits 20 seconds for the answer; the time counts from here.
+  const started = Date.now();
   const interpret =
     interpreter !== undefined
       ? interpreter
@@ -278,13 +286,20 @@ export async function handleIncoming(
       name: member.name,
       text,
       research: assistantResearch(db, member, now),
+      until: started + ASSISTANT_BUDGET_MS,
     });
   } catch (error) {
     console.error('[assistant] reading failed', error);
-    return null;
+    result = null;
   }
-  if (!result) return null;
-  const understood = understand(result, restaurantIds);
+  if (!result) return ERROR_REPLY;
+  const understood = understand(result, {
+    restaurantIds,
+    confirmed: /\bsicher\b/i.test(text),
+    appOrigin: appUrl(),
+  });
+  // The bot has given up by now; acting anyway would surprise whoever sends it again.
+  if (understood.command && Date.now() - started > BOT_PATIENCE_MS) return null;
   // Claude's lead-in first, then what the command itself says happened.
   const outcome = understood.command
     ? await runCommand(db, member, understood.command, now, send)
@@ -546,7 +561,6 @@ async function runCommand(
         (item) => item.memberId === member.id && item.restaurantId === dish.restaurantId
       );
       try {
-        if (command.replace) for (const item of mine) await removeItem(db, item.id);
         await addItem(
           db,
           date,
@@ -563,13 +577,21 @@ async function runCommand(
         if (error instanceof ServiceError) return `${error.message}.`;
         throw error;
       }
+      if (command.replace) {
+        // A dish ordered before goes; the same dish again stays as one.
+        for (const old of mine) {
+          if (old.dishId === dish.id) await setItemQuantity(db, old.id, 1);
+          else await removeItem(db, old.id);
+        }
+      }
       const after = await loadFriday(db, date, now);
       const item = [...after.participants.flatMap((entry) => entry.items), ...after.preorders]
         .filter((entry) => entry.memberId === member.id && entry.dishId === dish.id)
         .at(-1);
       const label = item ? itemLabel(item) : dish.name;
+      const others = mine.filter((old) => old.dishId !== dish.id);
       const replaced =
-        command.replace && mine.length ? ` statt ${mine.map(itemLabel).join(', ')}` : '';
+        command.replace && others.length ? ` statt ${others.map(itemLabel).join(', ')}` : '';
       if (ahead) {
         const name = (await getRestaurant(db, dish.restaurantId))?.name ?? 'dem anderen Restaurant';
         return `🍽️ ${bold(label)}${replaced} ist bei ${name} vorbestellt und deine Stimme geht an ${name}. Es zählt, wenn ${name} die Wahl gewinnt.\nÄndern geht auf der Seite:\n${link}`;
@@ -590,6 +612,9 @@ async function runCommand(
         return command.itemId === null
           ? 'Du hast gar nichts bestellt.'
           : 'Die Zeile gehört nicht zu deiner Bestellung.';
+      }
+      if (gone.length > 1 && !command.confirmed) {
+        return `Das wären ${bold(gone.map(itemLabel).join(', '))}. Wenn wirklich alles raus soll, schreib: ${bold('alles raus sicher')}`;
       }
       for (const item of gone) await removeItem(db, item.id);
       const left = mine.length > gone.length;
@@ -668,13 +693,29 @@ async function runCommand(
         (entry) => entry.id === command.restaurantId
       );
       if (!option) return 'Das Restaurant steht für diesen Freitag nicht zur Auswahl.';
-      if (view.mode === 'delivery' && view.restaurant?.id === option.id && view.restaurantChosen) {
+      if (
+        view.cancelled ||
+        view.settled ||
+        view.mode === 'flat' ||
+        view.locked ||
+        isPastDeadline(date, now)
+      ) {
+        return 'Das Restaurant lässt sich hier nur an einem offenen Lieferfreitag festlegen, sonst bitte auf der Seite.';
+      }
+      if (view.restaurant?.id === option.id && view.restaurantChosen) {
         return `${bold(option.name)} steht schon fest. 🍽️`;
       }
-      const elsewhere = [
+      const ends = votingAt(view, now);
+      const dropped = [
         ...view.participants.flatMap((entry) => entry.items),
         ...view.preorders,
-      ].some((item) => item.restaurantId !== option.id);
+      ].filter((item) => item.restaurantId !== option.id).length;
+      if ((ends || dropped > 0) && !command.confirmed) {
+        return [
+          `${bold(option.name)} festlegen${ends ? ' beendet die Restaurantwahl' : ''}${ends && dropped ? ' und' : ''}${dropped ? ` wirft ${dropped} ${dropped === 1 ? 'Bestellung' : 'Bestellungen'} bei anderen Restaurants raus` : ''}.`,
+          `Wenn du dir sicher bist, schreib: ${bold(`${option.name} festlegen sicher`)}`,
+        ].join('\n');
+      }
       try {
         await setRestaurant(db, date, option.id);
       } catch (error) {
@@ -683,8 +724,8 @@ async function runCommand(
       }
       return [
         `🍽️ Steht fest: Freitag gibt's ${bold(option.name)}${option.delivers ? '' : ' (nur abholen)'}.`,
-        ...(votingAt(view, now) ? ['Die Restaurantwahl ist damit vorbei.'] : []),
-        ...(elsewhere ? ['Bestellungen bei anderen Restaurants sind damit raus.'] : []),
+        ...(ends ? ['Die Restaurantwahl ist damit vorbei.'] : []),
+        ...(dropped ? ['Bestellungen bei anderen Restaurants sind damit raus.'] : []),
         link,
       ].join('\n');
     }

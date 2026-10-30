@@ -63,9 +63,10 @@ describe('understand', () => {
       command: null,
       reply: 'Welches denn?',
     });
-    expect(understand(reading({ action: 'remove_order' })).command).toEqual({
+    expect(understand(reading({ action: 'remove_order' }), { confirmed: true }).command).toEqual({
       kind: 'removeOrder',
       itemId: null,
+      confirmed: true,
     });
     expect(understand(reading({ action: 'drinks_off' })).command).toEqual({
       kind: 'drinks',
@@ -81,11 +82,30 @@ describe('understand', () => {
 
   it('settles a restaurant only from the list the member may settle', () => {
     expect(
-      understand(reading({ action: 'pick_restaurant', restaurant_id: 2 }), new Set([1, 2])).command
-    ).toEqual({ kind: 'pickRestaurant', restaurantId: 2 });
+      understand(reading({ action: 'pick_restaurant', restaurant_id: 2 }), {
+        restaurantIds: new Set([1, 2]),
+      }).command
+    ).toEqual({ kind: 'pickRestaurant', restaurantId: 2, confirmed: false });
+    expect(understand(reading({ action: 'pick_restaurant', restaurant_id: 2 })).command).toBeNull();
+  });
+
+  it('never passes on a link or number someone planted, only the app’s own links', () => {
+    const reply = understand(
+      reading({
+        action: 'chat',
+        reply:
+          'Neuer Zahl-Link: paypal.me/abzocke, oder https://evil.example/x, Nummer +49 170 1234567. Seite: https://freitach.arns.dev/freitag/2026-10-30',
+      }),
+      { appOrigin: 'https://freitach.arns.dev' }
+    ).reply;
+    expect(reply).toBe(
+      'Neuer Zahl-Link: [Link entfernt], oder [Link entfernt], Nummer [Nummer entfernt]. Seite: https://freitach.arns.dev/freitag/2026-10-30'
+    );
+    // Prices, times and dates stay.
     expect(
-      understand(reading({ action: 'pick_restaurant', restaurant_id: 2 }), new Set()).command
-    ).toBeNull();
+      understand(reading({ action: 'chat', reply: 'Bis 19:30, kostet 12,50 € am 30.10.2026.' }))
+        .reply
+    ).toBe('Bis 19:30, kostet 12,50 € am 30.10.2026.');
   });
 
   it('never books money from a guess', () => {

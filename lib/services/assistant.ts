@@ -6,6 +6,7 @@ import {
   addWeeks,
   currentFriday,
   deliveryTime,
+  todayIso,
   isFridayIso,
   isPastDeadline,
   type IsoDate,
@@ -146,7 +147,7 @@ export async function assistantFacts(
   const open = !view.cancelled && !view.locked && !isPastDeadline(date, now);
 
   const lines = [
-    `Jetzt: ${formatWeekdayTime(now)} Uhr`,
+    `Jetzt: ${formatWeekdayTime(now)} Uhr, ${todayIso(now)}`,
     `Link: ${appUrl()}/freitag/${date}`,
     `Freitag (${formatDayShort(date)}): ${
       view.host
@@ -345,7 +346,9 @@ export async function assistantFacts(
   if (!open) lines.push('Bestellen und Abstimmen sind für diesen Freitag vorbei.');
   return {
     facts: lines.join('\n'),
-    restaurantIds: new Set(settles ? options.map((option) => option.id) : []),
+    restaurantIds: new Set(
+      settles && open && !flat && !view.settled ? options.map((option) => option.id) : []
+    ),
   };
 }
 

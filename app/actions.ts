@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
 import type { MenuDish } from '@/components/friday/dish-dialog';
-import { checkApiKey } from '@/lib/assistant';
+import { ASSISTANT_MODEL, checkApiKey } from '@/lib/assistant';
 import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -929,6 +929,11 @@ export async function setAssistantKeyAction(input: string): Promise<ActionResult
       .parse(input);
     const check = await checkApiKey(key);
     if (check === 'rejected') throw new ServiceError('Anthropic nimmt diesen Key nicht an');
+    if (check === 'model') {
+      throw new ServiceError(
+        `Der Key passt, aber ${ASSISTANT_MODEL} ist dafür nicht freigeschaltet`
+      );
+    }
     if (check === 'unreachable') {
       throw new ServiceError('Anthropic ist gerade nicht erreichbar, versuch es gleich nochmal');
     }
