@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { ActionResult } from '@/lib/action-result';
 import type { MenuDish } from '@/components/friday/dish-dialog';
+import { checkApiKey } from '@/lib/assistant';
 import { appUrl, loginLink } from '@/lib/auth-tokens';
 import { isFridayIso, isIsoDate, isPastDeadline, type IsoDate } from '@/lib/dates';
 import { getDb } from '@/lib/db';
@@ -85,6 +86,7 @@ import {
   setItemQuantity,
   setNoFoodDefault,
 } from '@/lib/services/orders';
+import { clearAssistantKey, setAssistantKey } from '@/lib/services/assistant';
 import { payByLink } from '@/lib/services/pay-links';
 import { loginCodeText } from '@/lib/messages';
 import {
@@ -908,6 +910,39 @@ export async function relinkWhatsAppAction(phoneInput: string): Promise<ActionRe
         ? 'Abgemeldet – gleich steht hier der Code für die neue Nummer'
         : 'Abgemeldet – gleich steht hier ein neuer QR-Code',
     };
+  });
+}
+
+/**
+ * An admin enters the Claude API key for the bot's assistant. It is checked with Anthropic
+ * first and never sent back to the browser.
+ */
+export async function setAssistantKeyAction(input: string): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    const key = z
+      .string()
+      .trim()
+      .min(20, 'Das sieht nicht nach einem API-Key aus')
+      .max(300)
+      .parse(input);
+    const check = await checkApiKey(key);
+    if (check === 'rejected') throw new ServiceError('Anthropic nimmt diesen Key nicht an');
+    if (check === 'unreachable') {
+      throw new ServiceError('Anthropic ist gerade nicht erreichbar, versuch es gleich nochmal');
+    }
+    await setAssistantKey(await getDb(), key);
+    return { ok: true, message: 'Gespeichert – der Bot liest ab jetzt mit Claude mit' };
+  });
+}
+
+export async function clearAssistantKeyAction(): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    if (!viewer.isAdmin) throw new ServiceError('Das dürfen nur Admins');
+    await clearAssistantKey(await getDb());
+    return { ok: true, message: 'Key gelöscht' };
   });
 }
 

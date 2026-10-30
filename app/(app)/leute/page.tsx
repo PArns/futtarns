@@ -1,11 +1,12 @@
 import { asc, eq } from 'drizzle-orm';
-import { MessageCircle, UserPlus, Users, Wallet } from 'lucide-react';
+import { Bot, MessageCircle, UserPlus, Users, Wallet } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AttendancePill } from '@/components/common/attendance-pills';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { PageHero } from '@/components/layout/page-hero';
+import { AssistantCard } from '@/components/people/assistant-card';
 import { CreateMemberForm } from '@/components/people/create-member-form';
 import { EditMemberForm } from '@/components/people/edit-member-form';
 import { MemberActions } from '@/components/people/member-actions';
@@ -76,6 +77,12 @@ export default async function PeoplePage() {
           <section id="whatsapp">
             <ChapterHeading icon={MessageCircle} kicker="Der Bote" title="WhatsApp" />
             <WhatsAppCard />
+          </section>
+        )}
+        {viewer.isAdmin && (
+          <section id="claude">
+            <ChapterHeading icon={Bot} kicker="Der Schlaumeier" title="Claude" />
+            <AssistantCard />
           </section>
         )}
 

@@ -1,5 +1,6 @@
 import type { AttendanceStatus } from '@/lib/db/schema';
 import { parseArrival } from '@/lib/arrival';
+import type { IsoDate } from '@/lib/dates';
 import { bold } from '@/lib/messages';
 import { VOTE_CLOSE_HOUR } from '@/lib/vote';
 
@@ -15,6 +16,23 @@ export type Command =
   | { kind: 'others' }
   /** Steps in as host on a Friday without one, or whose host is away. */
   | { kind: 'takeOver' }
+  /** The host or an admin settles the restaurant, through the assistant; it ends the vote. */
+  | { kind: 'pickRestaurant'; restaurantId: number }
+  /**
+   * Only through the assistant (`lib/assistant.ts`); no text parses to these. A dish by its
+   * number with the choices Claude picked, checked against the menu when it runs.
+   */
+  | {
+      kind: 'order';
+      dishId: number;
+      options: { group: string; choice: string }[];
+      /** Takes out what they ordered at that restaurant first. */
+      replace: boolean;
+    }
+  | { kind: 'removeOrder'; itemId: number | null }
+  | { kind: 'setDefault'; dishId: number; options: { group: string; choice: string }[] }
+  | { kind: 'drinks'; on: boolean }
+  | { kind: 'absence'; from: IsoDate; to: IsoDate }
   | { kind: 'paid' }
   | { kind: 'login' }
   | { kind: 'status' }

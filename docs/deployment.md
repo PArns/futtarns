@@ -82,7 +82,17 @@ if you enter the new number. The login in `/data/whatsapp` is replaced, nothing 
 The bot can run on someone's own number. It only answers registered members, and only their
 commands (`1`, `2`, `3`, `wie immer`, `gleiches`, `später`, `pünktlich`, `andere`, `bezahlt`,
 `status`, `code`, `hilfe`); every other chat on the number is left alone, and messages from
-unknown numbers are ignored.
+unknown numbers are ignored. That changes with Claude (below): then every message from a
+member gets an answer, so give the bot a number of its own first.
+
+## Claude in the bot
+
+With a Claude API key, the bot reads what no command matches (see the architecture). An admin
+enters the key on the people page (Leute → Claude); it is checked with Anthropic, stored in
+`app_secrets` and never shown again, only its last four characters. `ANTHROPIC_API_KEY` works
+too and is used when no key was entered. `ASSISTANT_MODEL` picks another model than
+`claude-haiku-5-5`. Messages from members and the facts of their Friday go to Anthropic;
+messages from unknown numbers never do. Each member gets at most 25 readings a day.
 
 `WHATSAPP=off` runs the app without the bot; every message is then only written to the log.
 

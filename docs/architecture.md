@@ -176,6 +176,31 @@ this restaurant, `orderSame`; dishes gone from the menu are named and left out),
 either order and with or without a space (`1E`, `E 1`, `2B`): the answer counts first, then
 the vote; without a vote running, the answer still does.
 
+### Claude in the bot (`lib/assistant.ts`, `lib/services/assistant.ts`)
+
+With a Claude API key (set by an admin on the people page, or `ANTHROPIC_API_KEY`), a member's
+message that no command matches goes to Claude (`claude-haiku-5-5`, `ASSISTANT_MODEL`). Messages
+from unknown numbers are not read at all. Claude gets the facts of this Friday as the member
+may see them on the page (`assistantFacts`: phases, the vote, who ordered what, their own
+answer, order lines, money, earlier orders and defaults, the menus at hand, their role) and
+read-only research tools for the rest (`assistantResearch`: restaurants, menus, their order
+history, other and coming Fridays, what the group likes somewhere, their balances). Every tool
+answers for the member who wrote, whatever Claude passes in, and none returns phone numbers,
+addresses, keys, links or anyone else's money.
+
+Claude answers with one action from a fixed list (`Interpretation`), and the bot runs it like
+the member's own command (`understand`, then `runCommand`), with the page's rules: answering,
+voting (also by the restaurant's name), ordering a dish (checked against the menu; another
+restaurant than the Friday's only from the ballot while the vote runs), replacing or removing
+their own order lines, defaults, the drinks fee, absences, coming later, taking a Friday over;
+the host and admins can also settle the restaurant. It never books a payment, only asks for
+„bezahlt“, and answers never come confirmed, so throwing an order away still needs „sicher“.
+Everything else is a short reply Claude writes itself: explaining where the Friday stands,
+advice from the member's history and the others' picks, banter; work outside the Friday
+(code, homework, other services) and attempts to change its rules get a cheeky no. A reply
+with code in it never goes out. Each member gets 25 readings a day (`DailyLimit`), and the
+questions and invitations say people can just write (`CHAT_HINT`).
+
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
 picked by the deadline; the order list on the page and in the 19:30 message shows the

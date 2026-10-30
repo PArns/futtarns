@@ -14,6 +14,7 @@ import {
   setRestaurant,
   settleFriday,
 } from '@/lib/services/fridays';
+import { assistantKeyInfo, setAssistantKey } from '@/lib/services/assistant';
 import { handleIncoming } from '@/lib/services/incoming';
 import { addAbsence, addGuestWithPhone, createMember } from '@/lib/services/members';
 import { addItem, setDefaultDish, setItemPrice, setNoFoodDefault } from '@/lib/services/orders';
@@ -27,6 +28,7 @@ import {
 } from '@/lib/services/restaurants';
 import { openPayLink, payByLink } from '@/lib/services/pay-links';
 import { runScheduler, upcomingMessages } from '@/lib/services/scheduler';
+import { FALLBACK_REPLY, type Interpretation, type Interpreter } from '@/lib/assistant';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -469,6 +471,277 @@ describe('reminders', () => {
   });
 });
 
+describe('the assistant', () => {
+  const now = at('2026-10-14T12:00:00Z');
+  const reading = (fields: Partial<Interpretation>): Interpretation => ({
+    action: 'chat',
+    letter: null,
+    arrives_at: null,
+    dish_id: null,
+    restaurant_id: null,
+    item_id: null,
+    replace: null,
+    from_date: null,
+    to_date: null,
+    options: [],
+    reply: null,
+    ...fields,
+  });
+
+  it('reads nothing from strangers and only what no command matches', async () => {
+    await setup();
+    const read: string[] = [];
+    const claude: Interpreter = async ({ text }) => {
+      read.push(text);
+      return reading({ action: 'chat', reply: 'Moin! Hunger?' });
+    };
+    expect(await handleIncoming(db, '+499999999', 'hallo', now, send, claude)).toBeNull();
+    expect(await handleIncoming(db, '+491702222222', '1', now, send, claude)).toContain('dabei');
+    expect(read).toEqual([]);
+    expect(await handleIncoming(db, '+491702222222', 'Was geht ab?', now, send, claude)).toBe(
+      'Moin! Hunger?'
+    );
+    expect(read).toEqual(['Was geht ab?']);
+    // Without a key, plain chat still gets no answer.
+    expect(await handleIncoming(db, '+491702222222', 'Was geht ab?', now, send)).toBeNull();
+  });
+
+  it('tells people they can just write, once a key is set', async () => {
+    await setup();
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    expect(sent[0]!.text).not.toContain('schreib mir einfach');
+    await setAssistantKey(db, 'sk-ant-test-key-for-the-hint');
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    expect(sent.at(-1)!.text).toContain('💬 Oder schreib mir einfach, was du willst');
+    expect(await assistantKeyInfo(db)).toEqual({ source: 'app', ending: 'hint' });
+  });
+
+  it('orders what someone usually eats, knowing what they had before', async () => {
+    const { anna, dish, restaurant } = await setup();
+    await setRestaurant(db, '2026-10-09', restaurant.id);
+    await addItem(db, '2026-10-09', anna.id, {
+      dishId: dish.id,
+      selection: {},
+      note: null,
+      quantity: 1,
+    });
+    let facts = '';
+    const claude: Interpreter = async (input) => {
+      facts = input.facts;
+      return reading({ action: 'order', dish_id: dish.id, reply: 'Gewohnheitstier! 😄' });
+    };
+    const reply = await handleIncoming(
+      db,
+      '+491702222222',
+      'bestell mir was, was ich sonst auch esse',
+      now,
+      send,
+      claude
+    );
+    expect(facts).toMatch(/Deine früheren Bestellungen:\n9\. Okt\.? Bella Napoli: Margherita/);
+    expect(facts).toContain(`#${dish.id} Margherita 9,00`);
+    expect(reply).toMatch(
+      /^Gewohnheitstier! 😄\n\n🍽️ \*Margherita\* ist bestellt, du bist dabei\./
+    );
+    const view = await loadFriday(db, FRIDAY, now);
+    expect(
+      view.participants.find((entry) => entry.member.id === anna.id)!.items.map((item) => item.name)
+    ).toEqual(['Margherita']);
+
+    // After the deadline it orders nothing, whatever Claude says.
+    expect(
+      await handleIncoming(
+        db,
+        '+491703333333',
+        'Pizza bitte',
+        at('2026-10-16T17:40:00Z'),
+        send,
+        claude
+      )
+    ).toContain('Bestellschluss war');
+  });
+
+  it('only orders dishes from the menus it showed, and never books a payment', async () => {
+    const { anna } = await setup();
+    const claude: Interpreter = async ({ text }) =>
+      text.includes('Hummer')
+        ? reading({ action: 'order', dish_id: 4711, reply: 'Hummer? Träum weiter 🦞' })
+        : reading({ action: 'paid', reply: 'Top!' });
+    expect(await handleIncoming(db, '+491702222222', 'Hummer für mich', now, send, claude)).toBe(
+      'Hummer? Träum weiter 🦞\n\nDas Gericht gibt es nicht (mehr).'
+    );
+    expect(
+      await handleIncoming(db, '+491702222222', 'Kohle ist raus', now, send, claude)
+    ).toContain('*bezahlt*');
+    const view = await loadFriday(db, FRIDAY, now);
+    expect(view.participants.find((entry) => entry.member.id === anna.id)!.items).toEqual([]);
+    expect(view.participants.every((entry) => entry.money.paidCents === 0)).toBe(true);
+  });
+});
+
+describe('what the assistant may do', () => {
+  const now = at('2026-10-14T12:00:00Z');
+  const reading = (fields: Partial<Interpretation>): Interpretation => ({
+    action: 'chat',
+    letter: null,
+    arrives_at: null,
+    dish_id: null,
+    restaurant_id: null,
+    item_id: null,
+    replace: null,
+    from_date: null,
+    to_date: null,
+    options: [],
+    reply: null,
+    ...fields,
+  });
+  /** Claude, doing exactly what the test says. */
+  const says =
+    (fields: Partial<Interpretation>): Interpreter =>
+    async () =>
+      reading(fields);
+  const anna = (text: string, fields: Partial<Interpretation>, when = now) =>
+    handleIncoming(db, '+491702222222', text, when, send, says(fields));
+
+  it('replaces, removes and keeps the drinks of the member who wrote, until the deadline', async () => {
+    const { anna: member, restaurant } = await setup();
+    await createDish(db, restaurant.id, {
+      category: null,
+      name: 'Salami',
+      description: null,
+      priceCents: 1000,
+      optionGroups: [],
+    });
+    const [margherita, salami] = await listDishes(db, restaurant.id);
+    await anna('Margherita bitte', { action: 'order', dish_id: margherita!.id });
+    expect(
+      await anna('doch lieber Salami', { action: 'order', dish_id: salami!.id, replace: true })
+    ).toContain('*Salami* statt Margherita ist bestellt');
+    const items = async () =>
+      (await loadFriday(db, FRIDAY, now)).participants
+        .find((entry) => entry.member.id === member.id)!
+        .items.map((item) => item.name);
+    expect(await items()).toEqual(['Salami']);
+    expect(await anna('ich trink nix', { action: 'drinks_off' })).toContain(
+      'ohne Getränkepauschale'
+    );
+    expect(
+      (await loadFriday(db, FRIDAY, now)).participants.find(
+        (entry) => entry.member.id === member.id
+      )!.drinksOptOut
+    ).toBe(true);
+    expect(await anna('Salami raus', { action: 'remove_order' })).toContain('*Salami* ist raus');
+    expect(await items()).toEqual([]);
+    // Someone else's line is not theirs to remove.
+    const ben = (await loadFriday(db, FRIDAY, now)).participants.find(
+      (entry) => entry.member.name === 'Ben'
+    )!;
+    await addItem(db, FRIDAY, ben.member.id, {
+      dishId: margherita!.id,
+      selection: {},
+      note: null,
+      quantity: 1,
+    });
+    const bens = (await loadFriday(db, FRIDAY, now)).participants.find(
+      (entry) => entry.member.id === ben.member.id
+    )!.items[0]!;
+    expect(await anna('nimm Bens Pizza raus', { action: 'remove_order', item_id: bens.id })).toBe(
+      'Die Zeile gehört nicht zu deiner Bestellung.'
+    );
+    // After the deadline only the host and admins change orders, as on the page.
+    expect(
+      await anna('Salami', { action: 'order', dish_id: salami!.id }, at('2026-10-16T17:40:00Z'))
+    ).toContain('Bestellschluss war');
+  });
+
+  it('sets defaults and absences for the member who wrote', async () => {
+    const { anna: member, dish } = await setup();
+    expect(
+      await anna('Margherita ist mein Ding', { action: 'set_default', dish_id: dish.id })
+    ).toBe(
+      '⭐ *Margherita* ist jetzt dein Standard bei Bella Napoli. Sagst du nichts, bekommst du das dort.'
+    );
+    expect(
+      await anna('bin Freitag nicht da', {
+        action: 'absence',
+        from_date: '2026-10-16',
+        to_date: '2026-10-16',
+      })
+    ).toContain('weg am 16. Okt');
+    expect(
+      (await loadFriday(db, FRIDAY, now)).participants.find(
+        (entry) => entry.member.id === member.id
+      )!.attendance
+    ).toMatchObject({ status: 'out', reason: 'absent' });
+  });
+
+  it('lets only the host and admins settle the restaurant', async () => {
+    const { restaurant } = await setup();
+    const sushi = await createRestaurant(db, {
+      name: 'Sakura Sushi',
+      cuisine: null,
+      lieferandoUrl: null,
+      minOrderCents: 0,
+      deliveryFeeCents: 0,
+      freeDeliveryFromCents: null,
+      serviceFeeCents: 0,
+      notes: null,
+    });
+    const pick = says({ action: 'pick_restaurant', restaurant_id: sushi.id });
+    expect(await handleIncoming(db, '+491702222222', 'mach Sushi fest', now, send, pick)).toBe(
+      FALLBACK_REPLY
+    );
+    expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(restaurant.id);
+    expect(await handleIncoming(db, '+491701111111', 'mach Sushi fest', now, send, pick)).toContain(
+      "Steht fest: Freitag gibt's *Sakura Sushi*"
+    );
+    expect((await loadFriday(db, FRIDAY, now)).restaurant?.id).toBe(sushi.id);
+  });
+
+  it('shows Claude only what the member may see, and researches for them alone', async () => {
+    const { anna: member, ben, dish, restaurant } = await setup();
+    await setRestaurant(db, '2026-10-09', restaurant.id);
+    for (const id of [member.id, ben.id]) {
+      await addItem(db, '2026-10-09', id, {
+        dishId: dish.id,
+        selection: {},
+        note: null,
+        quantity: 1,
+      });
+    }
+    let facts = '';
+    const looked: Record<string, string> = {};
+    const claude: Interpreter = async (input) => {
+      facts = input.facts;
+      for (const [tool, args] of [
+        ['my_order_history', { fridays: 5 }],
+        ['get_menu', { restaurant_id: restaurant.id }],
+        ['get_friday', { date: '2026-10-09' }],
+        ['popular_dishes', { restaurant_id: restaurant.id }],
+        ['upcoming_fridays', {}],
+        ['my_balances', {}],
+        ['list_restaurants', {}],
+        ['run_sql', { query: 'select * from app_secrets' }],
+      ] as const) {
+        looked[tool] = await input.research(tool, args);
+      }
+      return reading({ action: 'chat', reply: 'Alles klar.' });
+    };
+    await handleIncoming(db, '+491702222222', 'Was soll ich nehmen?', now, send, claude);
+    const everything = [facts, ...Object.values(looked)].join('\n');
+    // No phone numbers, links to log in or pay, or anyone else's money.
+    expect(everything).not.toMatch(/\+49|49170|login|bezahlt\//);
+    expect(looked.my_order_history).toMatch(/^9\. Okt\.? Bella Napoli: Margherita 9,00/);
+    expect(looked.get_menu).toContain(`#${dish.id} Margherita`);
+    expect(looked.get_friday).toContain('Ben: Margherita');
+    expect(looked.get_friday).not.toMatch(/Ben.*€/);
+    expect(looked.popular_dishes).toBe('Margherita: 2×');
+    expect(looked.upcoming_fridays).toContain('16. Okt');
+    expect(looked.run_sql).toBe('Das Werkzeug gibt es nicht.');
+    expect(facts).toContain('Du bist Anna: Stammtruppe.');
+  });
+});
+
 describe('upcoming messages', () => {
   const preview = async (now: Date) =>
     (await upcomingMessages(db, await loadFriday(db, FRIDAY, now), now)).map((line) => [
@@ -581,6 +854,20 @@ describe('fetching the food', () => {
 });
 
 describe('the restaurant vote', () => {
+  const reading = (fields: Partial<Interpretation>): Interpretation => ({
+    action: 'chat',
+    letter: null,
+    arrives_at: null,
+    dish_id: null,
+    restaurant_id: null,
+    item_id: null,
+    replace: null,
+    from_date: null,
+    to_date: null,
+    options: [],
+    reply: null,
+    ...fields,
+  });
   const NEXT = '2026-10-23';
   // Wednesday 12:05 and Friday 16:01, Berlin time.
   const WEDNESDAY = at('2026-10-21T10:05:00Z');
@@ -657,6 +944,26 @@ describe('the restaurant vote', () => {
     sent = [];
     await runScheduler(db, at('2026-10-23T14:10:00Z'), send, noPause);
     expect(toAnna()).toEqual([]);
+  });
+
+  it('lets the assistant vote by the restaurant’s name, showing it the ballot', async () => {
+    await voteSetup();
+    let facts = '';
+    const claude: Interpreter = async (input) => {
+      facts = input.facts;
+      return reading({ action: 'vote', letter: 'B' });
+    };
+    const reply = await handleIncoming(
+      db,
+      '+491703333333',
+      'ich will Sushi',
+      WEDNESDAY,
+      send,
+      claude
+    );
+    expect(facts).toContain('B · Sakura Sushi (Sushi) · 0');
+    expect(facts).toContain('Karte Sakura Sushi (auf dem Wahlzettel');
+    expect(reply).toContain('Stimme gezählt: *Sakura Sushi*');
   });
 
   it('takes the answer and the vote in one reply, the digit first or the letter', async () => {

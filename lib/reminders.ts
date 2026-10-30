@@ -58,6 +58,8 @@ type Input = {
    * offer „gleiches“; e.g. `HDD Döner Teller, 2× Pommes`.
    */
   lastOrder?: Map<number, { date: IsoDate; items: string }>;
+  /** Claude reads what no command matches (`lib/assistant.ts`), so people can just write. */
+  assistant?: boolean;
 };
 
 function between(now: Date, from: Date, to: Date) {
@@ -134,6 +136,9 @@ const ANSWER_OPTIONS = [
 ];
 const ANSWER_HINT = ['Bist du dabei? Antworte mit', ...ANSWER_OPTIONS].join('\n');
 
+/** In the messages that ask something, when Claude reads along. */
+export const CHAT_HINT = `💬 Oder schreib mir einfach, was du willst, z. B. „bestell mir das Übliche“, „was ist bei Tasty gut?“ oder „ich raff das nicht“. Ich kümmer mich um den Rest.`;
+
 /**
  * Every WhatsApp message one Friday calls for at `now`. Each message has a key; the
  * scheduler sends a key once, so this can run every minute. Every window ends, so a
@@ -149,6 +154,7 @@ export function planReminders({
   paidLink,
   restaurants,
   lastOrder = new Map(),
+  assistant = false,
 }: Input): Outgoing[] {
   const out: Outgoing[] = [];
   if (awake(now) > now) return out;
@@ -332,6 +338,7 @@ export function planReminders({
           )}${voting ? '' : ` Diesmal ${what}.`}`,
           ANSWER_HINT,
           rule,
+          ...(assistant ? ['', CHAT_HINT] : []),
           '',
           ...voteLines(entry.member.id),
         ].join('\n'),
@@ -481,6 +488,7 @@ export function planReminders({
           ANSWER_HINT,
           '',
           `${rule}${orderHint(id)}`,
+          ...(assistant ? ['', CHAT_HINT] : []),
           ...(voting ? ['', ...voteLines(id)] : [link]),
         ].join('\n'),
       });

@@ -35,6 +35,9 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Restaurants**: fees, minimum order, menus from Lieferando (bookmarklet or copy and paste,
   with a preview); anyone can add a missing dish. Every host has their own usual restaurant.
 - **Pentecost countdown**: days until the Friday we leave for Holland, on every page.
+- **Claude in the bot** (optional): members can just write („bestell mir das Übliche“, „ich
+  will Tasty“, „ich raff das nicht“); Claude picks the matching action or answers, with read
+  access to what the member may see and only the member's own rights.
 - **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
   the order reminder then or, when the group votes, with the result at 16:00, the order list
   for the host at 19:30, everyone's payment link once the host releases paying, the settled amounts and daily payment
