@@ -28,6 +28,7 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `payments`                | the money ledger: what someone paid for a Friday and to whom (negative = paid back; no payee = the host)                                                                                                        |
 | `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                                                                    |
 | `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                                                                   |
+| `admin_notes`             | what Claude passed on to the admins from someone's WhatsApp message (its gist and the message), so admins can act on it by chat                                                                                 |
 | `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                                                            |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
@@ -45,7 +46,8 @@ takes it over (see Permissions).
    order pins it, so handing the Friday to a substitute keeps the menu.
 2. **Lock at 19:30** (`lockFriday`): the first page view or scheduler tick after the
    deadline locks the Friday once, writes host and restaurant down and adds each silent
-   member's default dish.
+   member's default dish. Without a host around (none, or the host is away) nobody orders,
+   so nobody gets a default dish, and there is no drinks fee: nobody's kitty to pay into.
 3. **Order at 19:45**: the host copies the grouped order list into Lieferando.
 4. **Settle**: the host enters what Lieferando charged; `splitTotal` (`lib/pricing.ts`)
    gives everyone their dishes plus an equal share of the rest (delivery, service fee, tip),
@@ -69,6 +71,10 @@ takes it over (see Permissions).
   it), to the host, as friends and family. The website fills the amount in; the PayPal app,
   which opens these links on a phone, does not always, so messages name the amount next to the
   link and the page offers it to copy (`paypalAmount`).
+  Without a PayPal.me name there is no link: messages say „Bitte direkt an … zahlen“, the pay
+  box asks to hand the money over and tap „Hab bezahlt“, the host sees a hint in „Chefsache“,
+  and the order list at the deadline reminds whoever collects to enter one (`/ich`). The
+  „bezahlt“ link and the reminders work all the same.
   Differences under 50 cents are shown but never chased.
 - **Pickup**: a restaurant can offer pickup („Abholen geht auch“), and the host then chooses
   per Friday between delivery and pickup and who fetches the food. Fetched food costs the
@@ -114,6 +120,7 @@ the flag on the people page, and new members get it by default.
 - Only admins put a Friday at nobody's place (`canClearHost`), in the host pickers.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
+- Admins can also have the bot change things by chat (see Claude in the bot).
 
 ## Reminders (`lib/reminders.ts`)
 
@@ -125,22 +132,32 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | When (Berlin)         | Who                                        | What                                                                                                                              |
 | --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
 | Mon 18:00, Wed 10:00  | a host who is away that day                | find a substitute or cancel                                                                                                       |
-| Mon 18:00             | the Stammtruppe around, on a hostless day  | nobody hosts, sort it out: „übernehme“ or the page; the group chat too                                                            |
+| Wed 12:00 – Fri       | the Stammtruppe around, no host around     | „Wo sind wir Freitag?“: „übernehme“ or the page; the group chat too. Nothing else goes out while nobody hosts                     |
+| once a host is found  | who heard that, and whoever said yes       | where it is, at the top of their next message or on its own                                                                       |
 | Wed 12:00 – Thu       | members who haven't answered               | whether they come, with reply options, and the vote                                                                               |
 | Wed 12:00 – Fri 16:00 | everyone else coming who hasn't voted      | the restaurant vote, if one is running                                                                                            |
 | Thu 18:00             | coming, got the ballot, not voted          | the standings, while their votes could still swing                                                                                |
-| Thu 18:00, Fri 10:00  | host, no restaurant yet                    | pick one; after a vote only once it is over, at 16:00                                                                             |
+| Thu 18:00, Fri 10:00  | host, no restaurant yet                    | pick one; after a vote only once it is over, at 16:00; with no restaurant at all, once, to add one or make it a flat price        |
 | Fri 10:00 – 17:00     | members who haven't answered               | invitation with reply options and what to order, or the ballot while the vote runs                                                |
 | Fri 10:00             | said yes before, uninvited, no order       | order reminder naming their default; at 16:00 after a vote                                                                        |
 | Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                                                                             |
 | Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                                                                           |
 | Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                                                               |
-| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart                                                                                      |
+| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart, and a hint when they have no PayPal.me name                                         |
 | on release            | open balance ≥ 50 cents                    | what to pay, with the PayPal link, if the host releases with messages; without a release by Sat 10:00 it goes out then on its own |
 | Sat 10:00             | host, not settled                          | enter what Lieferando charged, if it differs from the estimate (which stands otherwise)                                           |
 | settling or resending | whose total changed since their link       | the corrected amount to pay or to get back; nobody else hears anything                                                            |
 | daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                                                                  |
 | cancelled Friday      | everyone                                   | that it's off                                                                                                                     |
+
+A Friday without a host around (nobody, or the host is away) has no place yet. Then the bot
+only asks the Stammtruppe on Wednesday where it is, reminds an absent host to find someone,
+and otherwise stays quiet: no question who comes, no vote, no invitation, no order list and
+no money messages. Once someone takes it over („übernehme“, „Ich übernehme“, or someone
+entered as host), whoever heard the question, and whoever said yes in the meantime, hears
+where it is (`found`), and the Friday goes on like any other. The news rides on the next
+message due for them anyway, such as the question who comes, which then carries its key
+too (`Outgoing.also`, claimed with it by `deliver`), or goes out on its own.
 
 Each message goes out once per person and reason, and never right after something that
 already said the same: the Wednesday question carries the ballot, and so does the Friday
@@ -205,6 +222,28 @@ advice from the member's history and the others' picks, banter; work outside the
 with code in it never goes out. Each member gets 25 readings a day (`DailyLimit`), and the
 questions and invitations say people can just write (`CHAT_HINT`).
 
+**Telling the admins** (`lib/services/admin.ts`): with any reading Claude can add an
+`admin_note` when a message corrects what the app says about a Friday and the member cannot
+fix it themselves: „nee, ist bei mir“, the Friday is elsewhere or does not happen, a host who
+cannot host and found nobody, a wrong amount or menu, or someone asking for an admin.
+Whether someone comes, orders, votes or is away is no such news. The bot stores it
+(`admin_notes`), sends it with the member's own words to every other admin
+(`reportToAdmins`, at most three per member and day) and tells the member it did.
+
+**Admins by chat**: an admin's instructions („Ina macht Freitag den Gastgeber“, „sag den 20.
+ab“, „Ben ist raus“, „Guido ist nächste Woche weg“, „schreib Guido, dass es erledigt ist“)
+come back as the action `admin` with a list of changes (`AdminChange`: `set_host`, `no_host`,
+`cancel`, `uncancel`, `answer`, `absence`, `message`). Claude sees everyone's number, the
+coming Fridays and the reports of the last week (`adminFacts`). `runAdminChanges` checks each
+change like the page would (only admins, Fridays from this week on and still open, hosts from
+the Stammtruppe who are around), and calling a Friday off or throwing someone's order away
+waits for „sicher“: then nothing in that message runs until it comes again with „sicher“.
+A new host and whoever gets a message hear from the bot; the admin gets one line per change.
+Money is never booked by chat.
+
+When a command breaks on the way, the member gets an apology instead of silence, and one
+Friday whose reminders fail does not hold back the others' (`runScheduler`).
+
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
 picked by the deadline; the order list on the page and in the 19:30 message shows the
@@ -231,6 +270,10 @@ lists the restaurants by letter, with one link to the page for menus and deliver
 they can change or take back their vote until the end. The page and the bot's reply show
 who voted for what, and each restaurant's menu folds open on the page, fetched when first
 opened (`menuPreviewAction`).
+
+Without any restaurant for this Friday's host there is no vote and nothing to pick: the
+page says so („Noch kein Restaurant eingetragen“) with a link to add one for whoever may,
+or to make the evening a flat price for whoever runs it, and the host hears it once.
 
 At 16:00 (`closeVote`, from the timer or the first page view) the restaurant with the
 most votes wins. Without votes, or when two share the lead, the current restaurant (the

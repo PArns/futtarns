@@ -15,7 +15,16 @@ import {
   type VoteOption,
 } from '@/lib/vote';
 
-export type Outgoing = { key: string; to: string; text: string };
+export type Outgoing = {
+  key: string;
+  to: string;
+  text: string;
+  /**
+   * Keys of other messages this one stands in for: it carries their news, so they count as
+   * sent with it.
+   */
+  also?: string[];
+};
 
 /** How often the scheduler runs (`instrumentation.ts`). */
 export const SCHEDULER_INTERVAL_MS = 60_000;
@@ -225,7 +234,7 @@ export function planReminders({
   const day = formatDayShort(date);
   const link = `${appUrl}/freitag/${date}`;
   const host = view.host?.name ?? 'uns';
-  const place = view.hostAbsent || !view.host ? ' (wo, klären wir noch)' : `, bei ${host}`;
+  const place = `, bei ${host}`;
   const hostPhone = view.host?.phone ?? null;
   const flat = view.mode === 'flat';
   const reachable = view.participants.filter(
@@ -289,27 +298,36 @@ export function planReminders({
     }
   }
 
-  // Put at nobody's place: the Stammtruppe sorts out among themselves who takes it over.
-  if (!view.host && view.noHost && between(now, berlinAt(date, -4, 18), view.deadline)) {
-    const text = (key: string) =>
-      [
-        pick(
-          [
-            `🏠 ${bold(`Freitag (${day}) hat noch keinen Gastgeber.`)}`,
-            `🏚️ ${bold(`Für Freitag (${day}) fehlt noch ein Dach.`)} Keiner ist Gastgeber.`,
-            `🛋️ ${bold(`Freitag (${day}): Wessen Sofa darf's sein?`)} Noch ist keiner Gastgeber.`,
-          ],
-          key
-        ),
-        `Macht das unter euch aus: Wer kann, antwortet mit ${bold('übernehme')} oder tippt auf der Seite auf „Ich übernehme“.`,
-        link,
-      ].join('\n');
-    for (const entry of reachable) {
-      if (!entry.member.core || entry.attendance.reason === 'absent') continue;
-      const key = `nohost:${date}:${entry.member.id}`;
-      out.push({ key, to: entry.member.phone!, text: text(key) });
+  // Without a host around (nobody, or the host is away) the Friday has no place yet. The bot
+  // asks the Stammtruppe once, on Wednesday, where it is, and otherwise stays quiet: no
+  // question who comes, no vote, no order list, no money, until someone takes it over.
+  if (!view.host || view.hostAbsent) {
+    if (between(now, berlinAt(date, -2, 12), view.deadline)) {
+      const where = daysBetween(todayIso(now), date) <= 0 ? 'heute' : 'Freitag';
+      const why = view.host
+        ? `${view.host.name} ist an dem Tag weg.`
+        : 'Noch ist keiner Gastgeber.';
+      const text = (key: string) =>
+        [
+          `${pick(
+            [
+              `🏠 ${bold(`Wo sind wir ${where}?`)}`,
+              `🛋️ ${bold(`Wo sind wir ${where}?`)} Wessen Sofa darf's sein?`,
+              `🏚️ ${bold(`Wo sind wir ${where}?`)} Uns fehlt noch ein Dach.`,
+            ],
+            key
+          )} ${why}`,
+          `Wer Freitag (${day}) Gastgeber sein kann, antwortet mit ${bold('übernehme')} oder tippt auf der Seite auf „Ich übernehme“. Dann sag ich allen Bescheid, bis dahin halte ich die Füße still.`,
+          link,
+        ].join('\n');
+      for (const entry of reachable) {
+        if (!entry.member.core || entry.attendance.reason === 'absent') continue;
+        const key = `nohost:${date}:${entry.member.id}`;
+        out.push({ key, to: entry.member.phone!, text: text(key) });
+      }
+      if (group) out.push({ key: `nohost:${date}:group`, to: group, text: text('group') });
     }
-    if (group) out.push({ key: `nohost:${date}:group`, to: group, text: text('group') });
+    return out;
   }
 
   const voting = votingAt(view, now) && restaurants.length > 1;
@@ -324,8 +342,18 @@ export function planReminders({
     ] as const) {
       // While the group still votes, a pick from the host would end the vote.
       if (voting) continue;
+      // With nothing to pick from, once is enough: the host has to add one first.
+      if (restaurants.length === 0 && key === 'fri') continue;
       if (between(now, at, view.deadline)) {
         const id = `pick:${date}:${key}`;
+        if (restaurants.length === 0) {
+          out.push({
+            key: id,
+            to: hostPhone,
+            text: `🤔 ${bold(`Für Freitag (${day}) gibt's noch kein Restaurant.`)}\nLeg eins an, das zu dir liefert oder Abholen anbietet, dann können alle bestellen. Oder mach den Abend auf der Seite zur Pauschale:\n${appUrl}/restaurants`,
+          });
+          continue;
+        }
         const joke = pick(
           [
             'Die Mägen werden unruhig.',
@@ -812,11 +840,21 @@ export function planReminders({
     const later = orderSheetText(sheets.later);
     const restaurant = bold(view.restaurant?.name ?? 'das Restaurant');
     const lieferando = view.restaurant?.lieferandoUrl;
+    // Without a PayPal.me name the others only hear „direkt zahlen“; there is still time.
+    const orderer = view.picker ?? view.host;
+    const paypalHint = orderer?.paypalMe
+      ? []
+      : [
+          '',
+          `💡 Du hast noch keinen PayPal.me-Namen im Profil, dann sag ich den anderen, sie sollen dir direkt zahlen. Mit Namen bekommen alle einen Zahl-Link: ${appUrl}/ich`,
+        ];
     out.push({
       key: `sheet:${date}`,
       to: ordererPhone,
       text: flat
-        ? `📋 ${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.\n${link}`
+        ? [`📋 ${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.`, link, ...paypalHint].join(
+            '\n'
+          )
         : [
             `${pick(
               view.pickup
@@ -842,6 +880,7 @@ export function planReminders({
             view.pickup
               ? `Das Essensgeld der anderen kommt zu dir. Kostet es im Restaurant anders, kann ${host} den Betrag eintragen:\n${link}`
               : `${lieferando ? `Bestellen: ${lieferando}\n\n` : ''}Nach der Bestellung den Betrag hier eintragen:\n${link}`,
+            ...paypalHint,
           ].join('\n'),
     });
   }
@@ -901,6 +940,40 @@ export function planReminders({
         });
       }
     }
+  }
+
+  // Whoever heard „Wo sind wir Freitag?“ hears where it is once someone took it over, and so
+  // does whoever said yes meanwhile: at the top of the next message they get anyway, or in
+  // one of its own.
+  const askedWhere = (id: number | 'group') => sent.has(`nohost:${date}:${id}`);
+  const searched = askedWhere('group') || reachable.some((entry) => askedWhere(entry.member.id));
+  if (searched && now < view.deadline) {
+    const news = (key: string) =>
+      pick(
+        [
+          `🏠 ${bold(`Freitag (${day}) sind wir bei ${host}!`)}`,
+          `🛋️ ${bold(`Sofa gefunden: Freitag (${day}) sind wir bei ${host}!`)}`,
+          `🎉 ${bold(`Dach gefunden: Freitag (${day}) sind wir bei ${host}!`)}`,
+        ],
+        key
+      );
+    const tell = (key: string, to: string) => {
+      if (sent.has(key)) return;
+      const next = out.find((message) => message.to === to && !sent.has(message.key));
+      if (next) {
+        next.text = `${news(key)}\n\n${next.text}`;
+        next.also = [...(next.also ?? []), key];
+      } else {
+        out.push({ key, to, text: `${news(key)} Diesmal ${what}.\n${link}` });
+      }
+    };
+    for (const entry of reachable) {
+      const id = entry.member.id;
+      if (id === view.host?.id || entry.attendance.reason === 'absent') continue;
+      if (!askedWhere(id) && entry.attendance.status === 'out') continue;
+      tell(`found:${date}:${id}`, entry.member.phone!);
+    }
+    if (group && askedWhere('group')) tell(`found:${date}:group`, group);
   }
 
   return out;
@@ -977,7 +1050,10 @@ export function previewReminders(
         planned.set(message.key, { ...message, at });
       }
     }
-    for (const key of planned.keys()) sent.add(key);
+    for (const message of planned.values()) {
+      sent.add(message.key);
+      for (const key of message.also ?? []) sent.add(key);
+    }
   }
   return [...planned.values()];
 }
@@ -985,7 +1061,8 @@ export function previewReminders(
 const MESSAGE_KINDS: Record<string, string> = {
   cancel: 'Absage',
   hostaway: 'Gastgeber ist weg, wer übernimmt?',
-  nohost: 'Kein Gastgeber, wer übernimmt?',
+  nohost: 'Wo sind wir Freitag?',
+  found: 'Gastgeber gefunden',
   pick: 'Restaurant aussuchen',
   ask: 'Kommst du?',
   vote: 'Restaurantwahl',

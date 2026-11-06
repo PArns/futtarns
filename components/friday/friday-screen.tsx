@@ -49,7 +49,14 @@ import { buttonVariants } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
 import { Notice } from '@/components/ui/notice';
 import { Pill } from '@/components/ui/pill';
-import { addWeeks, autoReleaseAt, deliveryTime, isPastDeadline, type IsoDate } from '@/lib/dates';
+import {
+  addWeeks,
+  autoReleaseAt,
+  currentFriday,
+  deliveryTime,
+  isPastDeadline,
+  type IsoDate,
+} from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
@@ -61,11 +68,13 @@ import {
   canClearHost,
   canEditOrderOf,
   canManageFriday,
+  canManageGroup,
   canSetArrival,
   canSetHost,
   canTakeOver,
 } from '@/lib/permissions';
 import {
+  hostIdFor,
   loadFriday,
   openBalancesFor,
   paymentOpen,
@@ -179,7 +188,8 @@ export async function FridayScreen({
   const voting = votingAt(view, now);
   const canBringGuests = !view.cancelled && (!closed || manage);
   const [restaurants, members, defaultHost, messages, guests, bot] = await Promise.all([
-    manage || voting ? restaurantsForHost(db, hostId) : [],
+    // Also to tell when there is no restaurant at all for this Friday.
+    !flat && !view.cancelled ? restaurantsForHost(db, hostId) : [],
     manage || swapHostOnly ? listMembers(db) : [],
     manage || swapHostOnly ? getDefaultHost(db) : null,
     manage ? upcomingMessages(db, view, now) : [],
@@ -389,6 +399,12 @@ export async function FridayScreen({
     locked: closed,
     cancelled: view.cancelled,
   });
+  // No restaurant serves this Friday's host: no vote, nothing to pick, only a notice.
+  const noRestaurants = !flat && !view.cancelled && !view.restaurant && restaurants.length === 0;
+  // Restaurants are added by admins and the host of the coming Friday.
+  const mayAddRestaurant =
+    noRestaurants &&
+    canManageGroup(viewer, isCurrent ? hostId : await hostIdFor(db, currentFriday(now)));
   // While the group votes, the restaurant is not settled, so none stands at the top.
   const voteOpen = voting && restaurants.length > 1;
   const title = view.cancelled
@@ -589,9 +605,11 @@ export async function FridayScreen({
             ? `${formatEuro(view.flatPriceCents ?? 0)} pro Person. Wer kommt, sagt bis ${deadline} zu.`
             : view.restaurant
               ? `${view.restaurant.name} steht fest${fetcher ? `, ${fetcher.name} holt ab` : ''}. Aussuchen geht bis ${deadline}.`
-              : view.host
-                ? `Das Restaurant steht noch nicht fest, ${view.host.name} sucht es aus.`
-                : 'Das Restaurant steht noch nicht fest. Erst braucht es einen Gastgeber.',
+              : noRestaurants
+                ? 'Noch gibt es kein Restaurant für diesen Freitag, also auch keine Wahl.'
+                : view.host
+                  ? `Das Restaurant steht noch nicht fest, ${view.host.name} sucht es aus.`
+                  : 'Das Restaurant steht noch nicht fest. Erst braucht es einen Gastgeber.',
           action: menus.length > 0 ? { href: '#karte', label: 'Zur Karte' } : undefined,
         },
         {
@@ -684,6 +702,7 @@ export async function FridayScreen({
             !view.cancelled &&
             !view.settled &&
             !closed &&
+            !noRestaurants &&
             (voting || !view.restaurant) && (
               <a
                 href="#chefsache"
@@ -757,6 +776,37 @@ export async function FridayScreen({
                       : 'Wer aus der Stammtruppe da ist, kann ihn hier übernehmen.'}
                   </span>
                 )
+              )}
+            </span>
+          </Notice>
+        )}
+        {noRestaurants && !closed && view.host && !view.hostAbsent && (
+          <Notice className="hero-item mt-4 flex items-start gap-2 text-sm">
+            <Store className="text-primary mt-0.5" />
+            <span className="min-w-0 flex-1 space-y-1">
+              <strong className="block">Noch kein Restaurant eingetragen</strong>
+              <span className="text-muted-foreground block">
+                {mayAddRestaurant
+                  ? 'Leg eins an, dann kann bestellt werden.'
+                  : `Bestellen geht, sobald ${amHost ? 'ein Admin' : `${view.host.name} oder ein Admin`} eins anlegt.`}
+                {manage && ' Oder mach den Abend zur Pauschale.'}
+              </span>
+              {(mayAddRestaurant || manage) && (
+                <span className="flex flex-wrap gap-x-4 gap-y-1">
+                  {mayAddRestaurant && (
+                    <Link
+                      href="/restaurants"
+                      className="text-primary font-semibold hover:underline"
+                    >
+                      Restaurant anlegen
+                    </Link>
+                  )}
+                  {manage && (
+                    <a href="#chefsache" className="text-primary font-semibold hover:underline">
+                      Pauschale festlegen
+                    </a>
+                  )}
+                </span>
               )}
             </span>
           </Notice>
@@ -1006,28 +1056,30 @@ export async function FridayScreen({
                 hint={
                   flat
                     ? `${formatEuro(view.flatPriceCents ?? 0)} pro Person, für alle gleich.`
-                    : !view.restaurant && menus.length === 0
-                      ? 'Der Gastgeber sucht das Restaurant noch aus.'
-                      : closed
-                        ? 'Bestellschluss ist vorbei.'
-                        : menus.length > 0 && (
-                            <>
-                              {voteRuns
-                                ? 'Die Wahl läuft noch, aber du kannst schon '
-                                : 'Such dir '}
-                              <a
-                                href="#karte"
-                                className="text-primary font-semibold hover:underline"
-                              >
-                                auf der Karte
-                              </a>{' '}
-                              {!voteRuns
-                                ? 'was aus.'
-                                : menus.length > 1
-                                  ? 'aussuchen, bei beiden Restaurants.'
-                                  : 'aussuchen.'}
-                            </>
-                          )
+                    : noRestaurants
+                      ? 'Noch gibt es kein Restaurant für diesen Freitag.'
+                      : !view.restaurant && menus.length === 0
+                        ? 'Der Gastgeber sucht das Restaurant noch aus.'
+                        : closed
+                          ? 'Bestellschluss ist vorbei.'
+                          : menus.length > 0 && (
+                              <>
+                                {voteRuns
+                                  ? 'Die Wahl läuft noch, aber du kannst schon '
+                                  : 'Such dir '}
+                                <a
+                                  href="#karte"
+                                  className="text-primary font-semibold hover:underline"
+                                >
+                                  auf der Karte
+                                </a>{' '}
+                                {!voteRuns
+                                  ? 'was aus.'
+                                  : menus.length > 1
+                                    ? 'aussuchen, bei beiden Restaurants.'
+                                    : 'aussuchen.'}
+                              </>
+                            )
                 }
                 action={
                   view.restaurant?.lieferandoUrl ? (
@@ -1105,7 +1157,7 @@ export async function FridayScreen({
                               : 'Du kommst ohne Essen. Kriegst du doch Hunger, such dir auf der Karte was aus.'}
                       </p>
                     )}
-                  {!flat && !view.restaurant && (
+                  {!flat && !view.restaurant && !noRestaurants && (
                     <p className="flex items-center gap-2 text-sm">
                       <Store className="text-primary size-4 shrink-0" />
                       Sobald das Restaurant feststeht, kannst du hier aussuchen.

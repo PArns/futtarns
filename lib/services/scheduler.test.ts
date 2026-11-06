@@ -346,36 +346,72 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('steht es fest: *Bella Napoli*');
   });
 
-  it('asks an absent host to find someone, and leaves the host out of the invitation', async () => {
-    const { host } = await setup();
+  it('without any restaurant holds no vote and tells the host once to add one', async () => {
+    await createMember(db, { name: 'Patrick', phone: '+491701111111', isDefaultHost: true }, null);
+    await createMember(db, { name: 'Anna', phone: '+491702222222' }, null);
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    const ask = sent.find((message) => message.to === '+491702222222')!;
+    expect(ask.text).not.toContain('Wo bestellen wir');
+    sent = [];
+    await runScheduler(db, at('2026-10-15T16:05:00Z'), send, noPause);
+    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
+    const toHost = sent.filter((message) => message.to === '+491701111111');
+    expect(toHost).toHaveLength(1);
+    expect(toHost[0]!.text).toContain("gibt's noch kein Restaurant");
+    expect(toHost[0]!.text).toContain('/restaurants');
+    expect(sent.some((message) => message.text.includes('Wo bestellen wir'))).toBe(false);
+  });
+
+  it('asks an absent host to find someone, and otherwise only where the Friday is', async () => {
+    const { host, anna } = await setup();
     await addAbsence(db, host.id, '2026-10-12', '2026-10-18', null);
     await runScheduler(db, at('2026-10-12T16:05:00Z'), send, noPause);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ to: '+491701111111' });
     expect(sent[0]!.text).toContain('wer übernimmt');
-    await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause);
-    const invites = sent.filter((message) => message.text.startsWith('🎉'));
-    expect(invites).toHaveLength(2);
-    expect(invites[0]!.text).toContain('wo, klären wir noch');
-    expect(invites[0]!.text).not.toContain('bei Patrick');
+    sent = [];
+    // On Wednesday the others are asked where it is instead of whether they come.
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    const where = sent.filter((message) => message.to !== '+491701111111');
+    expect(where.map((message) => message.to).sort()).toEqual(['+491702222222', '+491703333333']);
+    expect(where[0]!.text).toContain('*Wo sind wir Freitag?*');
+    expect(where[0]!.text).toContain('Patrick ist an dem Tag weg');
+    expect(where[0]!.text).not.toContain('Bist du dabei?');
+    sent = [];
+    // Nobody steps in: no invitation, no vote, nothing.
+    expect(await runScheduler(db, at('2026-10-16T08:05:00Z'), send, noPause)).toBe(0);
+
+    const now = at('2026-10-16T09:00:00Z');
+    expect(await handleIncoming(db, '+491702222222', 'übernehme', now, send)).toContain(
+      'Den anderen sag ich gleich Bescheid'
+    );
+    expect((await loadFriday(db, FRIDAY, now)).host?.id).toBe(anna.id);
+    await runScheduler(db, at('2026-10-16T09:01:00Z'), send, noPause);
+    // Ben hears where it is at the top of his invitation; the absent host hears nothing.
+    expect(sent.map((message) => message.to)).toEqual(['+491703333333']);
+    expect(sent[0]!.text).toMatch(/^\S+ \*.*Freitag \(16\. Okt\.?\) sind wir bei Anna!\*\n\n/);
+    expect(sent[0]!.text).toContain('Es ist Freitag, Ben!');
+    sent = [];
+    expect(await runScheduler(db, at('2026-10-16T09:10:00Z'), send, noPause)).toBe(0);
   });
 
-  it('asks the Stammtruppe to sort it out on a Friday at nobody’s place, and „übernehme“ does', async () => {
+  it('asks on Wednesday where a Friday at nobody’s place is, and tells the others who takes it', async () => {
     const { anna, ben } = await setup();
     await addAbsence(db, ben.id, '2026-10-16', '2026-10-16', null);
     await clearHost(db, FRIDAY);
     expect((await loadFriday(db, FRIDAY, at('2026-10-12T16:00:00Z'))).host).toBeNull();
-    await runScheduler(db, at('2026-10-12T17:05:00Z'), send, noPause);
-    // Ben is away that day, so only those around hear about it.
-    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
-    expect(sent[0]!.text).toContain('Macht das unter euch aus');
-    expect(sent[0]!.text).toContain('*übernehme*');
-    sent = [];
+    // Nothing on Monday, then once on Wednesday to those around.
+    expect(await runScheduler(db, at('2026-10-12T17:05:00Z'), send, noPause)).toBe(0);
     await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
-    const ask = sent.find((message) => message.to === '+491702222222')!;
-    expect(ask.text).toContain('wo, klären wir noch');
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491702222222']);
+    expect(sent[0]!.text).toContain('*Wo sind wir Freitag?* ');
+    expect(sent[0]!.text).toContain('Noch ist keiner Gastgeber');
+    expect(sent[0]!.text).toContain('*übernehme*');
+    expect(sent[0]!.text).not.toContain('Bist du dabei?');
+    sent = [];
+    expect(await runScheduler(db, at('2026-10-15T16:05:00Z'), send, noPause)).toBe(0);
 
-    const now = at('2026-10-14T12:00:00Z');
+    const now = at('2026-10-15T17:00:00Z');
     expect(await handleIncoming(db, '+491703333333', 'übernehme', now, send)).toContain('weg ist');
     expect(await handleIncoming(db, '+491702222222', 'Ich übernehme', now, send)).toContain(
       'jetzt *bei dir*'
@@ -384,10 +420,54 @@ describe('reminders', () => {
     expect(await handleIncoming(db, '+491701111111', 'übernehme', now, send)).toContain(
       'schon bei *Anna*'
     );
-    // Once someone took it over, nobody hears about it again.
+    // Patrick still has to answer, so the news comes with the question who comes.
     sent = [];
-    await runScheduler(db, at('2026-10-14T12:05:00Z'), send, noPause);
-    expect(sent.filter((message) => message.text.includes('unter euch'))).toEqual([]);
+    await runScheduler(db, at('2026-10-15T17:01:00Z'), send, noPause);
+    expect(sent.map((message) => message.to)).toEqual(['+491701111111']);
+    expect(sent[0]!.text).toContain('sind wir bei Anna!*');
+    expect(sent[0]!.text).toContain('Bist du dabei?');
+    sent = [];
+    expect(await runScheduler(db, at('2026-10-15T17:10:00Z'), send, noPause)).toBe(0);
+  });
+
+  it('tells whoever already answered on its own, and leaves a Friday nobody takes quiet', async () => {
+    const { host, anna, dish, restaurant } = await setup();
+    await setDefaultDish(db, anna.id, restaurant.id, {
+      dishId: dish.id,
+      selection: {},
+      note: null,
+    });
+    await clearHost(db, FRIDAY);
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    await setAttendance(db, FRIDAY, host.id, 'in', at('2026-10-14T11:00:00Z'));
+    sent = [];
+    // Nobody takes it: after the deadline neither an order list nor anything to pay.
+    for (const when of ['2026-10-16T08:05:00Z', '2026-10-16T17:35:00Z', '2026-10-17T08:05:00Z']) {
+      expect(await runScheduler(db, at(when), send, noPause)).toBe(0);
+    }
+    const quiet = await loadFriday(db, FRIDAY, at('2026-10-17T08:05:00Z'));
+    expect(quiet.locked).toBe(true);
+    expect(quiet.participants.every((entry) => entry.items.length === 0)).toBe(true);
+    expect(quiet.participants.every((entry) => entry.money.openCents === 0)).toBe(true);
+
+    // A week later Ben takes the next one over; Patrick, who said yes already, hears it alone.
+    const next = '2026-10-23';
+    await clearHost(db, next);
+    await runScheduler(db, at('2026-10-21T10:05:00Z'), send, noPause);
+    await setAttendance(db, next, host.id, 'in', at('2026-10-21T11:00:00Z'));
+    expect(
+      await handleIncoming(db, '+491703333333', 'übernehme', at('2026-10-21T11:05:00Z'), send)
+    ).toContain('Den anderen sag ich gleich Bescheid');
+    sent = [];
+    await runScheduler(db, at('2026-10-21T11:06:00Z'), send, noPause);
+    const toPatrick = sent.filter((message) => message.to === '+491701111111');
+    expect(toPatrick).toHaveLength(1);
+    expect(toPatrick[0]!.text).toMatch(/sind wir bei Ben!\*/);
+    expect(toPatrick[0]!.text).not.toContain('Bist du dabei?');
+    // Anna had not answered, so hers comes with the question.
+    expect(sent.find((message) => message.to === '+491702222222')!.text).toContain(
+      'Bist du dabei?'
+    );
   });
 
   it('sends nothing before ten: what falls due at night waits until then', async () => {
@@ -486,6 +566,8 @@ describe('the assistant', () => {
     from_date: null,
     to_date: null,
     options: [],
+    changes: [],
+    admin_note: null,
     reply: null,
     ...fields,
   });
@@ -596,6 +678,8 @@ describe('what the assistant may do', () => {
     from_date: null,
     to_date: null,
     options: [],
+    changes: [],
+    admin_note: null,
     reply: null,
     ...fields,
   });
@@ -751,6 +835,114 @@ describe('what the assistant may do', () => {
     expect(
       await ask('+491701111111', remind({ remind_group: 'open' }), at('2026-10-16T17:40:00Z'))
     ).toBe('Bestellschluss ist vorbei, da bringt eine Erinnerung nichts mehr.');
+  });
+
+  it('tells the admins when someone corrects the plan, and lets them change it by chat', async () => {
+    const { anna: member, ben } = await setup();
+    const ina = (
+      await createMember(db, { name: 'Ina', phone: '+491704444444', isAdmin: true }, null)
+    ).member;
+    // Whether someone comes is no news for the admins; that the Friday moved is.
+    expect(
+      await anna('nee, ist diesmal bei mir', {
+        reply: 'Oha, Umzug!',
+        admin_note: 'Anna sagt, Freitag ist diesmal bei ihr statt bei Patrick.',
+      })
+    ).toBe('Oha, Umzug!\n\n📨 Hab ich an die Admins weitergegeben.');
+    await remindersSent();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to).toBe('+491704444444');
+    expect(sent[0]!.text).toContain('*Meldung von Anna*');
+    expect(sent[0]!.text).toContain('Anna schrieb: „nee, ist diesmal bei mir“');
+
+    let facts = '';
+    const admin = (text: string, changes: Interpretation['changes']) =>
+      handleIncoming(
+        db,
+        '+491704444444',
+        text,
+        now,
+        send,
+        async (input) => {
+          facts = input.facts;
+          return reading({ action: 'admin', changes });
+        },
+        noPause
+      );
+    const change = (fields: Partial<Interpretation['changes'][number]>) => ({
+      kind: 'set_host' as const,
+      date: FRIDAY,
+      member_id: null,
+      status: null,
+      from_date: null,
+      to_date: null,
+      text: null,
+      ...fields,
+    });
+    sent = [];
+    expect(
+      await admin('ja, mach Anna zur Gastgeberin', [change({ member_id: member.id })])
+    ).toMatch(/^✅ Freitag \(16\. Okt\.?\) ist jetzt bei \*Anna\*\. Anna bekommt Bescheid\.$/);
+    expect(facts).toContain('Anna: Anna sagt, Freitag ist diesmal bei ihr statt bei Patrick.');
+    expect(facts).toContain(`${member.id} · Anna · Stammtruppe`);
+    expect(facts).toContain(`${ina.id} · Ina · Stammtruppe, Admin`);
+    expect((await loadFriday(db, FRIDAY, now)).host?.id).toBe(member.id);
+    await remindersSent();
+    expect(sent.map((message) => message.to)).toEqual(['+491702222222']);
+    expect(sent[0]!.text).toContain('bist du Gastgeber!* Ina hat dich eingetragen');
+
+    // Only admins change things for others, whatever Claude makes of it.
+    expect(
+      await handleIncoming(
+        db,
+        '+491703333333',
+        'sag Freitag ab',
+        now,
+        send,
+        says({ action: 'admin', changes: [change({ kind: 'cancel' })] })
+      )
+    ).toBe('Änderungen für andere macht nur ein Admin.');
+
+    // Calling it off waits for „sicher“, and so does the rest of that message.
+    const cancel = [
+      change({ kind: 'cancel', text: 'alle krank' }),
+      change({ kind: 'answer', member_id: ben.id, status: 'out' }),
+    ];
+    const asked = await admin('sag Freitag ab und Ben ist raus', cancel);
+    expect(asked).toContain('❓ Freitag');
+    expect(asked).toContain('*sicher*');
+    expect((await loadFriday(db, FRIDAY, now)).cancelled).toBe(false);
+    const done = await admin('sag Freitag ab und Ben ist raus sicher', cancel);
+    expect(done).toContain('ist abgesagt. Alle bekommen gleich eine Absage.');
+    expect(done).toContain('✅ Ben ist Freitag');
+    const view = await loadFriday(db, FRIDAY, now);
+    expect(view.cancelled).toBe(true);
+    expect(view.cancelReason).toBe('alle krank');
+
+    // A message goes out in the admin's name; a Friday gone by stays as it was.
+    sent = [];
+    expect(
+      await admin('schreib Ben, er soll Bier mitbringen', [
+        change({ kind: 'message', member_id: ben.id, text: 'Bring bitte Bier mit 🍺' }),
+        change({ kind: 'no_host', date: '2026-10-09' }),
+      ])
+    ).toMatch(/⚠️ Freitag \(9\. Okt\.?\) ist schon vorbei\.\n✅ Nachricht an Ben geht gleich raus/);
+    await remindersSent();
+    expect(sent).toEqual([{ to: '+491703333333', text: '💬 *Von Ina:* Bring bitte Bier mit 🍺' }]);
+  });
+
+  it('passes on only a few reports a day, and only when another admin can hear them', async () => {
+    await setup();
+    const report = { reply: 'Notiert!', admin_note: 'Anna sagt, die Karte ist falsch.' };
+    // Nobody to tell yet: no promise either.
+    expect(await anna('die Karte stimmt nicht', report)).toBe('Notiert!');
+    await createMember(db, { name: 'Ina', phone: '+491704444444', isAdmin: true }, null);
+    for (let time = 0; time < 3; time++) {
+      expect(await anna('die Karte stimmt nicht', report)).toContain('📨');
+    }
+    expect(await anna('die Karte stimmt immer noch nicht', report)).toBe('Notiert!');
+    await remindersSent();
+    expect(sent.filter((message) => message.to === '+491704444444')).toHaveLength(3);
   });
 
   it('shows Claude only what the member may see, and researches for them alone', async () => {
@@ -922,6 +1114,8 @@ describe('the restaurant vote', () => {
     from_date: null,
     to_date: null,
     options: [],
+    changes: [],
+    admin_note: null,
     reply: null,
     ...fields,
   });

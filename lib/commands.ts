@@ -4,6 +4,33 @@ import type { IsoDate } from '@/lib/dates';
 import { bold } from '@/lib/messages';
 import { VOTE_CLOSE_HOUR } from '@/lib/vote';
 
+/** The changes an admin can have the bot make by chat (`lib/services/admin.ts`). */
+export const ADMIN_CHANGES = [
+  'set_host',
+  'no_host',
+  'cancel',
+  'uncancel',
+  'answer',
+  'absence',
+  'message',
+] as const;
+
+/**
+ * One change an admin asked for, as Claude read it; checked against the page's rules when
+ * it runs. Fields a change does not use are null.
+ */
+export type AdminChange = {
+  kind: (typeof ADMIN_CHANGES)[number];
+  /** The Friday it is about. */
+  date: string | null;
+  memberId: number | null;
+  status: AttendanceStatus | null;
+  fromDate: string | null;
+  toDate: string | null;
+  /** The reason for calling a Friday off, or what to tell someone. */
+  text: string | null;
+};
+
 export type Command =
   | { kind: 'answer'; status: AttendanceStatus; confirmed: boolean }
   | { kind: 'usual' }
@@ -39,6 +66,8 @@ export type Command =
   | { kind: 'setDefault'; dishId: number; options: { group: string; choice: string }[] }
   | { kind: 'drinks'; on: boolean }
   | { kind: 'absence'; from: IsoDate; to: IsoDate }
+  /** An admin has the bot change Fridays or someone's answer, through the assistant. */
+  | { kind: 'admin'; changes: AdminChange[]; confirmed: boolean }
   | { kind: 'paid' }
   | { kind: 'login' }
   | { kind: 'status' }

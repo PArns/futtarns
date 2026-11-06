@@ -31,6 +31,7 @@ import {
   paymentOpen,
   type FridayView,
 } from '@/lib/services/fridays';
+import { adminFacts } from '@/lib/services/admin';
 import { listDishes, restaurantsForHost } from '@/lib/services/restaurants';
 import { tally, VOTE_CLOSE_HOUR, voteEndsText, voteLetter, votingAt } from '@/lib/vote';
 
@@ -226,12 +227,14 @@ export async function assistantFacts(
             ? 'Stammtruppe'
             : 'Gast, nicht in der Stammtruppe'
     }. ${settles ? 'Du darfst das Restaurant für alle festlegen und Leute per Bot erinnern.' : 'Das Restaurant legen nur der Gastgeber und Admins fest, du stimmst ab; erinnern dürfen nur sie.'}`,
-    `Restaurants (Nummer · Name · Küche): ${options
-      .map(
-        (option) =>
-          `${option.id} · ${option.name}${option.cuisine ? ` · ${option.cuisine}` : ''}${option.delivers ? '' : ' · nur abholen'}`
-      )
-      .join('; ')}.`
+    `Restaurants (Nummer · Name · Küche): ${
+      options
+        .map(
+          (option) =>
+            `${option.id} · ${option.name}${option.cuisine ? ` · ${option.cuisine}` : ''}${option.delivers ? '' : ' · nur abholen'}`
+        )
+        .join('; ') || 'noch keins eingetragen, also auch keine Wahl'
+    }.`
   );
   if (settles && open) {
     lines.push(
@@ -381,6 +384,7 @@ export async function assistantFacts(
     );
   }
   if (!open) lines.push('Bestellen und Abstimmen sind für diesen Freitag vorbei.');
+  if (member.isAdmin) lines.push(...(await adminFacts(db, now)));
   return {
     facts: lines.join('\n'),
     restaurantIds: new Set(
