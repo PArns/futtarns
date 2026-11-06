@@ -1,4 +1,4 @@
-import { eq, like, or } from 'drizzle-orm';
+import { eq, inArray, like, or } from 'drizzle-orm';
 import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
@@ -64,8 +64,9 @@ async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
 }
 
 /**
- * Sends a message unless its key went out before. A refused send is retried next run; one
- * that timed out is not, because it may have arrived.
+ * Sends a message unless its key went out before, and with it the keys of the messages it
+ * stands in for (`also`). A refused send is retried next run; one that timed out is not,
+ * because it may have arrived.
  */
 export async function deliver(db: Db, message: Outgoing, send: Send) {
   const claimed = await db
@@ -74,11 +75,32 @@ export async function deliver(db: Db, message: Outgoing, send: Send) {
     .onConflictDoNothing()
     .returning();
   if (claimed.length === 0) return false;
+  const also = message.also?.length
+    ? await db
+        .insert(notifications)
+        .values(message.also.map((key) => ({ key })))
+        .onConflictDoNothing()
+        .returning()
+    : [];
   if ((await send(message.to, message.text)) === 'failed') {
-    await db.delete(notifications).where(eq(notifications.key, message.key));
+    const keys = [message.key, ...also.map((row) => row.key)];
+    await db.delete(notifications).where(inArray(notifications.key, keys));
     return false;
   }
   return true;
+}
+
+/**
+ * Whether the bot asked „Wo sind wir Freitag?“ for this Friday; then whoever takes it over
+ * is announced to the others (`planReminders`).
+ */
+export async function askedWhere(db: Db, date: IsoDate): Promise<boolean> {
+  const [row] = await db
+    .select({ key: notifications.key })
+    .from(notifications)
+    .where(like(notifications.key, `nohost:${date}:%`))
+    .limit(1);
+  return Boolean(row);
 }
 
 // A burst of identical-looking messages is what gets a linked device blocked.
@@ -102,26 +124,32 @@ export async function runScheduler(
   const assistant = Boolean(await getAssistantKey(db));
   let sent = 0;
   for (const date of dates) {
-    // Past Fridays nobody touched have nothing to remind anyone of.
-    if (date !== thisWeek && !(await getFridayRow(db, date))) continue;
-    const view = await loadFriday(db, date, now);
-    const messages = planReminders({
-      view,
-      now,
-      appUrl: appUrl(),
-      defaultDish: await defaultDishNames(db, view.restaurant?.id ?? null),
-      group: process.env.WHATSAPP_GROUP || null,
-      sent: await sentKeysFor(db, date),
-      paidLink: (memberId) => paidLink(date, memberId),
-      restaurants: await restaurantsForHost(db, view.host?.id ?? null),
-      lastOrder: date === thisWeek ? await lastOrderTexts(db, view) : undefined,
-      assistant,
-    });
-    for (const message of messages) {
-      if (await deliver(db, message, send)) {
-        sent++;
-        await pause();
+    // One Friday that breaks must not keep the others' reminders back; it is tried again
+    // on the next pass.
+    try {
+      // Past Fridays nobody touched have nothing to remind anyone of.
+      if (date !== thisWeek && !(await getFridayRow(db, date))) continue;
+      const view = await loadFriday(db, date, now);
+      const messages = planReminders({
+        view,
+        now,
+        appUrl: appUrl(),
+        defaultDish: await defaultDishNames(db, view.restaurant?.id ?? null),
+        group: process.env.WHATSAPP_GROUP || null,
+        sent: await sentKeysFor(db, date),
+        paidLink: (memberId) => paidLink(date, memberId),
+        restaurants: await restaurantsForHost(db, view.host?.id ?? null),
+        lastOrder: date === thisWeek ? await lastOrderTexts(db, view) : undefined,
+        assistant,
+      });
+      for (const message of messages) {
+        if (await deliver(db, message, send)) {
+          sent++;
+          await pause();
+        }
       }
+    } catch (error) {
+      console.error(`[scheduler] reminders for ${date} failed`, error);
     }
   }
   return sent;

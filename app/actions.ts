@@ -88,6 +88,7 @@ import {
 } from '@/lib/services/orders';
 import { clearAssistantKey, setAssistantKey } from '@/lib/services/assistant';
 import { payByLink } from '@/lib/services/pay-links';
+import { askedWhere } from '@/lib/services/scheduler';
 import { loginCodeText } from '@/lib/messages';
 import {
   addMissingDish,
@@ -572,8 +573,14 @@ export async function takeOverAction(date: string): Promise<ActionResult> {
   return run(async () => {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
-    await takeOverFriday(await getDb(), day, viewer.id, new Date());
-    return { ok: true, message: 'Danke! Du bist jetzt Gastgeber' };
+    const db = await getDb();
+    await takeOverFriday(db, day, viewer.id, new Date());
+    return {
+      ok: true,
+      message: (await askedWhere(db, day))
+        ? 'Danke! Du bist jetzt Gastgeber, die anderen bekommen per WhatsApp Bescheid'
+        : 'Danke! Du bist jetzt Gastgeber',
+    };
   });
 }
 

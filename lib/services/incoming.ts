@@ -32,7 +32,8 @@ import {
   getAssistantKey,
   nudgeReason,
 } from '@/lib/services/assistant';
-import { deliver, pauseBetweenMessages } from '@/lib/services/scheduler';
+import { reportToAdmins, runAdminChanges } from '@/lib/services/admin';
+import { askedWhere, deliver, pauseBetweenMessages } from '@/lib/services/scheduler';
 import { requestLoginCode } from '@/lib/services/auth';
 import {
   castVote,
@@ -298,7 +299,7 @@ export async function handleIncoming(
     .where(and(eq(members.phone, phone), eq(members.active, true), eq(members.kind, 'member')));
   if (!member) return null;
   const command = parseCommand(text);
-  if (command.kind !== 'unknown') return runCommand(db, member, command, now, send, pause);
+  if (command.kind !== 'unknown') return safely(runCommand(db, member, command, now, send, pause));
 
   // The bot waits 20 seconds for the answer; the time counts from here.
   const started = Date.now();
@@ -332,9 +333,36 @@ export async function handleIncoming(
   if (understood.command && Date.now() - started > BOT_PATIENCE_MS) return null;
   // Claude's lead-in first, then what the command itself says happened.
   const outcome = understood.command
-    ? await runCommand(db, member, understood.command, now, send, pause)
+    ? await safely(runCommand(db, member, understood.command, now, send, pause))
     : null;
-  return [understood.reply, outcome].filter(Boolean).join('\n\n') || null;
+  // What the admins should hear about goes to them after the answer; the member is told.
+  let reported: string | null = null;
+  if (understood.adminNote) {
+    try {
+      const messages = await reportToAdmins(db, member, understood.adminNote, text, now);
+      if (messages) {
+        sendLater(db, messages, send, pause);
+        reported = '📨 Hab ich an die Admins weitergegeben.';
+      }
+    } catch (error) {
+      console.error('[assistant] could not report to the admins', error);
+    }
+  }
+  return [understood.reply, outcome, reported].filter(Boolean).join('\n\n') || null;
+}
+
+/**
+ * A command's answer, or when something broke on the way, an apology instead of silence: the
+ * member gets an answer either way, and the error goes to the log.
+ */
+async function safely(reply: Promise<string | null>): Promise<string | null> {
+  try {
+    return await reply;
+  } catch (error) {
+    if (error instanceof ServiceError) return `${error.message}.`;
+    console.error('[incoming] command failed', error);
+    return ERROR_REPLY;
+  }
 }
 
 /** Runs one command for a member and says what came of it. */
@@ -386,7 +414,8 @@ async function runCommand(
         }
         throw error;
       }
-      return `🏠 Danke! Freitag (${formatDayShort(date)}) ist jetzt ${bold('bei dir')}: Du bestellst, und das Geld geht an dich.\n${link}`;
+      const tell = (await askedWhere(db, date)) ? ' Den anderen sag ich gleich Bescheid.' : '';
+      return `🏠 Danke! Freitag (${formatDayShort(date)}) ist jetzt ${bold('bei dir')}: Du bestellst, und das Geld geht an dich.${tell}\n${link}`;
     }
 
     case 'usual': {
@@ -846,6 +875,13 @@ async function runCommand(
             ]
           : []),
       ].join('\n');
+    }
+
+    case 'admin': {
+      const done = await runAdminChanges(db, member, command.changes, command.confirmed, now);
+      // Whom it tells goes out one by one after this answer.
+      sendLater(db, done.messages, send, pause);
+      return done.text;
     }
 
     case 'help':

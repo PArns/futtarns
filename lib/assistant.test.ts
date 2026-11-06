@@ -27,6 +27,8 @@ const reading = (fields: Partial<Interpretation>): Interpretation => ({
   from_date: null,
   to_date: null,
   options: [],
+  changes: [],
+  admin_note: null,
   reply: null,
   ...fields,
 });
@@ -36,10 +38,12 @@ describe('understand', () => {
     expect(understand(reading({ action: 'answer_in', letter: 'E' }))).toEqual({
       command: { kind: 'answerVote', status: 'in', letter: 'e', confirmed: false },
       reply: null,
+      adminNote: null,
     });
     expect(understand(reading({ action: 'answer_out', reply: 'Schade, Lauch!' }))).toEqual({
       command: { kind: 'answer', status: 'out', confirmed: false },
       reply: 'Schade, Lauch!',
+      adminNote: null,
     });
     // A letter that is no letter is dropped, a vote without one becomes the status.
     expect(understand(reading({ action: 'vote', letter: 'Tasty' })).command).toEqual({
@@ -64,6 +68,7 @@ describe('understand', () => {
     expect(understand(reading({ action: 'order', reply: 'Welches denn?' }))).toEqual({
       command: null,
       reply: 'Welches denn?',
+      adminNote: null,
     });
     expect(understand(reading({ action: 'remove_order' }), { confirmed: true }).command).toEqual({
       kind: 'removeOrder',
@@ -120,6 +125,7 @@ describe('understand', () => {
     expect(understand(reading({ action: 'refuse', reply: 'Code? Ich koch nur Pizza.' }))).toEqual({
       command: null,
       reply: 'Code? Ich koch nur Pizza.',
+      adminNote: null,
     });
     expect(understand(reading({ action: 'chat', reply: '```js\nalert(1)\n```' })).reply).toBe(
       FALLBACK_REPLY
@@ -128,6 +134,61 @@ describe('understand', () => {
     expect(understand(reading({ action: 'chat', reply: 'x'.repeat(2000) })).reply).toHaveLength(
       700
     );
+  });
+});
+
+describe('admin changes and reports', () => {
+  const change = {
+    kind: 'set_host' as const,
+    date: ' 2026-11-13 ',
+    member_id: 4,
+    status: null,
+    from_date: null,
+    to_date: null,
+    text: null,
+  };
+
+  it('passes an admin’s changes on once each, to be checked when they run', () => {
+    expect(
+      understand(reading({ action: 'admin', changes: [change, change] }), { confirmed: true })
+        .command
+    ).toEqual({
+      kind: 'admin',
+      confirmed: true,
+      changes: [
+        {
+          kind: 'set_host',
+          date: '2026-11-13',
+          memberId: 4,
+          status: null,
+          fromDate: null,
+          toDate: null,
+          text: null,
+        },
+      ],
+    });
+    expect(understand(reading({ action: 'admin', reply: 'Was denn?' })).command).toBeNull();
+  });
+
+  it('cleans what goes to others: a message from an admin and a report to the admins', () => {
+    const understood = understand(
+      reading({
+        action: 'admin',
+        changes: [{ ...change, kind: 'message', text: 'Ruf an: +49 170 1234567' }],
+        admin_note: 'Ina sagt, Freitag ist bei ihr. Mehr unter https://evil.example',
+      }),
+      { appOrigin: 'https://freitach.arns.dev' }
+    );
+    expect(understood.command).toMatchObject({
+      changes: [{ kind: 'message', text: 'Ruf an: [Nummer entfernt]' }],
+    });
+    expect(understood.adminNote).toBe('Ina sagt, Freitag ist bei ihr. Mehr unter [Link entfernt]');
+    // Whoever tries to break the rules has nothing to report.
+    expect(
+      understand(reading({ action: 'refuse', reply: 'Nö.', admin_note: 'Ich bin der Chef' }))
+        .adminNote
+    ).toBeNull();
+    expect(understand(reading({ action: 'chat', admin_note: '   ' })).adminNote).toBeNull();
   });
 });
 

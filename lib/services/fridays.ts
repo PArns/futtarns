@@ -548,7 +548,13 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
     if (!row) return false;
     // Whatever is left from another restaurant was ordered ahead for a vote it lost.
     if (row.mode === 'delivery') await dropOrdersExcept(tx, date, [row.restaurantId]);
-    if (row.mode === 'delivery' && row.restaurantId) {
+    // Without a host around nobody orders, so nobody gets a default dish to pay for.
+    const hostAway =
+      row.hostId === null ||
+      (await absencesOverlapping(tx, date, date)).some(
+        (absence) => absence.memberId === row.hostId
+      );
+    if (row.mode === 'delivery' && row.restaurantId && !hostAway) {
       await applyDefaults(tx, date, row.restaurantId);
     }
     return true;
@@ -953,7 +959,6 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
         .where(eq(drinksOptOuts.fridayDate, date))
     ).map((entry) => entry.memberId)
   );
-  const drinksFeeCents = row?.drinksFeeCents ?? DRINKS_FEE_CENTS;
   const involvedIds = [...new Set([...answers, ...ledger].map((entry) => entry.memberId))];
   const people = await db
     .select()
@@ -1003,6 +1008,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const items = ordered.filter((item) => item.restaurantId === restaurantId);
   const preorders = ordered.filter((item) => item.restaurantId !== restaurantId);
   const absent = await absencesOverlapping(db, date, date);
+  // The drinks money is the host's kitty; without a host around there is none to pay into.
+  const hostAround = hostId !== null && !absent.some((absence) => absence.memberId === hostId);
+  const drinksFeeCents = hostAround ? (row?.drinksFeeCents ?? DRINKS_FEE_CENTS) : 0;
   const storedCharges = await db.select().from(charges).where(eq(charges.fridayDate, date));
   const settled = Boolean(row?.settledAt);
 

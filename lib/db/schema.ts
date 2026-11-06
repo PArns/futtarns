@@ -331,6 +331,24 @@ export const notifications = pgTable('notifications', {
   sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * What Claude passed on to the admins from someone's WhatsApp message: its gist and the
+ * message itself, so an admin can act on it by chat.
+ */
+export const adminNotes = pgTable(
+  'admin_notes',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    note: text('note').notNull(),
+    message: text('message').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('admin_notes_created_idx').on(t.createdAt)]
+);
+
 /** Keys the app makes for itself on first use, such as the one that signs payment links. */
 export const appSecrets = pgTable('app_secrets', {
   name: text('name').primaryKey(),
@@ -347,3 +365,4 @@ export type OrderItem = typeof orderItems.$inferSelect;
 export type MemberDefault = typeof memberDefaults.$inferSelect;
 export type Charge = typeof charges.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+export type AdminNote = typeof adminNotes.$inferSelect;
