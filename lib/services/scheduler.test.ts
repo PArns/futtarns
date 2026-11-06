@@ -13,6 +13,7 @@ import {
   setPickup,
   setRestaurant,
   settleFriday,
+  takeOverFriday,
 } from '@/lib/services/fridays';
 import { assistantKeyInfo, setAssistantKey } from '@/lib/services/assistant';
 import { handleIncoming, remindersSent } from '@/lib/services/incoming';
@@ -27,7 +28,7 @@ import {
   updateRestaurant,
 } from '@/lib/services/restaurants';
 import { openPayLink, payByLink } from '@/lib/services/pay-links';
-import { runScheduler, upcomingMessages } from '@/lib/services/scheduler';
+import { askedWhere, runScheduler, upcomingMessages } from '@/lib/services/scheduler';
 import { FALLBACK_REPLY, type Interpretation, type Interpreter } from '@/lib/assistant';
 import { createTestDb } from '@/test/db';
 
@@ -428,6 +429,26 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('Bist du dabei?');
     sent = [];
     expect(await runScheduler(db, at('2026-10-15T17:10:00Z'), send, noPause)).toBe(0);
+  });
+
+  it('takes the button on the page as well, also when nobody was ever picked as host', async () => {
+    // No default host at all: the Friday starts without one.
+    await createMember(db, { name: 'Patrick', phone: '+491701111111' }, null);
+    const anna = (await createMember(db, { name: 'Anna', phone: '+491702222222' }, null)).member;
+    await createMember(db, { name: 'Ben', phone: '+491703333333' }, null);
+    const wednesday = at('2026-10-14T10:05:00Z');
+    expect((await loadFriday(db, FRIDAY, wednesday)).host).toBeNull();
+    await runScheduler(db, wednesday, send, noPause);
+    expect(sent).toHaveLength(3);
+    expect(sent.every((message) => message.text.includes('Noch ist keiner Gastgeber'))).toBe(true);
+    // „Ich übernehme“ on the page runs the same as the bot's „übernehme“.
+    const now = at('2026-10-14T11:00:00Z');
+    await takeOverFriday(db, FRIDAY, anna.id, now);
+    expect(await askedWhere(db, FRIDAY)).toBe(true);
+    sent = [];
+    await runScheduler(db, at('2026-10-14T11:01:00Z'), send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual(['+491701111111', '+491703333333']);
+    expect(sent.every((message) => message.text.includes('sind wir bei Anna!*'))).toBe(true);
   });
 
   it('tells whoever already answered on its own, and leaves a Friday nobody takes quiet', async () => {
