@@ -61,6 +61,7 @@ import {
   setRestaurant,
   setTip,
   setVoucher,
+  settleDebt,
   settleFriday,
   takeOverFriday,
 } from '@/lib/services/fridays';
@@ -778,6 +779,38 @@ export async function settleUpAction(date: string, target: number): Promise<Acti
       { refunds: true }
     );
     return { ok: true, message: open >= 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt' };
+  });
+}
+
+/**
+ * Ticks off one open debt from an earlier Friday, as received or paid back: by whoever gets
+ * the money, the Friday's host or an admin. Only that debt; the other payee's stays open.
+ */
+export async function settleDebtAction(
+  date: string,
+  target: number,
+  payee: number | null
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const id = memberId.parse(target);
+    const payeeId = payee === null ? null : memberId.parse(payee);
+    const { viewer } = await getGroupContext();
+    const db = await getDb();
+    const now = new Date();
+    const view = await loadFriday(db, day, now);
+    const hostId = view.host?.id ?? null;
+    if (!canManageFriday(viewer, hostId) && viewer.id !== (payeeId ?? hostId)) {
+      throw new ServiceError('Abhaken darf, wer das Geld bekommt, der Gastgeber oder ein Admin');
+    }
+    if (!paymentOpen(view, now)) {
+      throw new ServiceError('Bezahlt wird erst, wenn der Gastgeber die Zahlung freigibt');
+    }
+    const booked = await settleDebt(db, view, { memberId: id, payeeId, recordedById: viewer.id });
+    return {
+      ok: true,
+      message: booked > 0 ? 'Als bezahlt vermerkt' : 'Als zurückgezahlt vermerkt',
+    };
   });
 }
 

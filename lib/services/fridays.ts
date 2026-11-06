@@ -792,6 +792,30 @@ export async function bookOpen(
   return booked;
 }
 
+/**
+ * Books one open debt of a Friday as received, or paid back when it is negative: only the
+ * one to `payeeId`, so the other payee's stays open. Returns the amount booked.
+ */
+export async function settleDebt(
+  db: Db,
+  view: FridayView,
+  input: { memberId: number; payeeId: number | null; recordedById: number }
+): Promise<number> {
+  const entry = view.participants.find((participant) => participant.member.id === input.memberId);
+  const debt = entry?.money.debts.find(
+    (candidate) => candidate.payeeId === input.payeeId && candidate.openCents !== 0
+  );
+  if (!debt) throw new ServiceError('Da ist nichts offen');
+  await recordPayment(db, {
+    date: view.date,
+    memberId: input.memberId,
+    amountCents: debt.openCents,
+    recordedById: input.recordedById,
+    payeeId: debt.payeeId,
+  });
+  return debt.openCents;
+}
+
 /** Forgets every payment of one person for a Friday, for when one was a mistake. */
 export async function clearPayments(db: Db, date: IsoDate, memberId: number) {
   await db
@@ -1405,6 +1429,8 @@ export type OpenBalance = {
   money: Money;
   debt: Debt;
   payee: Pick<Member, 'id' | 'name' | 'paypalMe'> | null;
+  /** The Friday's host, who may tick it off like the payee. */
+  hostId: number | null;
   title: string;
 };
 
@@ -1445,6 +1471,7 @@ export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<
           money: participant.money,
           debt,
           payee: payee ? { id: payee.id, name: payee.name, paypalMe: payee.paypalMe } : null,
+          hostId: view.host?.id ?? null,
           title,
         });
       }

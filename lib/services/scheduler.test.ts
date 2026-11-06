@@ -10,6 +10,7 @@ import {
   resendPayLinks,
   setAttendance,
   setCancelled,
+  setFlat,
   setPickup,
   setRestaurant,
   settleFriday,
@@ -260,6 +261,25 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('Kleine Erinnerung');
     await runScheduler(db, at('2026-10-17T16:20:00Z'), send, noPause);
     expect(sent).toHaveLength(2);
+  });
+
+  it('tells the host of a flat-price evening who comes instead of an order list', async () => {
+    const { anna, ben } = await setup();
+    await setFlat(db, FRIDAY, 'Grillen', 1500);
+    await setAttendance(db, FRIDAY, anna.id, 'in');
+    await setAttendance(db, FRIDAY, ben.id, 'nofood');
+    const before = at('2026-10-16T15:00:00Z');
+    const upcoming = await upcomingMessages(db, await loadFriday(db, FRIDAY, before), before);
+    expect(
+      upcoming.find((line) => line.at.getTime() === at('2026-10-16T17:30:00Z').getTime())
+    ).toMatchObject({ kind: 'Wer kommt', recipients: ['Patrick'] });
+    sent = [];
+    await runScheduler(db, at('2026-10-16T17:35:00Z'), send, noPause);
+    const list = sent.find((message) => message.to === '+491701111111')!;
+    expect(list.text).toMatch(
+      /^📋 \*Anmeldeschluss!\* \*3\* kommen:\n• Anna\n• Ben \(ohne Essen\)\n• Patrick\n/
+    );
+    expect(list.text).not.toContain('Bestellschluss');
   });
 
   it('sends the payment links the next morning when the host released nothing', async () => {
@@ -588,7 +608,7 @@ describe('the assistant', () => {
     to_date: null,
     options: [],
     changes: [],
-    admin_note: null,
+    admin_note: '',
     reply: null,
     ...fields,
   });
@@ -700,7 +720,7 @@ describe('what the assistant may do', () => {
     to_date: null,
     options: [],
     changes: [],
-    admin_note: null,
+    admin_note: '',
     reply: null,
     ...fields,
   });
@@ -890,14 +910,16 @@ describe('what the assistant may do', () => {
         },
         noPause
       );
-    const change = (fields: Partial<Interpretation['changes'][number]>) => ({
-      kind: 'set_host' as const,
+    const change = (
+      fields: Partial<Interpretation['changes'][number]>
+    ): Interpretation['changes'][number] => ({
+      kind: 'set_host',
       date: FRIDAY,
-      member_id: null,
-      status: null,
-      from_date: null,
-      to_date: null,
-      text: null,
+      member_id: 0,
+      status: 'none',
+      from_date: '',
+      to_date: '',
+      text: '',
       ...fields,
     });
     sent = [];
@@ -950,6 +972,20 @@ describe('what the assistant may do', () => {
     ).toMatch(/⚠️ Freitag \(9\. Okt\.?\) ist schon vorbei\.\n✅ Nachricht an Ben geht gleich raus/);
     await remindersSent();
     expect(sent).toEqual([{ to: '+491703333333', text: '💬 *Von Ina:* Bring bitte Bier mit 🍺' }]);
+  });
+
+  it('sends the answer afterwards when Claude takes longer than the bot waits', async () => {
+    await setup();
+    const slow: Interpreter = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return reading({ reply: 'Sorry, hat gedauert!' });
+    };
+    sent = [];
+    expect(
+      await handleIncoming(db, '+491702222222', 'Was gibt’s?', now, send, slow, noPause, 20)
+    ).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(sent).toEqual([{ to: '+491702222222', text: 'Sorry, hat gedauert!' }]);
   });
 
   it('passes on only a few reports a day, and only when another admin can hear them', async () => {
@@ -1136,7 +1172,7 @@ describe('the restaurant vote', () => {
     to_date: null,
     options: [],
     changes: [],
-    admin_note: null,
+    admin_note: '',
     reply: null,
     ...fields,
   });

@@ -76,6 +76,9 @@ takes it over (see Permissions).
   and the order list at the deadline reminds whoever collects to enter one (`/ich`). The
   „bezahlt“ link and the reminders work all the same.
   Differences under 50 cents are shown but never chased.
+- **Open balances** of earlier Fridays (people page, „Offene Beträge“) can be ticked off one
+  debt at a time (`settleDebt`) by whoever gets the money, the Friday's host or an admin,
+  for money paid in cash or wherever the link was not used.
 - **Pickup**: a restaurant can offer pickup („Abholen geht auch“), and the host then chooses
   per Friday between delivery and pickup and who fetches the food. Fetched food costs the
   menu prices: no delivery or service fee, no tip, no minimum order (`estimateFees`), a
@@ -143,7 +146,7 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | Fri 16:00             | whom the vote left without an order        | the winner, and to pick (and answer, if they haven't)                                                                             |
 | Fri 16:00             | invited while the vote ran, no order       | the winner, and to pick                                                                                                           |
 | Fri 19:00             | in before then, nothing ordered or default | last call, with last time's order here („gleiches“)                                                                               |
-| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart, and a hint when they have no PayPal.me name                                         |
+| Fri 19:30             | host                                       | the order list, the latecomers' dishes apart, or on a flat-price evening who comes; a hint when they have no PayPal.me name       |
 | on release            | open balance ≥ 50 cents                    | what to pay, with the PayPal link, if the host releases with messages; without a release by Sat 10:00 it goes out then on its own |
 | Sat 10:00             | host, not settled                          | enter what Lieferando charged, if it differs from the estimate (which stands otherwise)                                           |
 | settling or resending | whose total changed since their link       | the corrected amount to pay or to get back; nobody else hears anything                                                            |
@@ -242,7 +245,14 @@ A new host and whoever gets a message hear from the bot; the admin gets one line
 Money is never booked by chat.
 
 When a command breaks on the way, the member gets an apology instead of silence, and one
-Friday whose reminders fail does not hold back the others' (`runScheduler`).
+Friday whose reminders fail does not hold back the others' (`runScheduler`). The bot waits
+20 seconds for an answer; when Claude takes longer, the answer goes out afterwards as a
+message of its own (`handleIncoming`) instead of getting lost.
+
+Claude answers in a strict JSON format (`Interpretation`), and the API takes at most 16
+nullable fields across it (`MAX_NULLABLE_FIELDS`); one more and every reading fails. So the
+admin changes and `admin_note` use `""`, `0` or `none` for unused fields instead of null,
+and a test counts them.
 
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still

@@ -274,7 +274,7 @@ export function remindersSent(): Promise<unknown> {
 }
 
 /** A little less than the 20 seconds the bot waits for the app's answer. */
-const BOT_PATIENCE_MS = 18_000;
+export const BOT_PATIENCE_MS = 18_000;
 
 /** How often each member may get Claude's reading per day. */
 const assistantLimit = new DailyLimit();
@@ -291,7 +291,9 @@ export async function handleIncoming(
   now: Date,
   send: Send = sendWhatsApp,
   interpreter?: Interpreter | null,
-  pause: () => Promise<unknown> = pauseBetweenMessages
+  pause: () => Promise<unknown> = pauseBetweenMessages,
+  /** How long the bot waits for the answer; tests make it short. */
+  patience = BOT_PATIENCE_MS
 ): Promise<string | null> {
   const [member] = await db
     .select()
@@ -309,6 +311,44 @@ export async function handleIncoming(
       : await getAssistantKey(db).then((key) => (key ? claudeInterpreter(key) : null));
   if (!interpret) return null;
   if (!assistantLimit.take(String(member.id), now)) return LIMIT_TEXT;
+  const work = safely(
+    readWithClaude(db, member, text, now, interpret, started, send, pause),
+    'reading'
+  );
+  // When Claude takes longer than the bot waits, the answer follows as a message of its own
+  // instead of getting lost: nobody is left without one.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<typeof LATE>((resolve) => {
+    timer = setTimeout(() => resolve(LATE), patience - (Date.now() - started));
+  });
+  const first = await Promise.race([work, late]);
+  clearTimeout(timer);
+  if (first !== LATE) return first;
+  void work.then(async (reply) => {
+    if (reply && (await send(member.phone!, reply)) === 'failed') {
+      console.error('[assistant] could not send a late answer');
+    }
+  });
+  return null;
+}
+
+/** Stands for an answer that is not there in time. */
+const LATE = Symbol('late');
+
+/**
+ * Claude's reading of a message no command matched, and what came of it: Claude's own words,
+ * the command's result, and whether the admins were told.
+ */
+async function readWithClaude(
+  db: Db,
+  member: Member,
+  text: string,
+  now: Date,
+  interpret: Interpreter,
+  started: number,
+  send: Send,
+  pause: () => Promise<unknown>
+): Promise<string | null> {
   const { facts, restaurantIds } = await assistantFacts(db, member, text, now);
   let result: Interpretation | null;
   try {
@@ -329,8 +369,6 @@ export async function handleIncoming(
     confirmed: /\bsicher\b/i.test(text),
     appOrigin: appUrl(),
   });
-  // The bot has given up by now; acting anyway would surprise whoever sends it again.
-  if (understood.command && Date.now() - started > BOT_PATIENCE_MS) return null;
   // Claude's lead-in first, then what the command itself says happened.
   const outcome = understood.command
     ? await safely(runCommand(db, member, understood.command, now, send, pause))
@@ -355,12 +393,12 @@ export async function handleIncoming(
  * A command's answer, or when something broke on the way, an apology instead of silence: the
  * member gets an answer either way, and the error goes to the log.
  */
-async function safely(reply: Promise<string | null>): Promise<string | null> {
+async function safely(reply: Promise<string | null>, what = 'command'): Promise<string | null> {
   try {
     return await reply;
   } catch (error) {
     if (error instanceof ServiceError) return `${error.message}.`;
-    console.error('[incoming] command failed', error);
+    console.error(`[incoming] ${what} failed`, error);
     return ERROR_REPLY;
   }
 }

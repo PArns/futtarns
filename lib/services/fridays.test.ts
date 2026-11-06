@@ -18,6 +18,7 @@ import {
   setFlat,
   setHost,
   setRestaurant,
+  settleDebt,
   settleFriday,
   setTip,
   setVoucher,
@@ -717,6 +718,22 @@ describe('a Friday', () => {
     // Eva said nothing, and a barbecue needs a yes.
     expect([patrick.id, anna.id, ben.id, clara.id, eva.id].map(open)).toEqual([0, 1650, 150, 0, 0]);
     await expect(settleFriday(db, FRIDAY, 1000, AFTER)).rejects.toThrow('Pauschale');
+  });
+
+  it('ticks off one open debt of an earlier Friday, and only that one', async () => {
+    const { patrick, anna } = await setup();
+    await setFlat(db, FRIDAY, 'Grillen', 1500);
+    await setAttendance(db, FRIDAY, anna.id, 'in');
+    const before = await openBalancesFor(db, anna.id, '2026-10-23', AFTER);
+    expect(before.map((balance) => balance.debt.openCents)).toEqual([1650]);
+    expect(before[0]!.hostId).toBe(patrick.id);
+    const view = await loadFriday(db, FRIDAY, AFTER);
+    const tick = { memberId: anna.id, payeeId: before[0]!.debt.payeeId, recordedById: patrick.id };
+    expect(await settleDebt(db, view, tick)).toBe(1650);
+    expect(await openBalancesFor(db, anna.id, '2026-10-23', AFTER)).toEqual([]);
+    await expect(settleDebt(db, await loadFriday(db, FRIDAY, AFTER), tick)).rejects.toThrow(
+      'nichts offen'
+    );
   });
 
   it('reuses a guest who comes again', async () => {

@@ -10,6 +10,7 @@ import { AssistantCard } from '@/components/people/assistant-card';
 import { CreateMemberForm } from '@/components/people/create-member-form';
 import { EditMemberForm } from '@/components/people/edit-member-form';
 import { MemberActions } from '@/components/people/member-actions';
+import { SettleDebtButton } from '@/components/people/settle-debt-button';
 import { WhatsAppCard } from '@/components/people/whatsapp-card';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -99,7 +100,7 @@ export default async function PeoplePage() {
               icon={Wallet}
               kicker="Offene Deckel"
               title="Offene Beträge"
-              hint="Von abgerechneten Freitagen der letzten acht Wochen. Positiv: muss noch zahlen, negativ: bekommt Geld zurück."
+              hint="Von abgerechneten Freitagen der letzten acht Wochen. Positiv: muss noch zahlen, negativ: bekommt Geld zurück. Wer das Geld bekommt, der Gastgeber und Admins haken es hier ab."
             />
             <GlassCard variant="tile" className="p-5">
               <ul className="divide-border/50 divide-y text-sm">
@@ -131,6 +132,16 @@ export default async function PeoplePage() {
                     >
                       {formatEuro(balance.debt.openCents)}
                     </span>
+                    {(viewer.isAdmin ||
+                      viewer.id === balance.hostId ||
+                      viewer.id === balance.payee?.id) && (
+                      <SettleDebtButton
+                        date={balance.fridayDate}
+                        memberId={balance.member.id}
+                        payeeId={balance.debt.payeeId}
+                        owes={balance.debt.openCents > 0}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
