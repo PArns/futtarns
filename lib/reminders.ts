@@ -830,7 +830,14 @@ export function planReminders({
   // The order list goes to whoever orders: the host, or whoever fetches the food.
   const ordererPhone = view.picker ? view.picker.phone : hostPhone;
   if (view.locked && ordererPhone && between(now, view.deadline, sheetUntil)) {
-    const eating = view.participants.filter((entry) => entry.attendance.status === 'in').length;
+    // A flat-price evening orders nothing: its host only needs to know who comes.
+    const coming = view.participants.filter((entry) => entry.attendance.status !== 'out');
+    const guestList = coming.map(
+      (entry) =>
+        `${entry.member.name}${entry.attendance.status === 'nofood' ? ' (ohne Essen)' : ''}${
+          entry.late ? ` (kommt später${entry.arrivesAt ? `, ~${entry.arrivesAt}` : ''})` : ''
+        }`
+    );
     // Whoever comes later gets a block of their own: their food can be ordered later.
     const sheets = sheetsByArrival(
       view.participants,
@@ -852,9 +859,17 @@ export function planReminders({
       key: `sheet:${date}`,
       to: ordererPhone,
       text: flat
-        ? [`📋 ${bold('Anmeldeschluss:')} ${eating} Leute sind dabei.`, link, ...paypalHint].join(
-            '\n'
-          )
+        ? [
+            `📋 ${bold('Anmeldeschluss!')} ${
+              coming.length
+                ? `${bold(String(coming.length))} ${coming.length === 1 ? 'kommt' : 'kommen'}:`
+                : 'Keiner hat zugesagt.'
+            }`,
+            ...guestList.map((name) => `• ${name}`),
+            '',
+            link,
+            ...paypalHint,
+          ].join('\n')
         : [
             `${pick(
               view.pickup
@@ -1096,7 +1111,12 @@ export function summarizePlanned(
         (view.host?.phone === to ? view.host.name : '?'));
   const lines = new Map<string, MessagePreview>();
   for (const message of planned) {
-    const kind = MESSAGE_KINDS[message.key.split(':')[0]!] ?? message.key;
+    const prefix = message.key.split(':')[0]!;
+    // A flat-price evening's list at the deadline only says who comes.
+    const kind =
+      prefix === 'sheet' && view.mode === 'flat'
+        ? 'Wer kommt'
+        : (MESSAGE_KINDS[prefix] ?? message.key);
     const id = `${message.at.getTime()}|${kind}`;
     const line = lines.get(id) ?? { at: message.at, kind, recipients: [] };
     const name = nameOf(message.to);

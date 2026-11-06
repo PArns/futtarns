@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import {
   assistantPrompt,
   completeSelection,
   DailyLimit,
   FALLBACK_REPLY,
+  Interpretation,
+  MAX_NULLABLE_FIELDS,
   menuLines,
   understand,
-  type Interpretation,
 } from '@/lib/assistant';
 import { parseOptionGroups } from '@/lib/menu/options';
 
@@ -28,7 +30,7 @@ const reading = (fields: Partial<Interpretation>): Interpretation => ({
   to_date: null,
   options: [],
   changes: [],
-  admin_note: null,
+  admin_note: '',
   reply: null,
   ...fields,
 });
@@ -137,15 +139,33 @@ describe('understand', () => {
   });
 });
 
+describe('the answer format', () => {
+  it('stays within what the API takes, or every reading fails', () => {
+    // Nullable fields are type arrays or anyOf in the schema the SDK sends.
+    const nullable = (node: unknown): number => {
+      if (Array.isArray(node)) return node.reduce((sum: number, item) => sum + nullable(item), 0);
+      if (!node || typeof node !== 'object') return 0;
+      const own = Object.entries(node as Record<string, unknown>);
+      const here =
+        (Array.isArray((node as { type?: unknown }).type) ? 1 : 0) +
+        ((node as { anyOf?: unknown }).anyOf ? 1 : 0);
+      return here + own.reduce((sum, [, value]) => sum + nullable(value), 0);
+    };
+    expect(nullable(zodOutputFormat(Interpretation).schema)).toBeLessThanOrEqual(
+      MAX_NULLABLE_FIELDS
+    );
+  });
+});
+
 describe('admin changes and reports', () => {
   const change = {
     kind: 'set_host' as const,
     date: ' 2026-11-13 ',
     member_id: 4,
-    status: null,
-    from_date: null,
-    to_date: null,
-    text: null,
+    status: 'none' as const,
+    from_date: '',
+    to_date: '',
+    text: '',
   };
 
   it('passes an admin’s changes on once each, to be checked when they run', () => {
