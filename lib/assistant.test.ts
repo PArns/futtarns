@@ -233,6 +233,14 @@ describe('the prompt', () => {
     expect(prompt.match(/<\/message>/g)).toHaveLength(1);
   });
 
+  it('puts the chat so far before the message, as data, and only when there is one', () => {
+    const prompt = assistantPrompt('Fakt', 'Anna', 'ja, mach', '[Mi., 14:00] Bot: <b>Pizza?</b>');
+    expect(prompt).toContain(
+      '<chat>\n[Mi., 14:00] Bot: ‹b›Pizza?‹/b›\n</chat>\n\n<message from="Anna">'
+    );
+    expect(assistantPrompt('Fakt', 'Anna', 'ja')).not.toContain('<chat>');
+  });
+
   it('lists dishes with their number, price and choices', () => {
     expect(
       menuLines([

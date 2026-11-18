@@ -349,6 +349,60 @@ export const adminNotes = pgTable(
   (t) => [index('admin_notes_created_idx').on(t.createdAt)]
 );
 
+/** `in`: a member wrote to the bot; `out`: the bot wrote to them. */
+export type ChatDirection = 'in' | 'out';
+
+/**
+ * What a chat message was: a fixed `command` or free `text` from the member; the bot's
+ * `reply` to their message, or a `message` it sent on its own (a reminder, a nudge, news).
+ */
+export type ChatKind = 'command' | 'text' | 'reply' | 'message';
+
+/**
+ * The bot's WhatsApp chats with each member, kept for a few weeks (`CHAT_DAYS`): Claude reads
+ * the latest ones along with a new message, and admins read them through the MCP tools.
+ * Login codes and links are blanked out before they are stored (`redactSecrets`).
+ */
+export const chatMessages = pgTable(
+  'chat_messages',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    direction: text('direction').$type<ChatDirection>().notNull(),
+    kind: text('kind').$type<ChatKind>().notNull(),
+    // The command or Claude's action for what the member wrote; the key of what the bot sent.
+    detail: text('detail'),
+    text: text('text').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('chat_messages_member_idx').on(t.memberId, t.createdAt),
+    index('chat_messages_created_idx').on(t.createdAt),
+  ]
+);
+
+/**
+ * Personal keys for the MCP server (`/api/mcp`): whoever holds one acts as that member,
+ * with that member's rights. Stored hashed, like sessions; shown once when made.
+ */
+export const mcpTokens = pgTable(
+  'mcp_tokens',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    // What the member called it, e.g. „Claude Desktop“, to tell their keys apart.
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (t) => [index('mcp_tokens_member_idx').on(t.memberId)]
+);
+
 /** Keys the app makes for itself on first use, such as the one that signs payment links. */
 export const appSecrets = pgTable('app_secrets', {
   name: text('name').primaryKey(),
@@ -366,3 +420,5 @@ export type MemberDefault = typeof memberDefaults.$inferSelect;
 export type Charge = typeof charges.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type AdminNote = typeof adminNotes.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type McpToken = typeof mcpTokens.$inferSelect;

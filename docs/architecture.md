@@ -29,6 +29,8 @@ Two processes in one container (`scripts/start.mjs`), one database:
 | `drinks_opt_outs`         | who switched the drinks fee off for a Friday                                                                                                                                                                    |
 | `notifications`           | keys of WhatsApp messages already sent, so each goes out once                                                                                                                                                   |
 | `admin_notes`             | what Claude passed on to the admins from someone's WhatsApp message (its gist and the message), so admins can act on it by chat                                                                                 |
+| `chat_messages`           | the bot's WhatsApp chats per member for 30 days: what they wrote (a command, or free text with Claude's action), the bot's replies and what it sent them on its own, login codes and links blanked out          |
+| `mcp_tokens`              | personal keys for the MCP server (hashed), with a name and when each was last used                                                                                                                              |
 | `app_secrets`             | keys the app makes for itself on first use, such as the one that signs payment links                                                                                                                            |
 
 A Friday without a row is a normal Friday: the default host and that host's restaurant.
@@ -119,11 +121,17 @@ the flag on the people page, and new members get it by default.
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
 - When a Friday's host is away that day, or it has none, anyone of the Stammtruppe who is
   around may take it over themselves („Ich übernehme“ on the page and in the calendar, or
-  „übernehme“ to the bot; `canTakeOver`, `takeOverFriday`) until the deadline.
+  „übernehme“ to the bot; `canTakeOver`, `takeOverFriday`) until the deadline. Taking it over
+  is a yes too: their answer becomes „Bin dabei“ whatever it was before (silent, without
+  food, out), and like any answer they can change it afterwards; the bot says so when it
+  changed something.
 - Only admins put a Friday at nobody's place (`canClearHost`), in the host pickers.
 - Admins and the host of the coming Friday add members and edit restaurants. Every member
   sets their own default dishes, the restaurant they order from as host, and their absences.
 - Admins can also have the bot change things by chat (see Claude in the bot).
+- The page's checks that more than one way in needs (who may change whose answer and order,
+  who runs a Friday) live in `lib/services/access.ts`; the server actions and the MCP tools
+  both use them.
 
 ## Reminders (`lib/reminders.ts`)
 
@@ -254,6 +262,17 @@ nullable fields across it (`MAX_NULLABLE_FIELDS`); one more and every reading fa
 admin changes and `admin_note` use `""`, `0` or `none` for unused fields instead of null,
 and a test counts them.
 
+**The chats** (`lib/chat.ts`, `lib/services/chats.ts`): every message a member writes to the
+bot (`kind` `command` with the command, or `text` with the action Claude read in it), the
+bot's reply, and everything the scheduler, reminders on request, admin messages and the
+page's invitations sent them (`message`, with the message's key) are stored per member
+(`chat_messages`). Login codes, login, payment and calendar links are blanked out first
+(`redactSecrets`). The scheduler forgets messages older than 30 days (`CHAT_DAYS`). Claude
+reads the member's last ten messages of the past twelve hours with each new one (`<chat>` in
+the prompt, `chatContext`), so „ja, mach“ or „die andere“ make sense; it acts only on the new
+message, and the facts, not the chat, say how things stand. Storing never gets in the way of
+the bot: a message that cannot be stored is only logged.
+
 „Ich komm später“ (`setLate`) is a yes for whoever had not answered or was out, works after
 the deadline too (`canSetArrival`), and goes when someone backs out. The dish is still
 picked by the deadline; the order list on the page and in the 19:30 message shows the
@@ -266,6 +285,34 @@ double tap (`addItem`). On the page, the menu marks what the viewer already orde
 bestellt“), the dish dialog says so before a second one, and an order plays a short
 animation where it lands: the dish card, the order bar on a phone, the order column on a
 desktop (`announceOrder`, `useOrderFlash`).
+
+## MCP server (`lib/services/mcp.ts`, `lib/services/mcp-tools.ts`)
+
+`/api/mcp` speaks the Model Context Protocol (Streamable HTTP, without sessions, every answer
+plain JSON; the official SDK). A member makes a personal key on „Ich“ (`frt_mcp_…`, shown
+once, stored hashed, at most five, each with a name and when it was last used); a client
+sends it as `Authorization: Bearer …`. Claude Code takes it in one line:
+`claude mcp add --transport http freitach https://…/api/mcp --header "Authorization: Bearer …"`.
+Every request builds a server for that member, so the tools act as them, with exactly the
+page's rights, checked again from the database on each call; a key stops working when it is
+deleted or its member switched off.
+
+| Tool                                                                                  | Who                                                                                                           |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `whoami`, `list_fridays`, `get_friday`, `list_people`, `list_restaurants`, `get_menu` | everyone; others' money, phone numbers, addresses and absence notes only for whoever may see them on the page |
+| `open_balances`                                                                       | admins everyone's, others what concerns them                                                                  |
+| `list_chats`, `get_chat`                                                              | admins every chat, others their own                                                                           |
+| `admin_reports`, `send_message`                                                       | admins only (others do not see them)                                                                          |
+| `upcoming_messages`, `set_cancelled`                                                  | whoever runs the Friday                                                                                       |
+| `set_answer`, `set_late`, `order_dish`, `remove_order`                                | like the page: own and own guests' until the deadline, the host and admins anyone's                           |
+| `vote`, `take_over`                                                                   | for oneself, like the page                                                                                    |
+| `set_host`                                                                            | whoever runs the Friday and „Vertretungen“; nobody only admins                                                |
+| `add_absence`, `remove_absence`                                                       | own; admins anyone's                                                                                          |
+
+A refusal comes back as a tool error with the page's German message. Saying no for someone
+with orders needs `confirm: true`, as the page asks before throwing them away. Texts people
+wrote (names, notes, chat messages) are data for the client, never instructions; the
+server's instructions say so.
 
 ## Restaurant vote (`lib/vote.ts`)
 

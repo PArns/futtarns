@@ -157,9 +157,16 @@ export async function clearHost(db: Db, date: IsoDate) {
 /**
  * A member steps in for a host who is away that day, or on a Friday without a host.
  * Checked here against the database, not the page: the host must be away or missing, the
- * member around and in the Stammtruppe.
+ * member around and in the Stammtruppe. Whoever takes it over is there, so their answer
+ * becomes „Bin dabei“ whatever it was; like any answer they can change it afterwards.
+ * Returns their answer from before (null: none), so the reply can say what changed.
  */
-export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
+export async function takeOverFriday(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  now: Date
+): Promise<{ before: AttendanceStatus | null }> {
   const row = await getFridayRow(db, date);
   const hostId = await resolveHostId(db, row);
   const absent = await absencesOverlapping(db, date, date);
@@ -178,7 +185,15 @@ export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, no
       'Übernehmen geht nur, wenn es keinen Gastgeber gibt oder er an dem Tag weg ist'
     );
   }
-  await setHost(db, date, memberId);
+  const [answer] = await db
+    .select({ status: attendance.status })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+  await db.transaction(async (tx) => {
+    await setHost(tx, date, memberId);
+    await setAttendance(tx, date, memberId, 'in', now);
+  });
+  return { before: answer?.status ?? null };
 }
 
 export async function setCancelled(

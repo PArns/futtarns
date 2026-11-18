@@ -21,18 +21,14 @@ import { botState, relinkBot, whatsappConfigured, sendWhatsApp } from '@/lib/wha
 
 // Validation messages reach the toast as they are, and the app speaks German.
 z.config(z.locales.de());
-import {
-  canClearHost,
-  canEditOrderOf,
-  canManageFriday,
-  canSetArrival,
-  canSetHost,
-} from '@/lib/permissions';
+import { canClearHost, canManageFriday, canSetArrival, canSetHost } from '@/lib/permissions';
 import { getGroupContext, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
 import {
+  createMcpToken,
   createSession,
   deleteSession,
   requestLoginCode,
+  revokeMcpToken,
   verifyLoginCode,
 } from '@/lib/services/auth';
 import {
@@ -90,6 +86,11 @@ import {
 import { clearAssistantKey, setAssistantKey } from '@/lib/services/assistant';
 import { payByLink } from '@/lib/services/pay-links';
 import { askedWhere } from '@/lib/services/scheduler';
+import { recordSent } from '@/lib/services/chats';
+import {
+  requireFridayManager as requireFridayManagerOf,
+  requireOrderAccess,
+} from '@/lib/services/access';
 import { loginCodeText } from '@/lib/messages';
 import {
   addMissingDish,
@@ -155,36 +156,14 @@ function formObject(form: FormData): Record<string, string> {
 /** Who may change whose order on a Friday, looked up fresh for every action. */
 async function orderAccess(viewer: Member, date: IsoDate, targetId: number) {
   const db = await getDb();
-  const row = await getFridayRow(db, date);
-  const hostId = await hostIdFor(db, date);
-  const [answer] = await db
-    .select({ addedById: attendance.addedById })
-    .from(attendance)
-    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, targetId)));
-  const state = {
-    locked: Boolean(row?.lockedAt) || isPastDeadline(date),
-    settled: Boolean(row?.settledAt),
-  };
-  if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
-  if (
-    !canEditOrderOf(viewer, { id: targetId, addedById: answer?.addedById ?? null }, hostId, state)
-  ) {
-    throw new ServiceError(
-      state.settled
-        ? 'Schon abgerechnet – der Gastgeber kann die Abrechnung wieder öffnen'
-        : state.locked
-          ? 'Bestellschluss ist vorbei – sag dem Gastgeber Bescheid'
-          : 'Das darfst du nicht ändern'
-    );
-  }
+  const { hostId } = await requireOrderAccess(db, viewer, date, targetId);
   return { db, hostId };
 }
 
 async function requireFridayManager(date: IsoDate) {
   const { viewer } = await getGroupContext();
   const db = await getDb();
-  const hostId = await hostIdFor(db, date);
-  if (!canManageFriday(viewer, hostId)) throw new ServiceError('Das darf nur der Gastgeber');
+  const { hostId } = await requireFridayManagerOf(db, viewer, date);
   return { db, viewer, hostId };
 }
 
@@ -420,6 +399,13 @@ async function guestAccess(viewer: Member, date: IsoDate) {
   return { db, hostName: host?.name ?? null };
 }
 
+/** Sends a WhatsApp message from the page; once it went out, it is in the member's chat too. */
+async function sendFromPage(phone: string, detail: string, text: string) {
+  const result = await sendWhatsApp(phone, text);
+  if (result !== 'failed') await recordSent(await getDb(), phone, text, detail, new Date());
+  return result;
+}
+
 /** Tells a guest with a number that they are on a Friday, unless they put themselves there. */
 async function sendGuestInvite(
   member: Member,
@@ -428,8 +414,9 @@ async function sendGuestInvite(
   hostName: string | null
 ) {
   if (!member.phone || member.id === viewer.id || !whatsappConfigured()) return false;
-  await sendWhatsApp(
+  await sendFromPage(
     member.phone,
+    'invite',
     guestInviteText({
       name: member.name,
       invitedBy: viewer.name,
@@ -473,8 +460,9 @@ export async function addGuestAction(
     );
     if (loginToken) {
       if (whatsappConfigured()) {
-        await sendWhatsApp(
+        await sendFromPage(
           phone,
+          'welcome',
           guestWelcomeText({
             name: member.name,
             invitedBy: viewer.name,
@@ -576,11 +564,12 @@ export async function takeOverAction(date: string): Promise<ActionResult> {
     const { viewer } = await getGroupContext();
     const db = await getDb();
     await takeOverFriday(db, day, viewer.id, new Date());
+    // Taking over says „Bin dabei“ too; the answer buttons change it like any other answer.
     return {
       ok: true,
       message: (await askedWhere(db, day))
-        ? 'Danke! Du bist jetzt Gastgeber, die anderen bekommen per WhatsApp Bescheid'
-        : 'Danke! Du bist jetzt Gastgeber',
+        ? 'Danke! Du bist jetzt Gastgeber und dabei, die anderen bekommen per WhatsApp Bescheid'
+        : 'Danke! Du bist jetzt Gastgeber und dabei',
     };
   });
 }
@@ -923,8 +912,9 @@ export async function createMemberAction(
       throw error;
     });
     if (whatsappConfigured()) {
-      await sendWhatsApp(
+      await sendFromPage(
         phone,
+        'welcome',
         welcomeText({
           name: member.name,
           invitedBy: viewer.name,
@@ -1124,6 +1114,34 @@ export async function removeAbsenceAction(absenceId: number): Promise<ActionResu
   return run(async () => {
     const { viewer } = await getGroupContext();
     await removeAbsence(await getDb(), viewer.id, recordId.parse(absenceId));
+  });
+}
+
+/** A new personal MCP key for the viewer, shown once. */
+export async function createMcpTokenAction(name: string): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    const label = z
+      .string()
+      .trim()
+      .min(1, 'Bitte gib dem Schlüssel einen Namen')
+      .max(60)
+      .parse(name);
+    const { token } = await createMcpToken(await getDb(), viewer.id, label);
+    return {
+      ok: true,
+      message: 'Schlüssel erstellt – jetzt kopieren, er wird nur einmal angezeigt',
+      secret: token,
+    };
+  });
+}
+
+/** Deletes one of the viewer's own MCP keys. */
+export async function revokeMcpTokenAction(id: number): Promise<ActionResult> {
+  return run(async () => {
+    const { viewer } = await getGroupContext();
+    await revokeMcpToken(await getDb(), viewer.id, recordId.parse(id));
+    return { ok: true, message: 'Schlüssel gelöscht' };
   });
 }
 

@@ -603,6 +603,31 @@ describe('a Friday', () => {
     await expect(takeOverFriday(db, FRIDAY, anna.id, AFTER)).rejects.toThrow('weg ist');
   });
 
+  it('says „Bin dabei“ for whoever takes a Friday over, whatever they answered before', async () => {
+    const { anna, ben, clara } = await setup();
+    await clearHost(db, FRIDAY);
+    const answerOf = async (id: number) =>
+      (await loadFriday(db, FRIDAY, BEFORE)).participants.find((entry) => entry.member.id === id)!
+        .attendance;
+    // Out before: in after, and the reply knows what it was.
+    await setAttendance(db, FRIDAY, anna.id, 'out', BEFORE);
+    expect(await takeOverFriday(db, FRIDAY, anna.id, BEFORE)).toEqual({ before: 'out' });
+    expect(await answerOf(anna.id)).toEqual({ status: 'in', reason: 'answered' });
+    // Like any answer it can be changed afterwards.
+    await setAttendance(db, FRIDAY, anna.id, 'nofood', BEFORE);
+    expect(await answerOf(anna.id)).toEqual({ status: 'nofood', reason: 'answered' });
+    // Without food before: in after. Anna is away now, so Ben may take it over from her.
+    await addAbsence(db, anna.id, FRIDAY, FRIDAY, null);
+    await setAttendance(db, FRIDAY, ben.id, 'nofood', BEFORE);
+    expect(await takeOverFriday(db, FRIDAY, ben.id, BEFORE)).toEqual({ before: 'nofood' });
+    expect(await answerOf(ben.id)).toEqual({ status: 'in', reason: 'answered' });
+    // Silent before: now a real answer.
+    await addAbsence(db, ben.id, FRIDAY, FRIDAY, null);
+    expect(await takeOverFriday(db, FRIDAY, clara.id, BEFORE)).toEqual({ before: null });
+    expect(await answerOf(clara.id)).toEqual({ status: 'in', reason: 'answered' });
+    expect((await loadFriday(db, FRIDAY, BEFORE)).host?.id).toBe(clara.id);
+  });
+
   it('puts a Friday at nobody’s place until someone takes it over, then locks with them', async () => {
     const { patrick, anna, ben } = await setup();
     await clearHost(db, FRIDAY);

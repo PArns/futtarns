@@ -3,6 +3,7 @@ import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { getAssistantKey } from '@/lib/services/assistant';
+import { pruneChats, recordSent } from '@/lib/services/chats';
 import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
 import {
   planReminders,
@@ -66,9 +67,9 @@ async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
 /**
  * Sends a message unless its key went out before, and with it the keys of the messages it
  * stands in for (`also`). A refused send is retried next run; one that timed out is not,
- * because it may have arrived.
+ * because it may have arrived. What went out to a member goes into their chat.
  */
-export async function deliver(db: Db, message: Outgoing, send: Send) {
+export async function deliver(db: Db, message: Outgoing, send: Send, now: Date = new Date()) {
   const claimed = await db
     .insert(notifications)
     .values({ key: message.key })
@@ -87,6 +88,8 @@ export async function deliver(db: Db, message: Outgoing, send: Send) {
     await db.delete(notifications).where(inArray(notifications.key, keys));
     return false;
   }
+  // It went out: it belongs to that member's chat now.
+  await recordSent(db, message.to, message.text, message.key, now);
   return true;
 }
 
@@ -118,6 +121,9 @@ export async function runScheduler(
   pause: () => Promise<unknown> = pauseBetweenMessages
 ): Promise<number> {
   await lockDueFridays(db, now);
+  await pruneChats(db, now).catch((error: unknown) => {
+    console.error('[scheduler] could not forget old chats', error);
+  });
   const thisWeek = currentFriday(now);
   const dates: IsoDate[] = [addWeeks(thisWeek, -2), addWeeks(thisWeek, -1), thisWeek];
   const paidLink = await payLinkMaker(db);
@@ -143,7 +149,7 @@ export async function runScheduler(
         assistant,
       });
       for (const message of messages) {
-        if (await deliver(db, message, send)) {
+        if (await deliver(db, message, send, now)) {
           sent++;
           await pause();
         }

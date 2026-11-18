@@ -1,30 +1,40 @@
-import { CalendarPlus, CircleUser, LogOut, Sparkles, UserRound } from 'lucide-react';
+import { Bot, CalendarPlus, CircleUser, LogOut, Sparkles, UserRound } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { logoutAction } from '@/app/actions';
 import { ChapterHeading } from '@/components/common/chapter-heading';
 import { CopyButton } from '@/components/common/copy-button';
 import { PageHero } from '@/components/layout/page-hero';
+import { McpAccess } from '@/components/profile/mcp-access';
 import { ProfileForm } from '@/components/profile/profile-form';
 import { RemoveDefaultButton } from '@/components/profile/remove-default-button';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/glass-card';
-import { calendarLink } from '@/lib/auth-tokens';
+import { appUrl, calendarLink } from '@/lib/auth-tokens';
+import { todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
+import { formatDayShort, formatTime } from '@/lib/format';
 import { getGroupContext } from '@/lib/session';
+import { listMcpTokens } from '@/lib/services/auth';
 import { listDefaults } from '@/lib/services/orders';
 import { listRestaurants } from '@/lib/services/restaurants';
 
 export const metadata: Metadata = { title: 'Ich' };
 
+/** `14. Okt., 18:05` in Berlin time. */
+function when(at: Date): string {
+  return `${formatDayShort(todayIso(at))}, ${formatTime(at)}`;
+}
+
 export default async function ProfilePage() {
   const { viewer } = await getGroupContext();
   const db = await getDb();
-  const [defaults, restaurants] = await Promise.all([
+  const [defaults, restaurants, mcpKeys] = await Promise.all([
     listDefaults(db, viewer.id),
     listRestaurants(db),
+    listMcpTokens(db, viewer.id),
   ]);
   const feed = viewer.calendarToken ? calendarLink(viewer.calendarToken) : null;
 
@@ -100,6 +110,26 @@ export default async function ProfilePage() {
                 ))}
               </ul>
             )}
+          </GlassCard>
+        </section>
+
+        <section>
+          <ChapterHeading
+            icon={Bot}
+            kicker="Für Claude & Co."
+            title="MCP-Zugang"
+            hint={`Mit einem Schlüssel kann Claude (etwa Claude Code oder Claude Desktop) freitach für dich lesen und bedienen: Freitage, Bestellungen, Abwesenheiten${viewer.isAdmin ? ', als Admin auch die Bot-Chats, Meldungen und Nachrichten an andere' : ''} – immer mit genau deinen Rechten.`}
+          />
+          <GlassCard variant="tile" className="p-5">
+            <McpAccess
+              endpoint={`${appUrl()}/api/mcp`}
+              keys={mcpKeys.map((key) => ({
+                id: key.id,
+                name: key.name,
+                created: when(key.createdAt),
+                lastUsed: key.lastUsedAt ? when(key.lastUsedAt) : null,
+              }))}
+            />
           </GlassCard>
         </section>
 
