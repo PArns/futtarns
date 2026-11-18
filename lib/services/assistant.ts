@@ -170,7 +170,13 @@ export async function assistantFacts(
     `Link: ${appUrl()}/freitag/${date}`,
     `Freitag (${formatDayShort(date)}): ${
       view.host
-        ? `bei ${view.host.name}${view.hostAbsent ? ' (ist an dem Tag weg, jemand muss übernehmen)' : ''}`
+        ? `bei ${view.host.name}${
+            view.hostAbsent
+              ? ' (ist an dem Tag weg, jemand muss übernehmen)'
+              : view.hostIsDefault
+                ? ' (Standard-Gastgeber; wer aus der Stammtruppe da ist, kann trotzdem übernehmen)'
+                : ' (für diesen Freitag eingetragen)'
+          }`
         : 'noch kein Gastgeber, jemand muss übernehmen'
     }`,
     ...phaseLines(view, voting, now),
@@ -553,7 +559,7 @@ export function assistantResearch(db: Db, member: Member, now: Date): Research {
                   ? `fällt aus${entry.cancelReason ? ` (${entry.cancelReason})` : ''}`
                   : [
                       entry.host
-                        ? `bei ${entry.host.name}${entry.hostAbsent ? ' (ist weg, jemand muss übernehmen)' : ''}`
+                        ? `bei ${entry.host.name}${entry.hostAbsent ? ' (ist weg, jemand muss übernehmen)' : entry.hostIsDefault ? ' (Standard-Gastgeber, übernehmen geht)' : ''}`
                         : 'kein Gastgeber, jemand muss übernehmen',
                       entry.mode === 'flat'
                         ? `${entry.flatTitle ?? 'Pauschale'} ${formatEuro(entry.flatPriceCents ?? 0)} pro Person`

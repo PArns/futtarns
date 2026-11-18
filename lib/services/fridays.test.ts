@@ -592,15 +592,54 @@ describe('a Friday', () => {
     expect(sum(foodLines(view, entry(patrick.id)))).toBe(entry(patrick.id).share!.totalCents);
   });
 
-  it('lets a member take over a Friday whose host is away, and only then', async () => {
-    const { patrick, anna } = await setup();
-    await expect(takeOverFriday(db, FRIDAY, anna.id, BEFORE)).rejects.toThrow('weg ist');
-    await addAbsence(db, patrick.id, FRIDAY, FRIDAY, 'Hochzeit');
-    await takeOverFriday(db, FRIDAY, anna.id, BEFORE);
+  it('lets a member take a Friday over from the usual host or one who is away, not from a substitute', async () => {
+    const { patrick, anna, ben } = await setup();
+    // The usual host is around, and still anyone of the Stammtruppe may host instead; the
+    // usual host is named, so they can be told.
+    expect((await takeOverFriday(db, FRIDAY, anna.id, BEFORE)).from?.id).toBe(patrick.id);
     expect((await loadFriday(db, FRIDAY, BEFORE)).host?.id).toBe(anna.id);
+    // Now Anna is entered for it, and keeps it while she is around.
+    await expect(takeOverFriday(db, FRIDAY, ben.id, BEFORE)).rejects.toThrow('weg ist');
+    // Once she is away, Ben may; nobody around to tell.
+    await addAbsence(db, anna.id, FRIDAY, FRIDAY, 'Hochzeit');
+    expect((await takeOverFriday(db, FRIDAY, ben.id, BEFORE)).from).toBeNull();
     // Not after the deadline: then the order is due and the host was written down.
     await setHost(db, FRIDAY, null);
-    await expect(takeOverFriday(db, FRIDAY, anna.id, AFTER)).rejects.toThrow('weg ist');
+    await expect(takeOverFriday(db, FRIDAY, ben.id, AFTER)).rejects.toThrow('weg ist');
+  });
+
+  it('says „Bin dabei“ for whoever takes a Friday over, whatever they answered before', async () => {
+    const { anna, ben, clara } = await setup();
+    await clearHost(db, FRIDAY);
+    const answerOf = async (id: number) =>
+      (await loadFriday(db, FRIDAY, BEFORE)).participants.find((entry) => entry.member.id === id)!
+        .attendance;
+    // Out before: in after, and the reply knows what it was.
+    await setAttendance(db, FRIDAY, anna.id, 'out', BEFORE);
+    expect(await takeOverFriday(db, FRIDAY, anna.id, BEFORE)).toEqual({
+      before: 'out',
+      from: null,
+    });
+    expect(await answerOf(anna.id)).toEqual({ status: 'in', reason: 'answered' });
+    // Like any answer it can be changed afterwards.
+    await setAttendance(db, FRIDAY, anna.id, 'nofood', BEFORE);
+    expect(await answerOf(anna.id)).toEqual({ status: 'nofood', reason: 'answered' });
+    // Without food before: in after. Anna is away now, so Ben may take it over from her.
+    await addAbsence(db, anna.id, FRIDAY, FRIDAY, null);
+    await setAttendance(db, FRIDAY, ben.id, 'nofood', BEFORE);
+    expect(await takeOverFriday(db, FRIDAY, ben.id, BEFORE)).toEqual({
+      before: 'nofood',
+      from: null,
+    });
+    expect(await answerOf(ben.id)).toEqual({ status: 'in', reason: 'answered' });
+    // Silent before: now a real answer.
+    await addAbsence(db, ben.id, FRIDAY, FRIDAY, null);
+    expect(await takeOverFriday(db, FRIDAY, clara.id, BEFORE)).toEqual({
+      before: null,
+      from: null,
+    });
+    expect(await answerOf(clara.id)).toEqual({ status: 'in', reason: 'answered' });
+    expect((await loadFriday(db, FRIDAY, BEFORE)).host?.id).toBe(clara.id);
   });
 
   it('puts a Friday at nobody’s place until someone takes it over, then locks with them', async () => {

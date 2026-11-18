@@ -19,14 +19,17 @@ export function canSetHost(
 }
 
 /**
- * Whether someone may take a Friday over themselves because its host is away that day or
- * it has none: any active member of the Stammtruppe who is not the host and not away too,
- * while the Friday is still open.
+ * Whether someone may take a Friday over themselves: when it has no host, its host is away
+ * that day, or only the usual host has it (nobody entered for this Friday), even while they
+ * are around. A substitute someone entered keeps it. Any active member of the Stammtruppe who
+ * is not the host and not away too, while the Friday is still open.
  */
 export function canTakeOver(
   viewer: Pick<Member, 'id' | 'kind' | 'active' | 'core'>,
   friday: {
     hostId: number | null;
+    /** The host is the usual one, nobody was entered for this Friday. */
+    hostIsDefault: boolean;
     hostAbsent: boolean;
     viewerAbsent: boolean;
     locked: boolean;
@@ -34,7 +37,7 @@ export function canTakeOver(
   }
 ): boolean {
   return (
-    (friday.hostAbsent || friday.hostId === null) &&
+    (friday.hostAbsent || friday.hostId === null || friday.hostIsDefault) &&
     !friday.viewerAbsent &&
     !friday.locked &&
     !friday.cancelled &&

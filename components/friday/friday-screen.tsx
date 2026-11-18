@@ -394,6 +394,7 @@ export async function FridayScreen({
   const amHost = viewer.id === hostId;
   const mayTakeOver = canTakeOver(viewer, {
     hostId,
+    hostIsDefault: view.hostIsDefault,
     hostAbsent: view.hostAbsent,
     viewerAbsent: me?.attendance.reason === 'absent',
     locked: closed,
@@ -725,6 +726,14 @@ export async function FridayScreen({
                 <Badge variant="softWarning">
                   <TriangleAlert /> abwesend eingetragen
                 </Badge>
+              )}
+              {/* The usual host is around: anyone of the Stammtruppe may still host instead. */}
+              {mayTakeOver && !view.hostAbsent && (
+                <TakeOverButton
+                  date={date}
+                  variant="outline"
+                  confirm={`Statt ${view.host.name} Gastgeber sein? Du bestellst, das Geld geht an dich, und ${view.host.name} bekommt Bescheid.`}
+                />
               )}
             </span>
           )}

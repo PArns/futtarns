@@ -155,30 +155,54 @@ export async function clearHost(db: Db, date: IsoDate) {
 }
 
 /**
- * A member steps in for a host who is away that day, or on a Friday without a host.
- * Checked here against the database, not the page: the host must be away or missing, the
- * member around and in the Stammtruppe.
+ * A member steps in for a host who is away that day, for the usual host (even while they are
+ * around), or on a Friday without a host. Checked here against the database, not the page:
+ * the host must be away, missing or only the usual one, the member around and in the
+ * Stammtruppe. Whoever takes it over is there, so their answer becomes „Bin dabei“ whatever
+ * it was; like any answer they can change it afterwards. Returns their answer from before
+ * (null: none), so the reply can say what changed, and the usual host it was taken from
+ * while they are around, who should hear about it.
  */
-export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
+export async function takeOverFriday(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  now: Date
+): Promise<{ before: AttendanceStatus | null; from: Member | null }> {
   const row = await getFridayRow(db, date);
   const hostId = await resolveHostId(db, row);
   const absent = await absencesOverlapping(db, date, date);
   const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
+  const hostAbsent = hostId !== null && absent.some((absence) => absence.memberId === hostId);
+  const hostIsDefault = hostId !== null && !row?.hostId && !row?.noHost;
   const allowed =
     viewer &&
     canTakeOver(viewer, {
       hostId,
-      hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
+      hostIsDefault,
+      hostAbsent,
       viewerAbsent: absent.some((absence) => absence.memberId === memberId),
       locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
       cancelled: row?.cancelled ?? false,
     });
   if (!allowed) {
     throw new ServiceError(
-      'Übernehmen geht nur, wenn es keinen Gastgeber gibt oder er an dem Tag weg ist'
+      'Übernehmen geht nur vom Standard-Gastgeber, ohne Gastgeber oder wenn er an dem Tag weg ist'
     );
   }
-  await setHost(db, date, memberId);
+  const [answer] = await db
+    .select({ status: attendance.status })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+  await db.transaction(async (tx) => {
+    await setHost(tx, date, memberId);
+    await setAttendance(tx, date, memberId, 'in', now);
+  });
+  const [usual] =
+    hostIsDefault && !hostAbsent
+      ? await db.select().from(members).where(eq(members.id, hostId!))
+      : [];
+  return { before: answer?.status ?? null, from: usual ?? null };
 }
 
 export async function setCancelled(

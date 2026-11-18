@@ -1,8 +1,8 @@
 import { randomInt } from 'node:crypto';
-import { and, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
 import { generateToken, hashToken } from '@/lib/auth-tokens';
 import type { Db } from '@/lib/db/client';
-import { loginCodes, members, sessions, type Member } from '@/lib/db/schema';
+import { loginCodes, mcpTokens, members, sessions, type Member } from '@/lib/db/schema';
 import { ServiceError } from '@/lib/services/members';
 
 export const SESSION_DAYS = 180;
@@ -170,4 +170,98 @@ export async function verifyLoginCode(
     .returning({ id: loginCodes.id });
   if (!used) throw expired;
   return member;
+}
+
+/** MCP keys start with this, so a leaked one is easy to recognise. */
+export const MCP_TOKEN_PREFIX = 'frt_mcp_';
+
+/** How many MCP keys one member may have at a time. */
+export const MCP_TOKENS_PER_MEMBER = 5;
+
+/** How often the time a key was last used is written down, at most. */
+const MCP_TOUCH_MS = 60_000;
+
+/**
+ * Makes a personal MCP key for a member: whoever holds it acts as them, with their rights.
+ * The key is returned once and stored hashed.
+ */
+export async function createMcpToken(
+  db: Db,
+  memberId: number,
+  name: string,
+  now = new Date()
+): Promise<{ id: number; token: string }> {
+  const label = name.trim().slice(0, 60);
+  if (!label) throw new ServiceError('Bitte gib dem Schlüssel einen Namen');
+  const [held] = await db
+    .select({ keys: count() })
+    .from(mcpTokens)
+    .where(eq(mcpTokens.memberId, memberId));
+  if ((held?.keys ?? 0) >= MCP_TOKENS_PER_MEMBER) {
+    throw new ServiceError(
+      `Mehr als ${MCP_TOKENS_PER_MEMBER} Schlüssel gehen nicht – lösch erst einen alten`
+    );
+  }
+  const token = `${MCP_TOKEN_PREFIX}${generateToken()}`;
+  const [row] = await db
+    .insert(mcpTokens)
+    .values({ memberId, name: label, tokenHash: hashToken(token), createdAt: now })
+    .returning({ id: mcpTokens.id });
+  return { id: row!.id, token };
+}
+
+/** A member's MCP keys, oldest first, without the keys themselves. */
+export async function listMcpTokens(db: Db, memberId: number) {
+  return db
+    .select({
+      id: mcpTokens.id,
+      name: mcpTokens.name,
+      createdAt: mcpTokens.createdAt,
+      lastUsedAt: mcpTokens.lastUsedAt,
+    })
+    .from(mcpTokens)
+    .where(eq(mcpTokens.memberId, memberId))
+    .orderBy(asc(mcpTokens.createdAt), asc(mcpTokens.id));
+}
+
+/** Deletes one of a member's own MCP keys; it stops working right away. */
+export async function revokeMcpToken(db: Db, memberId: number, id: number) {
+  await db.delete(mcpTokens).where(and(eq(mcpTokens.id, id), eq(mcpTokens.memberId, memberId)));
+}
+
+/**
+ * The member an MCP key belongs to, while they are an active member; notes when the key was
+ * last used (at most once a minute).
+ */
+export async function findMemberByMcpToken(
+  db: Db,
+  token: string,
+  now = new Date()
+): Promise<Member | null> {
+  if (!token.startsWith(MCP_TOKEN_PREFIX)) return null;
+  const [row] = await db
+    .select({ member: members, id: mcpTokens.id })
+    .from(mcpTokens)
+    .innerJoin(members, eq(members.id, mcpTokens.memberId))
+    .where(
+      and(
+        eq(mcpTokens.tokenHash, hashToken(token)),
+        eq(members.active, true),
+        eq(members.kind, 'member')
+      )
+    );
+  if (!row) return null;
+  await db
+    .update(mcpTokens)
+    .set({ lastUsedAt: now })
+    .where(
+      and(
+        eq(mcpTokens.id, row.id),
+        or(
+          isNull(mcpTokens.lastUsedAt),
+          lt(mcpTokens.lastUsedAt, new Date(now.getTime() - MCP_TOUCH_MS))
+        )
+      )
+    );
+  return row.member;
 }

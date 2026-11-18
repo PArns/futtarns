@@ -30,7 +30,15 @@ import {
 } from '@/lib/services/restaurants';
 import { openPayLink, payByLink } from '@/lib/services/pay-links';
 import { askedWhere, runScheduler, upcomingMessages } from '@/lib/services/scheduler';
-import { FALLBACK_REPLY, type Interpretation, type Interpreter } from '@/lib/assistant';
+import { chatOf, chatSummaries } from '@/lib/services/chats';
+import { listReadings } from '@/lib/services/readings';
+import {
+  ERROR_REPLY,
+  FALLBACK_REPLY,
+  PROMPT_VERSION,
+  type Interpretation,
+  type Interpreter,
+} from '@/lib/assistant';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -434,10 +442,17 @@ describe('reminders', () => {
 
     const now = at('2026-10-15T17:00:00Z');
     expect(await handleIncoming(db, '+491703333333', 'übernehme', now, send)).toContain('weg ist');
-    expect(await handleIncoming(db, '+491702222222', 'Ich übernehme', now, send)).toContain(
-      'jetzt *bei dir*'
-    );
-    expect((await loadFriday(db, FRIDAY, now)).host?.id).toBe(anna.id);
+    // Anna had said she is out; taking it over makes her a yes again, and she hears so.
+    await setAttendance(db, FRIDAY, anna.id, 'out', now);
+    const reply = await handleIncoming(db, '+491702222222', 'Ich übernehme', now, send);
+    expect(reply).toContain('jetzt *bei dir*');
+    expect(reply).toContain('Du bist jetzt auch wieder *dabei* (vorher raus)');
+    const view = await loadFriday(db, FRIDAY, now);
+    expect(view.host?.id).toBe(anna.id);
+    expect(view.participants.find((entry) => entry.member.id === anna.id)!.attendance).toEqual({
+      status: 'in',
+      reason: 'answered',
+    });
     expect(await handleIncoming(db, '+491701111111', 'übernehme', now, send)).toContain(
       'schon bei *Anna*'
     );
@@ -449,6 +464,28 @@ describe('reminders', () => {
     expect(sent[0]!.text).toContain('Bist du dabei?');
     sent = [];
     expect(await runScheduler(db, at('2026-10-15T17:10:00Z'), send, noPause)).toBe(0);
+  });
+
+  it('lets someone take the Friday from the usual host while they are around, and tells them', async () => {
+    const { host, anna, ben } = await setup();
+    const now = at('2026-10-15T10:00:00Z');
+    await setAttendance(db, FRIDAY, anna.id, 'nofood', now);
+    const reply = await handleIncoming(db, '+491702222222', 'übernehme', now, send);
+    expect(reply).toContain('jetzt *bei dir*');
+    expect(reply).toContain('Patrick hab ich Bescheid gesagt.');
+    expect(reply).toContain('(vorher ohne Essen)');
+    expect(sent.map((message) => message.to)).toEqual(['+491701111111']);
+    expect(sent[0]!.text).toContain('*Anna übernimmt Freitag (16. Okt.');
+    // The usual host's chat has it, and Anna keeps the Friday while she is around.
+    expect((await chatOf(db, host.id)).messages.at(-1)!.detail).toMatch(/^takenover:2026-10-16:/);
+    expect(await handleIncoming(db, '+491703333333', 'übernehme', now, send)).toContain(
+      'schon bei *Anna*'
+    );
+    const view = await loadFriday(db, FRIDAY, now);
+    expect(view.host?.id).toBe(anna.id);
+    expect(view.participants.find((entry) => entry.member.id === ben.id)!.attendance.status).toBe(
+      'in'
+    );
   });
 
   it('takes the button on the page as well, also when nobody was ever picked as host', async () => {
@@ -1833,5 +1870,156 @@ describe('coming later', () => {
     await handleIncoming(db, '+491703333333', 'später 21', morning, send);
     await handleIncoming(db, '+491703333333', '3', morning, send);
     expect(await late()).toBe(false);
+  });
+});
+
+describe('the chats', () => {
+  const now = at('2026-10-14T12:00:00Z');
+  const reading = (fields: Partial<Interpretation>): Interpretation => ({
+    action: 'chat',
+    letter: null,
+    arrives_at: null,
+    dish_id: null,
+    restaurant_id: null,
+    remind_group: null,
+    member_ids: [],
+    item_id: null,
+    replace: null,
+    from_date: null,
+    to_date: null,
+    options: [],
+    changes: [],
+    admin_note: '',
+    reply: null,
+    ...fields,
+  });
+
+  it('keeps what members write and what the bot answers or sends them, without secrets', async () => {
+    const { anna } = await setup();
+    // A reminder the scheduler sends goes into the chat with its key.
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    expect(await handleIncoming(db, '+491702222222', '1', now, send)).toContain('dabei');
+    // Strangers leave nothing behind.
+    await handleIncoming(db, '+499999999', 'hallo', now, send);
+    // A login code goes to the member and into the chat blanked out.
+    await handleIncoming(db, '+491702222222', 'code', now, send);
+    const { messages } = await chatOf(db, anna.id);
+    expect(messages.map((message) => [message.direction, message.kind, message.detail])).toEqual([
+      ['out', 'message', `ask:${FRIDAY}:${anna.id}`],
+      ['in', 'command', 'answer'],
+      ['out', 'reply', null],
+      ['in', 'command', 'login'],
+    ]);
+    expect(messages[2]!.text).toContain('dabei');
+    expect(sent.at(-1)!.text).toMatch(/\*\d{6}\*/);
+    // Anna wrote last; Ben only got asked; the host was not asked at all.
+    expect((await chatSummaries(db, {})).map((entry) => entry.member.name)).toEqual([
+      'Anna',
+      'Ben',
+    ]);
+    expect((await chatSummaries(db, { q: 'code' }))[0]).toMatchObject({
+      member: { name: 'Anna' },
+      messages: 4,
+      last: { direction: 'in', kind: 'command', text: 'code' },
+    });
+    expect(await chatSummaries(db, { q: '100%' })).toEqual([]);
+  });
+
+  it('gives Claude the chat so far, and notes what it read', async () => {
+    const { anna } = await setup();
+    const chats: string[] = [];
+    const claude: Interpreter = async (input) => {
+      chats.push(input.chat);
+      return reading({ action: 'chat', reply: 'Margherita, wie immer? 🍕' });
+    };
+    await handleIncoming(db, '+491702222222', 'Was soll ich essen?', now, send, claude);
+    expect(chats[0]).toBe('');
+    const later = new Date(now.getTime() + 60_000);
+    await handleIncoming(db, '+491702222222', 'ja, mach', later, send, claude);
+    expect(chats[1]).toMatch(
+      /^\[.+\] Anna: Was soll ich essen\?\n\[.+\] Bot: Margherita, wie immer\? 🍕$/
+    );
+    const { messages } = await chatOf(db, anna.id);
+    expect(messages.filter((message) => message.direction === 'in').map((m) => m.detail)).toEqual([
+      'chat',
+      'chat',
+    ]);
+    // A day later the old chat no longer goes along.
+    await handleIncoming(db, '+491702222222', 'Hallo?', at('2026-10-15T12:00:00Z'), send, claude);
+    expect(chats[2]).toBe('');
+  });
+
+  it('forgets chats and Claude’s readings after three months', async () => {
+    const { anna } = await setup();
+    await handleIncoming(db, '+491702222222', '1', now, send);
+    await handleIncoming(db, '+491702222222', 'Hunger!', now, send, async () =>
+      reading({ action: 'chat', reply: 'Ich auch 🍕' })
+    );
+    const said = async () =>
+      (await chatOf(db, anna.id)).messages.filter((message) => message.createdAt <= now);
+    await runScheduler(db, at('2027-01-11T12:00:00Z'), send, noPause);
+    expect(await said()).toHaveLength(4);
+    expect(await listReadings(db)).toHaveLength(1);
+    await runScheduler(db, at('2027-01-12T12:01:00Z'), send, noPause);
+    expect(await said()).toEqual([]);
+    expect(await listReadings(db)).toEqual([]);
+  });
+
+  it('keeps each reading with what Claude was given, did, looked up and cost', async () => {
+    const { anna, dish } = await setup();
+    const claude: Interpreter = async ({ text, trace }) => {
+      trace!.rounds = 2;
+      trace!.toolCalls.push({ name: 'get_menu', input: { restaurant_id: 1 } });
+      trace!.usage = { input: 1200, output: 80, cacheRead: 900, cacheWrite: 0 };
+      trace!.stop = 'end_turn';
+      return text.includes('Pizza')
+        ? reading({ action: 'order', dish_id: dish.id, reply: 'Kommt sofort!' })
+        : reading({ action: 'chat', reply: 'Moin!' });
+    };
+    await handleIncoming(db, '+491702222222', 'Moin', now, send, claude);
+    await handleIncoming(db, '+491702222222', 'Pizza bitte', now, send, claude);
+    const [order, hello] = await listReadings(db);
+    expect(hello).toMatchObject({
+      memberId: anna.id,
+      memberName: 'Anna',
+      message: 'Moin',
+      chat: '',
+      action: 'chat',
+      command: null,
+      answer: 'Moin!',
+      error: null,
+      rounds: 2,
+      toolCalls: [{ name: 'get_menu', input: { restaurant_id: 1 } }],
+      inputTokens: 1200,
+      cacheReadTokens: 900,
+      promptVersion: PROMPT_VERSION,
+    });
+    expect(hello!.facts).toContain('Du bist Anna');
+    // The second one read the first along, ordered, and the chat links to it.
+    expect(order!.chat).toContain('Anna: Moin');
+    expect(order).toMatchObject({ action: 'order', command: 'order' });
+    expect(order!.answer).toMatch(/^Kommt sofort!\n\n🍽️ \*Margherita\* ist bestellt/);
+    const { messages } = await chatOf(db, anna.id);
+    expect(messages.find((message) => message.text === 'Pizza bitte')!.id).toBe(
+      order!.chatMessageId
+    );
+  });
+
+  it('keeps readings that failed, with why', async () => {
+    await setup();
+    await handleIncoming(db, '+491702222222', 'Moin', now, send, async () => {
+      throw new Error('kaputt');
+    });
+    await handleIncoming(db, '+491702222222', 'Hallo', now, send, async ({ trace }) => {
+      trace!.stop = 'refusal';
+      return null;
+    });
+    expect(
+      (await listReadings(db)).map((entry) => [entry.message, entry.error, entry.answer])
+    ).toEqual([
+      ['Hallo', 'refusal', ERROR_REPLY],
+      ['Moin', 'error', ERROR_REPLY],
+    ]);
+    expect(await listReadings(db, { failed: true, q: 'hall' })).toHaveLength(1);
   });
 });

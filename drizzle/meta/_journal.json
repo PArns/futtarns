@@ -113,6 +113,27 @@
       "when": 1793967907776,
       "tag": "0015_admin-notes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795001867357,
+      "tag": "0016_chat-messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795002227275,
+      "tag": "0017_mcp-tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795003608680,
+      "tag": "0018_assistant-readings",
+      "breakpoints": true
     }
   ]
 }
