@@ -41,7 +41,9 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **MCP server** (`/api/mcp`): a personal key from „Ich“ lets Claude (Claude Code, Claude
   Desktop or any MCP client) read and run freitach for that member, with exactly their rights:
   Fridays, orders, answers, taking a Friday over, hosts, cancellations, absences; admins also
-  read the bot's chats and the reports, and message people through the bot.
+  read the bot's chats and the reports, message people through the bot, and work on the bot's
+  prompt with every reading Claude made (what it was given, did and cost; rated and compared
+  per prompt version).
 - **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
   the order reminder then or, when the group votes, with the result at 16:00, the order list
   for the host at 19:30, everyone's payment link once the host releases paying, the settled amounts and daily payment

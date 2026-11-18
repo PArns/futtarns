@@ -85,7 +85,7 @@ import {
 } from '@/lib/services/orders';
 import { clearAssistantKey, setAssistantKey } from '@/lib/services/assistant';
 import { payByLink } from '@/lib/services/pay-links';
-import { askedWhere } from '@/lib/services/scheduler';
+import { askedWhere, tellTakenOver } from '@/lib/services/scheduler';
 import { recordSent } from '@/lib/services/chats';
 import {
   requireFridayManager as requireFridayManagerOf,
@@ -563,13 +563,18 @@ export async function takeOverAction(date: string): Promise<ActionResult> {
     const day = fridayDate.parse(date);
     const { viewer } = await getGroupContext();
     const db = await getDb();
-    await takeOverFriday(db, day, viewer.id, new Date());
+    const now = new Date();
+    const { from } = await takeOverFriday(db, day, viewer.id, now);
+    // The usual host was around and planned on it: they hear who took it.
+    const told = await tellTakenOver(db, day, from, viewer, sendWhatsApp, now);
     // Taking over says „Bin dabei“ too; the answer buttons change it like any other answer.
+    const tell = [
+      ...(told ? [`${from!.name} bekommt Bescheid`] : []),
+      ...((await askedWhere(db, day)) ? ['die anderen bekommen per WhatsApp Bescheid'] : []),
+    ];
     return {
       ok: true,
-      message: (await askedWhere(db, day))
-        ? 'Danke! Du bist jetzt Gastgeber und dabei, die anderen bekommen per WhatsApp Bescheid'
-        : 'Danke! Du bist jetzt Gastgeber und dabei',
+      message: `Danke! Du bist jetzt Gastgeber und dabei${tell.length ? `, ${tell.join(', ')}` : ''}`,
     };
   });
 }

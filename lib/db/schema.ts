@@ -359,7 +359,7 @@ export type ChatDirection = 'in' | 'out';
 export type ChatKind = 'command' | 'text' | 'reply' | 'message';
 
 /**
- * The bot's WhatsApp chats with each member, kept for a few weeks (`CHAT_DAYS`): Claude reads
+ * The bot's WhatsApp chats with each member, kept for three months (`CHAT_DAYS`): Claude reads
  * the latest ones along with a new message, and admins read them through the MCP tools.
  * Login codes and links are blanked out before they are stored (`redactSecrets`).
  */
@@ -380,6 +380,61 @@ export const chatMessages = pgTable(
   (t) => [
     index('chat_messages_member_idx').on(t.memberId, t.createdAt),
     index('chat_messages_created_idx').on(t.createdAt),
+  ]
+);
+
+/** A research tool Claude called while reading a message, with what it passed in. */
+export type ToolCall = { name: string; input: unknown };
+
+/**
+ * Every time Claude read a member's message (`lib/services/readings.ts`): everything it was
+ * given (the facts, the chat so far, the message), what it answered and looked up, what the
+ * member got back, tokens, time and errors, under the version of the prompt it ran on. Kept
+ * as long as the chats, so the prompt can be judged and improved on real messages, and a
+ * reading replayed with a changed one. Admins rate readings while they look through them.
+ */
+export const assistantReadings = pgTable(
+  'assistant_readings',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    // The member's message in their chat, while it is kept.
+    chatMessageId: integer('chat_message_id').references(() => chatMessages.id, {
+      onDelete: 'set null',
+    }),
+    message: text('message').notNull(),
+    facts: text('facts').notNull(),
+    chat: text('chat').notNull().default(''),
+    model: text('model').notNull(),
+    // Changes whenever the system prompt, the tools or the answer format change.
+    promptVersion: text('prompt_version').notNull(),
+    // Claude's answer as it came (`Interpretation`); null when there was none.
+    interpretation: jsonb('interpretation').$type<Record<string, unknown>>(),
+    action: text('action'),
+    // The command the app ran from it, if any; Claude's action can be turned down.
+    command: text('command'),
+    // Everything the member got back: Claude's words, the command's result, the report.
+    answer: text('answer'),
+    toolCalls: jsonb('tool_calls').$type<ToolCall[]>().notNull().default([]),
+    rounds: integer('rounds').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    durationMs: integer('duration_ms').notNull().default(0),
+    // Why there was no usable answer (an error, a refusal, out of time); null when there was.
+    error: text('error'),
+    // An admin's verdict: 1 good, -1 bad, with what should have happened.
+    rating: integer('rating'),
+    ratingNote: text('rating_note'),
+    ratedById: integer('rated_by_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('assistant_readings_created_idx').on(t.createdAt),
+    index('assistant_readings_chat_idx').on(t.chatMessageId),
   ]
 );
 
@@ -422,3 +477,4 @@ export type Payment = typeof payments.$inferSelect;
 export type AdminNote = typeof adminNotes.$inferSelect;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type McpToken = typeof mcpTokens.$inferSelect;
+export type AssistantReading = typeof assistantReadings.$inferSelect;

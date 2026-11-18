@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
@@ -113,7 +114,7 @@ export const SYSTEM_PROMPT = `You are the WhatsApp bot of "freitach", the app a 
 - The page shows each Friday in phases: Wahl (the vote, until 16:00, only when there is one), Bestellen (until the deadline at 19:30), Essen (the host orders at 19:45, food at about 20:45) and Zahlen (once the host releases paying). The facts say which phase is now.
 - Everyone picks their dish until the order deadline (19:30), on the website or through you. "wie immer" orders your default, "gleiches" what you had last time there. The host orders at 19:45; the food comes at about 20:45. "später 21" tells the host you come later, your food is then ordered later; "pünktlich" takes it back.
 - Afterwards everyone pays their dishes plus an equal share of delivery fee, service fee and tip, plus 1,50 EUR for drinks per person who comes. Paying opens when the host releases it (at the latest the next morning): a PayPal link to the host; "bezahlt" marks it as paid.
-- If nobody hosts a Friday or the host is away, anyone of the Stammtruppe can take it over by writing "übernehme" or on the website. Until then the bot only asks on Wednesday where the Friday is, and tells everyone once someone took it over.
+- If nobody hosts a Friday or the host is away, anyone of the Stammtruppe can take it over by writing "übernehme" or on the website. Until then the bot only asks on Wednesday where the Friday is, and tells everyone once someone took it over. The usual host ("Standard-Gastgeber") can be taken over too, even while they are around; the bot then tells them. Someone entered as host for that Friday keeps it.
 - Admins can have you change things for others by chat (see the action admin); the facts list who is an admin.
 - The website (link in the facts) has the menus, the vote, everyone's orders and the money. "code" sends a login code.
 
@@ -136,7 +137,7 @@ export const SYSTEM_PROMPT = `You are the WhatsApp bot of "freitach", the app a 
 - vote: they choose a restaurant from the running vote, by letter or by name ("ich will Tasty"); "letter" is its letter from the facts.
 - remind: only when the facts say they may remind people (the host or an admin) and they want the bot to remind others ("erinner Guido", "erinner alle, die noch nichts bestellt haben", "stups die an, die noch nicht geantwortet haben"). "remind_group": "unanswered" (no answer yet), "no_order" (coming but nothing picked), "open" (both), or null when they name people; "member_ids": the numbers of the people they name, from the list of people to remind in the facts, else empty. The app writes and sends the reminders itself.
 - pick_restaurant (when they write "sicher" too, it confirms an earlier question about it): only when the facts say they may settle the restaurant (the host or an admin) and they clearly want to settle it for everyone ("mach Tasty fest", "wir nehmen diesmal Tasty, Wahl beenden"). "restaurant_id" is its number from the restaurant list. A plain wish is a vote; for everyone else it is a vote too.
-- take_over: they offer to host this Friday.
+- take_over: they offer to host this Friday ("übernehme", "ich mach diesmal den Gastgeber", "kommt alle zu mir").
 - admin: only when the facts say they are an admin, and they want you to change something for others or for a Friday ("Ina macht Freitag den Gastgeber", "sag den 20. ab, Grund: Urlaub", "Guido ist nächste Woche weg", "trag Ben für Freitag als raus ein", "schreib Guido, dass es erledigt ist"). Often it follows up on a report in the facts ("Meldungen an die Admins"). "changes" lists each change their message asks for, in order, with the people's numbers from the people list in the facts:
   - set_host: "date", "member_id" of the new host, or null for the usual host.
   - no_host: "date"; nobody hosts it, the Stammtruppe sorts it out.
@@ -155,7 +156,7 @@ export const SYSTEM_PROMPT = `You are the WhatsApp bot of "freitach", the app a 
 
 With any action but refuse, "admin_note" holds what the admins should hear about, when the message corrects what the app says about a Friday and the member cannot fix it with you or the website: the Friday is somewhere else or someone else hosts ("nee, ist bei mir", "wir sind diesmal bei Ina", "Guido kann nicht, wir machen's bei Ben"), it does not happen or happens differently (another day, another time, everyone goes out instead), a host who cannot host and found nobody, or what the app shows is wrong (a wrong host, a wrong amount, a broken menu or link). Also when they plainly ask for an admin. Write one or two German sentences for the admins: who says what about which Friday, with the facts they need, nothing invented. Otherwise "", above all for whether someone comes or not, orders, votes, absences, coming later, questions you can answer, small talk, and an admin's own instructions (that is admin). The app passes it on and tells the member, so do not promise it in "reply".
 
-When they say the Friday is at their place: take_over if the facts say nobody hosts or the host is away; otherwise chat, with an admin_note.
+When they say the Friday is at their place: take_over if the facts say nobody hosts, the host is away, or the host is the Standard-Gastgeber; otherwise (someone was entered for this Friday) chat, with an admin_note.
 
 ## Rules for "reply"
 
@@ -541,6 +542,36 @@ const RESEARCH_ROUNDS = 3;
 /** With less time than this left, Claude answers instead of looking up more. */
 const ANSWER_RESERVE_MS = 5_000;
 
+/**
+ * Which version of the prompt a reading ran on: changes by itself whenever the system prompt,
+ * the research tools or the answer format change, so readings can be compared per version.
+ */
+export const PROMPT_VERSION = createHash('sha256')
+  .update(JSON.stringify([SYSTEM_PROMPT, RESEARCH_TOOLS, z.toJSONSchema(Interpretation)]))
+  .digest('hex')
+  .slice(0, 8);
+
+/** What happened while Claude read a message, filled in as it goes, for `assistant_readings`. */
+export type ReadingTrace = {
+  model: string;
+  /** Requests to the API: one, plus one per round of looking things up. */
+  rounds: number;
+  toolCalls: { name: string; input: unknown }[];
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  /** How the last request ended (`end_turn`, `refusal`, `max_tokens`, …) or `out_of_time`. */
+  stop: string | null;
+};
+
+export function newTrace(): ReadingTrace {
+  return {
+    model: ASSISTANT_MODEL,
+    rounds: 0,
+    toolCalls: [],
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    stop: null,
+  };
+}
+
 /** Reads one message with its facts; null when Claude gave no usable answer. */
 export type Interpreter = (input: {
   facts: string;
@@ -551,6 +582,8 @@ export type Interpreter = (input: {
   research: Research;
   /** When the answer has to be there (ms since the epoch), so the bot still gets it. */
   until: number;
+  /** Filled in with what happened on the way, when given. */
+  trace?: ReadingTrace;
 }) => Promise<Interpretation | null>;
 
 function anthropicClient(apiKey: string) {
@@ -564,13 +597,16 @@ function anthropicClient(apiKey: string) {
  */
 export function claudeInterpreter(apiKey: string): Interpreter {
   const client = anthropicClient(apiKey);
-  return async ({ facts, chat, name, text, research, until }) => {
+  return async ({ facts, chat, name, text, research, until, trace = newTrace() }) => {
     const messages: Anthropic.MessageParam[] = [
       { role: 'user', content: assistantPrompt(facts, name, text, chat) },
     ];
     for (let round = 0; ; round++) {
       const left = until - Date.now();
-      if (left < 1_500) return null;
+      if (left < 1_500) {
+        trace.stop = 'out_of_time';
+        return null;
+      }
       const response = await client.messages.parse(
         {
           model: ASSISTANT_MODEL,
@@ -590,7 +626,17 @@ export function claudeInterpreter(apiKey: string): Interpreter {
         },
         { timeout: left }
       );
+      trace.rounds++;
+      trace.stop = response.stop_reason;
+      trace.usage.input += response.usage.input_tokens;
+      trace.usage.output += response.usage.output_tokens;
+      trace.usage.cacheRead += response.usage.cache_read_input_tokens ?? 0;
+      trace.usage.cacheWrite += response.usage.cache_creation_input_tokens ?? 0;
       if (response.stop_reason === 'tool_use') {
+        for (const block of response.content) {
+          if (block.type === 'tool_use')
+            trace.toolCalls.push({ name: block.name, input: block.input });
+        }
         messages.push({ role: 'assistant', content: response.content });
         const results = await Promise.all(
           response.content
@@ -611,6 +657,14 @@ export function claudeInterpreter(apiKey: string): Interpreter {
       return response.parsed_output ?? null;
     }
   };
+}
+
+/** A reading's failure in a few words, for `assistant_readings`: what kind, never a key. */
+export function readingError(error: unknown): string {
+  if (error instanceof Anthropic.APIConnectionTimeoutError) return 'timeout';
+  if (error instanceof Anthropic.APIError) return `api_${error.status ?? 'error'}`;
+  if (error instanceof Error) return error.name === 'Error' ? 'error' : error.name;
+  return 'error';
 }
 
 /** Whether Anthropic takes `apiKey`: looks up the model, which costs no tokens. */

@@ -6,8 +6,11 @@ import { formatWeekdayTime } from '@/lib/format';
  * database side is `lib/services/chats.ts`.
  */
 
-/** How many days the chats are kept; older messages go on the scheduler's next pass. */
-export const CHAT_DAYS = 30;
+/**
+ * How many days the chats, and Claude's readings of them, are kept: long enough to judge and
+ * improve the prompt on real messages. Older ones go on the scheduler's next pass.
+ */
+export const CHAT_DAYS = 90;
 
 /** How far back Claude reads the chat along with a new message. */
 export const CONTEXT_HOURS = 12;

@@ -17,6 +17,7 @@ import { callTool, type ToolContext } from '@/lib/services/mcp-tools';
 import { createMember } from '@/lib/services/members';
 import { addItem } from '@/lib/services/orders';
 import { createDish, createRestaurant, listDishes } from '@/lib/services/restaurants';
+import { Interpretation, PROMPT_VERSION } from '@/lib/assistant';
 import { createTestDb } from '@/test/db';
 
 const FRIDAY = '2026-10-16';
@@ -265,6 +266,16 @@ describe('the MCP tools', () => {
     );
   });
 
+  it('takes the Friday from the usual host while they are around, and tells them', async () => {
+    const { patrick, ben } = await setup();
+    expect(await callTool(as(ben), 'take_over')).toMatchObject({
+      host: { name: 'Ben' },
+      told: { id: patrick.id, name: 'Patrick' },
+    });
+    expect(sent.map((message) => message.to)).toEqual(['+491701111111']);
+    await expect(callTool(as(patrick), 'take_over')).rejects.toThrow('weg ist');
+  });
+
   it('sets hosts and cancels only with the page’s rights', async () => {
     const { patrick, anna, gast } = await setup();
     await expect(callTool(as(anna), 'set_host', { date: FRIDAY, host: anna.id })).rejects.toThrow(
@@ -317,6 +328,64 @@ describe('the MCP tools', () => {
       absences: [{ note: 'Hochzeit' }],
     });
     await callTool(as(anna), 'remove_absence', { absence_id: annaForBen.absences[0]!.id });
+  });
+
+  it('shows admins the bot’s prompt and Claude’s readings, to rate and compare', async () => {
+    const { patrick, anna } = await setup();
+    const answer = Interpretation.parse({
+      action: 'chat',
+      letter: null,
+      arrives_at: null,
+      dish_id: null,
+      restaurant_id: null,
+      remind_group: null,
+      member_ids: [],
+      item_id: null,
+      replace: null,
+      from_date: null,
+      to_date: null,
+      options: [],
+      changes: [],
+      admin_note: '',
+      reply: 'Pizza bei Patrick! 🍕',
+    });
+    await handleIncoming(db, '+491702222222', 'Was ist heute los?', NOW, send, async () => answer);
+    await expect(callTool(as(anna), 'assistant_readings')).rejects.toThrow('gibt es nicht');
+    const prompt = (await callTool(as(patrick), 'assistant_prompt')) as {
+      prompt_version: string;
+      system_prompt: string;
+    };
+    expect(prompt.prompt_version).toBe(PROMPT_VERSION);
+    expect(prompt.system_prompt).toContain('freitach');
+    type Listed = { readings: { id: number; action: string; reply: string; rating: null }[] };
+    const listed = (await callTool(as(patrick), 'assistant_readings')) as Listed;
+    expect(listed.readings).toMatchObject([
+      { action: 'chat', reply: 'Pizza bei Patrick! 🍕', rating: null },
+    ]);
+    const id = listed.readings[0]!.id;
+    expect(await callTool(as(patrick), 'assistant_reading', { id })).toMatchObject({
+      message: 'Was ist heute los?',
+      answer: 'Pizza bei Patrick! 🍕',
+    });
+    // The chat links the message to what Claude made of it.
+    const chat = (await callTool(as(patrick), 'get_chat', { member_id: anna.id })) as {
+      messages: { text: string; reading_id?: number }[];
+    };
+    expect(chat.messages[0]).toMatchObject({ text: 'Was ist heute los?', reading_id: id });
+    await callTool(as(patrick), 'rate_assistant_reading', {
+      id,
+      rating: -1,
+      note: 'Hätte die Bestellfrist nennen sollen',
+    });
+    expect(
+      ((await callTool(as(patrick), 'assistant_readings', { rating: -1 })) as Listed).readings
+    ).toHaveLength(1);
+    expect(await callTool(as(patrick), 'assistant_stats')).toMatchObject({
+      readings: 1,
+      bad: 1,
+      byAction: { chat: 1 },
+      byVersion: [{ version: PROMPT_VERSION, readings: 1 }],
+    });
   });
 
   it('lets admins read every chat and message people; everyone else only their own chat', async () => {

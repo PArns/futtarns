@@ -7,6 +7,8 @@ import {
   ERROR_REPLY,
   DailyLimit,
   LIMIT_TEXT,
+  newTrace,
+  readingError,
   understand,
   type Interpretation,
   type Interpreter,
@@ -35,7 +37,8 @@ import {
 } from '@/lib/services/assistant';
 import { reportToAdmins, runAdminChanges } from '@/lib/services/admin';
 import { noteChatDetail, recentChat, recordChat } from '@/lib/services/chats';
-import { askedWhere, deliver, pauseBetweenMessages } from '@/lib/services/scheduler';
+import { recordReading } from '@/lib/services/readings';
+import { askedWhere, deliver, pauseBetweenMessages, tellTakenOver } from '@/lib/services/scheduler';
 import { requestLoginCode } from '@/lib/services/auth';
 import {
   castVote,
@@ -385,7 +388,12 @@ async function readWithClaude(
   const { facts, restaurantIds } = await assistantFacts(db, member, text, now);
   // The chat so far, so a follow-up („ja, mach“, „die andere“) makes sense.
   const chat = chatContext(await recentChat(db, member.id, now, chatId), member.name);
+  // Everything about this reading is kept, so the prompt can be judged on it later.
+  const trace = newTrace();
+  const reading = { memberId: member.id, chatMessageId: chatId, message: text, facts, chat, trace };
+  const asked = Date.now();
   let result: Interpretation | null;
+  let failure: string | null = null;
   try {
     result = await interpret({
       facts,
@@ -394,12 +402,23 @@ async function readWithClaude(
       text,
       research: assistantResearch(db, member, now),
       until: started + ASSISTANT_BUDGET_MS,
+      trace,
     });
   } catch (error) {
     console.error('[assistant] reading failed', error);
+    failure = readingError(error);
     result = null;
   }
-  if (!result) return ERROR_REPLY;
+  const durationMs = Date.now() - asked;
+  if (!result) {
+    const error = failure ?? (trace.stop && trace.stop !== 'end_turn' ? trace.stop : 'no_answer');
+    await recordReading(
+      db,
+      { ...reading, interpretation: null, command: null, answer: ERROR_REPLY, durationMs, error },
+      now
+    );
+    return ERROR_REPLY;
+  }
   await noteChatDetail(db, chatId, result.action);
   const understood = understand(result, {
     restaurantIds,
@@ -423,7 +442,20 @@ async function readWithClaude(
       console.error('[assistant] could not report to the admins', error);
     }
   }
-  return [understood.reply, outcome, reported].filter(Boolean).join('\n\n') || null;
+  const answer = [understood.reply, outcome, reported].filter(Boolean).join('\n\n') || null;
+  await recordReading(
+    db,
+    {
+      ...reading,
+      interpretation: result,
+      command: understood.command?.kind ?? null,
+      answer,
+      durationMs,
+      error: null,
+    },
+    now
+  );
+  return answer;
 }
 
 /**
@@ -479,8 +511,9 @@ async function runCommand(
 
     case 'takeOver': {
       let before: AttendanceStatus | null;
+      let from: Member | null;
       try {
-        ({ before } = await takeOverFriday(db, date, member.id, now));
+        ({ before, from } = await takeOverFriday(db, date, member.id, now));
       } catch (error) {
         if (error instanceof ServiceError) {
           const view = await loadFriday(db, date, now);
@@ -490,7 +523,12 @@ async function runCommand(
         }
         throw error;
       }
-      const tell = (await askedWhere(db, date)) ? ' Den anderen sag ich gleich Bescheid.' : '';
+      const told = await tellTakenOver(db, date, from, member, send, now);
+      const tell = (await askedWhere(db, date))
+        ? ' Den anderen sag ich gleich Bescheid.'
+        : told
+          ? ` ${from!.name} hab ich Bescheid gesagt.`
+          : '';
       // Taking over is a yes; whoever had said otherwise hears it, and can change it again.
       const answer =
         before === 'nofood' || before === 'out'

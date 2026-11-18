@@ -91,6 +91,7 @@ export default async function CalendarPage() {
                 const needsSubstitute = (entry.hostAbsent || !entry.host) && !entry.cancelled;
                 const mayTakeOver = canTakeOver(viewer, {
                   hostId: entry.host?.id ?? null,
+                  hostIsDefault: entry.hostIsDefault,
                   hostAbsent: entry.hostAbsent,
                   viewerAbsent: entry.absentMemberIds.includes(viewer.id),
                   locked: isPastDeadline(entry.date, new Date(now)),
@@ -188,6 +189,16 @@ export default async function CalendarPage() {
                           </span>
                         </span>
                       </Notice>
+                    )}
+                    {/* The usual host is around: anyone of the Stammtruppe may host instead. */}
+                    {mayTakeOver && !needsSubstitute && entry.host && (
+                      <div>
+                        <TakeOverButton
+                          date={entry.date}
+                          variant="ghost"
+                          confirm={`Freitag statt ${entry.host.name} Gastgeber sein? Du bestellst, das Geld geht an dich, und ${entry.host.name} bekommt Bescheid.`}
+                        />
+                      </div>
                     )}
                     {(entry.date === currentFriday ||
                       (!entry.hostIsDefault && entry.host && !entry.cancelled) ||

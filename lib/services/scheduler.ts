@@ -4,7 +4,10 @@ import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { getAssistantKey } from '@/lib/services/assistant';
 import { pruneChats, recordSent } from '@/lib/services/chats';
-import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
+import { pruneReadings } from '@/lib/services/readings';
+import { dishes, memberDefaults, notifications, type Member } from '@/lib/db/schema';
+import { formatDayShort } from '@/lib/format';
+import { bold } from '@/lib/messages';
 import {
   planReminders,
   previewReminders,
@@ -106,6 +109,31 @@ export async function askedWhere(db: Db, date: IsoDate): Promise<boolean> {
   return Boolean(row);
 }
 
+/**
+ * Tells the usual host that someone took their Friday over while they are around, so they
+ * neither shop nor order for it. Says whether it went out.
+ */
+export async function tellTakenOver(
+  db: Db,
+  date: IsoDate,
+  from: Member | null,
+  taker: Pick<Member, 'id' | 'name'>,
+  send: Send,
+  now: Date
+): Promise<boolean> {
+  if (!from?.phone || from.id === taker.id) return false;
+  return deliver(
+    db,
+    {
+      key: `takenover:${date}:${from.id}:${now.getTime()}`,
+      to: from.phone,
+      text: `🙌 ${bold(`${taker.name} übernimmt Freitag (${formatDayShort(date)})!`)} Diesmal bist du nicht Gastgeber: ${taker.name} bestellt, und das Geld geht an ${taker.name}. Passt das nicht, sprecht euch kurz ab.\n${appUrl()}/freitag/${date}`,
+    },
+    send,
+    now
+  );
+}
+
 // A burst of identical-looking messages is what gets a linked device blocked.
 export const pauseBetweenMessages = () =>
   new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 3000));
@@ -121,7 +149,7 @@ export async function runScheduler(
   pause: () => Promise<unknown> = pauseBetweenMessages
 ): Promise<number> {
   await lockDueFridays(db, now);
-  await pruneChats(db, now).catch((error: unknown) => {
+  await Promise.all([pruneChats(db, now), pruneReadings(db, now)]).catch((error: unknown) => {
     console.error('[scheduler] could not forget old chats', error);
   });
   const thisWeek = currentFriday(now);
