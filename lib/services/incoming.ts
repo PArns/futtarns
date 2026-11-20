@@ -849,7 +849,7 @@ async function runCommand(
       if (daysBetween(from, command.to) > 366) {
         return `So lange? Trag das bitte selbst ein:\n${appUrl()}/kalender#abwesend`;
       }
-      await addAbsence(db, member.id, from, command.to, null);
+      await addAbsence(db, member.id, from, command.to, null, now);
       const hosting = await hostedFridaysBetween(db, member.id, from, command.to, now);
       return [
         `✈️ Eingetragen: weg ${from === command.to ? `am ${formatDayShort(from)}` : `vom ${formatDayShort(from)} bis ${formatDayShort(command.to)}`}. An den Freitagen dazwischen bist du raus und bekommst nichts.`,

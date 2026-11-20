@@ -3,6 +3,7 @@ import { parseArrival } from '@/lib/arrival';
 import {
   effectiveAttendance,
   hostLast,
+  isAway,
   type AttendancePerson,
   type EffectiveAttendance,
 } from '@/lib/attendance';
@@ -62,6 +63,19 @@ import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/ser
 import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Who is away on a Friday (`isAway`): an absence covers it and no yes for that day beats it.
+ */
+export async function awayOn(db: Db, date: IsoDate): Promise<(memberId: number) => boolean> {
+  const absent = await absencesOverlapping(db, date, date);
+  const answers = await db
+    .select({ memberId: attendance.memberId, status: attendance.status })
+    .from(attendance)
+    .where(eq(attendance.fridayDate, date));
+  return (memberId) =>
+    isAway(memberId, date, answers.find((entry) => entry.memberId === memberId)?.status, absent);
+}
 
 async function ensureFridayRow(db: Db, date: IsoDate) {
   await db.insert(fridays).values({ date }).onConflictDoNothing();
@@ -171,9 +185,9 @@ export async function takeOverFriday(
 ): Promise<{ before: AttendanceStatus | null; from: Member | null }> {
   const row = await getFridayRow(db, date);
   const hostId = await resolveHostId(db, row);
-  const absent = await absencesOverlapping(db, date, date);
+  const away = await awayOn(db, date);
   const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
-  const hostAbsent = hostId !== null && absent.some((absence) => absence.memberId === hostId);
+  const hostAbsent = hostId !== null && away(hostId);
   const hostIsDefault = hostId !== null && !row?.hostId && !row?.noHost;
   const allowed =
     viewer &&
@@ -181,7 +195,7 @@ export async function takeOverFriday(
       hostId,
       hostIsDefault,
       hostAbsent,
-      viewerAbsent: absent.some((absence) => absence.memberId === memberId),
+      viewerAbsent: away(memberId),
       locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
       cancelled: row?.cancelled ?? false,
     });
@@ -573,11 +587,7 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
     // Whatever is left from another restaurant was ordered ahead for a vote it lost.
     if (row.mode === 'delivery') await dropOrdersExcept(tx, date, [row.restaurantId]);
     // Without a host around nobody orders, so nobody gets a default dish to pay for.
-    const hostAway =
-      row.hostId === null ||
-      (await absencesOverlapping(tx, date, date)).some(
-        (absence) => absence.memberId === row.hostId
-      );
+    const hostAway = row.hostId === null || (await awayOn(tx, date))(row.hostId);
     if (row.mode === 'delivery' && row.restaurantId && !hostAway) {
       await applyDefaults(tx, date, row.restaurantId);
     }
@@ -1056,8 +1066,11 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const items = ordered.filter((item) => item.restaurantId === restaurantId);
   const preorders = ordered.filter((item) => item.restaurantId !== restaurantId);
   const absent = await absencesOverlapping(db, date, date);
+  const hostAway =
+    hostId !== null &&
+    isAway(hostId, date, answers.find((entry) => entry.memberId === hostId)?.status, absent);
   // The drinks money is the host's kitty; without a host around there is none to pay into.
-  const hostAround = hostId !== null && !absent.some((absence) => absence.memberId === hostId);
+  const hostAround = hostId !== null && !hostAway;
   const drinksFeeCents = hostAround ? (row?.drinksFeeCents ?? DRINKS_FEE_CENTS) : 0;
   const storedCharges = await db.select().from(charges).where(eq(charges.fridayDate, date));
   const settled = Boolean(row?.settledAt);
@@ -1235,7 +1248,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     host,
     hostIsDefault: !row?.hostId && !row?.noHost,
     noHost: row?.noHost ?? false,
-    hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
+    hostAbsent: hostAway,
     cancelled,
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
@@ -1358,19 +1371,22 @@ export async function loadCalendar(
     const row = rows.find((entry) => entry.date === date);
     const hostId = hostIdOf(row, defaultHost?.id ?? null);
     const host = everyone.find((member) => member.id === hostId) ?? null;
-    const absentMemberIds = [
-      ...new Set(
-        absent
-          .filter((absence) => absence.fromDate <= date && date <= absence.toDate)
-          .map((absence) => absence.memberId)
-      ),
-    ];
+    const dayAnswers = answers.filter((entry) => entry.fridayDate === date);
+    // Away unless they said yes for this Friday after all (`isAway`).
+    const absentMemberIds = [...new Set(absent.map((absence) => absence.memberId))].filter(
+      (memberId) =>
+        isAway(
+          memberId,
+          date,
+          dayAnswers.find((entry) => entry.memberId === memberId)?.status,
+          absent
+        )
+    );
     const mode = row?.mode ?? 'delivery';
     const defaultRestaurant =
       allRestaurants.find((entry) => entry.id === host?.defaultRestaurantId && !entry.archived) ??
       null;
     const restaurantId = mode === 'delivery' ? (row?.restaurantId ?? defaultRestaurant?.id) : null;
-    const dayAnswers = answers.filter((entry) => entry.fridayDate === date);
     // The same rule as the Friday page (loadFriday): silence means in, „nix“ as default means
     // coming without food, and a flat-price evening needs a yes.
     const people = everyone

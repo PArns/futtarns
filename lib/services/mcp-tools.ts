@@ -43,6 +43,7 @@ import {
 import { requireFridayManager, requireOrderAccess } from '@/lib/services/access';
 import { chatOf, chatSummaries } from '@/lib/services/chats';
 import {
+  awayOn,
   castVote,
   clearHost,
   currentRestaurantId,
@@ -249,7 +250,7 @@ export const TOOLS: McpTool[] = [
       const manages = canManageFriday(member, view.host?.id ?? null);
       const nameOf = (id: number) =>
         view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
-      const absent = await absencesOverlapping(db, date, date);
+      const away = await awayOn(db, date);
       return {
         date,
         phase: phaseOf(view, voting, now),
@@ -326,7 +327,7 @@ export const TOOLS: McpTool[] = [
             hostId: view.host?.id ?? null,
             hostIsDefault: view.hostIsDefault,
             hostAbsent: view.hostAbsent,
-            viewerAbsent: absent.some((absence) => absence.memberId === member.id),
+            viewerAbsent: away(member.id),
             locked: view.locked || isPastDeadline(date, now),
             cancelled: view.cancelled,
           }),
@@ -1032,7 +1033,7 @@ export const TOOLS: McpTool[] = [
       }
       if (!isIsoDate(args.from) || !isIsoDate(args.to)) throw new ServiceError('Ungültiges Datum');
       if (daysBetween(args.from, args.to) > 366) throw new ServiceError('Höchstens ein Jahr');
-      await addAbsence(db, target.id, args.from, args.to, args.note?.trim() || null);
+      await addAbsence(db, target.id, args.from, args.to, args.note?.trim() || null, now);
       const hosting = await hostedFridaysBetween(db, target.id, args.from, args.to, now);
       return { member: person(target), from: args.from, to: args.to, would_host: hosting };
     },

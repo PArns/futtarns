@@ -44,7 +44,10 @@ takes it over (see Permissions).
 1. **Open**: anyone answers and orders until 19:30 Berlin time (`lib/dates.ts`). Silent
    members count as in (`lib/attendance.ts`), or as coming without food when their default
    is „nix“; absences count as out. On a flat-price Friday only a yes counts, except for its host,
-   who is there anyway.
+   who is there anyway. The later word wins between an absence and an answer: a yes for the
+   day („Bin dabei“, „Ohne Essen“, an order) beats an absence, the host's too (`isAway`), and
+   entering an absence takes back a yes given before for an open Friday in it, with its order
+   (`addAbsence`).
    Without a picked restaurant the Friday uses its host's (`hostRestaurant`); the first
    order pins it, so handing the Friday to a substitute keeps the menu.
 2. **Lock at 19:30** (`lockFriday`): the first page view or scheduler tick after the

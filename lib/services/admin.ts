@@ -19,6 +19,7 @@ import { bold } from '@/lib/messages';
 import { canClearHost, canEditOrderOf } from '@/lib/permissions';
 import type { Outgoing } from '@/lib/reminders';
 import {
+  awayOn,
   clearHost,
   getFridayRow,
   hostIdFor,
@@ -29,12 +30,7 @@ import {
   setCancelled,
   setHost,
 } from '@/lib/services/fridays';
-import {
-  absencesOverlapping,
-  addAbsence,
-  getDefaultHost,
-  ServiceError,
-} from '@/lib/services/members';
+import { addAbsence, getDefaultHost, ServiceError } from '@/lib/services/members';
 
 /**
  * What reaches the admins by chat, and what they change by it: Claude passes on what a
@@ -245,8 +241,7 @@ export async function runAdminChanges(
         const host = personOf(change.memberId);
         if (!host || !host.core) return fail('Gastgeber kann nur jemand aus der Stammtruppe sein.');
         if (current === host.id) return already(`Freitag (${day}) ist schon bei ${host.name}.`);
-        const away = await absencesOverlapping(db, date, date);
-        if (away.some((absence) => absence.memberId === host.id)) {
+        if ((await awayOn(db, date))(host.id)) {
           return fail(`${host.name} ist am ${day} als weg eingetragen.`);
         }
         return {
@@ -388,7 +383,7 @@ export async function runAdminChanges(
           ok: true,
           what: `${target.name} ${range} weg`,
           apply: async () => {
-            await addAbsence(db, target.id, start, to, null);
+            await addAbsence(db, target.id, start, to, null, now);
             const hosting = await hostedFridaysBetween(db, target.id, start, to, now);
             return {
               line: `${target.name} ist ${range} als weg eingetragen.${
