@@ -109,7 +109,12 @@ export const fridays = pgTable('fridays', {
   // An admin put this Friday at nobody's place: no host, not even the default one, until
   // someone of the group takes it over.
   noHost: boolean('no_host').notNull().default(false),
+  // Called off for the app: no answers, orders, money or reminders.
   cancelled: boolean('cancelled').notNull().default(false),
+  // Only the app is off: the evening takes place without ordering (they fetch something
+  // themselves). Always set together with `cancelled`, so everything stays as quiet as on a
+  // cancelled Friday; only the wording differs („Ohne Bestellsystem“ instead of „Fällt aus“).
+  paused: boolean('paused').notNull().default(false),
   cancelReason: text('cancel_reason'),
   mode: text('mode').$type<FridayMode>().notNull().default('delivery'),
   flatTitle: text('flat_title'),

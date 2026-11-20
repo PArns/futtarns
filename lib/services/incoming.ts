@@ -26,7 +26,7 @@ import {
   type OrderItem,
 } from '@/lib/db/schema';
 import { formatDayList, formatDayShort, formatEuro, formatTime } from '@/lib/format';
-import { bold, loginCodeText } from '@/lib/messages';
+import { bold, loginCodeText, offWording } from '@/lib/messages';
 import { nudgeText, type Outgoing } from '@/lib/reminders';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import {
@@ -153,7 +153,9 @@ async function answer(
 ): Promise<{ ok: true; reply: string; view: FridayView } | { ok: false; reply: string }> {
   const date = currentFriday(now);
   const view = await loadFriday(db, date, now);
-  if (view.cancelled) return { ok: false, reply: `Freitag (${formatDayShort(date)}) fällt aus.` };
+  if (view.cancelled) {
+    return { ok: false, reply: `Freitag (${formatDayShort(date)}) ${offWording(view)}.` };
+  }
   if (view.locked || isPastDeadline(date, now)) {
     return {
       ok: false,
@@ -231,7 +233,7 @@ async function vote(db: Db, memberId: number, letter: string, now: Date): Promis
 
 /** Why a member cannot change their own order or drinks right now, by the page's rules. */
 function orderBlocked(view: FridayView, member: Member, now: Date): string | null {
-  if (view.cancelled) return `Freitag (${formatDayShort(view.date)}) fällt aus.`;
+  if (view.cancelled) return `Freitag (${formatDayShort(view.date)}) ${offWording(view)}.`;
   const state = { locked: view.locked || isPastDeadline(view.date, now), settled: view.settled };
   if (canEditOrderOf(member, { id: member.id, addedById: null }, view.host?.id ?? null, state)) {
     return null;
@@ -539,7 +541,7 @@ async function runCommand(
 
     case 'usual': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
@@ -563,7 +565,7 @@ async function runCommand(
 
     case 'same': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
@@ -591,7 +593,7 @@ async function runCommand(
 
     case 'late': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.settled) return `Freitag (${formatDayShort(date)}) ist schon abgerechnet.`;
       await setLate(db, date, member.id, true, command.arrivesAt, now);
       const after = await loadFriday(db, date, now);
@@ -617,7 +619,7 @@ async function runCommand(
 
     case 'others': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       const vote = await runningVote(db, view, now);
       return `${othersText(view, vote && ((id) => vote.nameOf(id)))}\n\n${link}`;
     }
@@ -673,7 +675,7 @@ async function runCommand(
 
     case 'status': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       const me = view.participants.find((entry) => entry.member.id === member.id);
       const what =
         view.mode === 'flat'
@@ -914,7 +916,7 @@ async function runCommand(
       if (!canManageFriday(member, view.host?.id ?? null)) {
         return 'Erinnerungen verschicken nur der Gastgeber und Admins.';
       }
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return 'Bestellschluss ist vorbei, da bringt eine Erinnerung nichts mehr.';
       }

@@ -62,6 +62,12 @@ takes it over (see Permissions).
    minus payments. Positive means still to pay, negative means the host pays back. The host
    owes nothing, unless someone else fetched the food (see Pickup).
 
+A cancelled Friday skips all of this: no answers, orders, lock, money or reminders, only one
+message that it is off. A paused one („Ohne Bestellsystem“, `setPaused`) is the same for the
+app, as `paused` always comes with `cancelled`, but the evening takes place at the host's:
+the group fetches something itself. Pages, the bot and the calendar say so instead of „fällt
+aus“ (`offWording`), and its one message says the evening is on.
+
 ## Money
 
 - **Fees**: delivery, Lieferando's service fee and the tip (each restaurant's own, 2,50 €
@@ -119,8 +125,8 @@ the flag on the people page, and new members get it by default.
 ## Permissions (`lib/permissions.ts`)
 
 - Members change their own answer and order, and those of guests they brought, until 19:30.
-- The Friday's host and admins run that Friday: restaurant or flat price, host, cancel,
-  everyone's orders after the deadline, settlement and payments.
+- The Friday's host and admins run that Friday: restaurant or flat price, host, cancel or
+  pause, everyone's orders after the deadline, settlement and payments.
 - Members with the „Vertretungen“ role (`assignsHosts`, given by an admin) may hand any single
   Friday to another host, in the calendar and on the Friday page, and nothing else of it.
 - When a Friday's host is away that day, or it has none, anyone of the Stammtruppe who is
@@ -167,6 +173,7 @@ whatever falls due at night, such as a cancellation or a settlement, waits until
 | settling or resending | whose total changed since their link       | the corrected amount to pay or to get back; nobody else hears anything                                                            |
 | daily 18:00, 10 days  | open balance ≥ 50 cents                    | payment reminder                                                                                                                  |
 | cancelled Friday      | everyone                                   | that it's off                                                                                                                     |
+| paused Friday         | everyone                                   | that it takes place without ordering                                                                                              |
 
 A Friday without a host around (nobody, or the host is away) has no place yet. Then the bot
 only asks the Stammtruppe on Wednesday where it is, reminds an absent host to find someone,

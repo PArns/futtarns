@@ -22,6 +22,7 @@ import {
   type Member,
 } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
+import { offWording } from '@/lib/messages';
 import { canManageFriday } from '@/lib/permissions';
 import {
   getFridayRow,
@@ -108,7 +109,7 @@ export function mentions(text: string, name: string): boolean {
  * the current one marked, and what happens in it.
  */
 function phaseLines(view: FridayView, voting: boolean, now: Date): string[] {
-  if (view.cancelled) return ['Der Freitag fällt aus.'];
+  if (view.cancelled) return [`Der Freitag ${offWording(view)}.`];
   const flat = view.mode === 'flat';
   const ordering = !view.locked && !isPastDeadline(view.date, now);
   const paying = paymentOpen(view, now);
@@ -497,7 +498,7 @@ export function assistantResearch(db: Db, member: Member, now: Date): Research {
             .join(', ');
         const me = view.participants.find((entry) => entry.member.id === member.id);
         return [
-          `Freitag ${formatDayShort(date)}${view.cancelled ? ': fällt aus' : ''}, Gastgeber: ${view.host?.name ?? 'keiner'}.`,
+          `Freitag ${formatDayShort(date)}${view.cancelled ? `: ${offWording(view)}` : ''}, Gastgeber: ${view.host?.name ?? 'keiner'}.`,
           view.mode === 'flat'
             ? `Pauschale: ${view.flatTitle ?? 'Pauschale'}, ${formatEuro(view.flatPriceCents ?? 0)} pro Person.`
             : `Restaurant: ${view.restaurant?.name ?? 'offen'}.`,
@@ -556,7 +557,7 @@ export function assistantResearch(db: Db, member: Member, now: Date): Research {
             (entry) =>
               `${formatDayShort(entry.date)} (${entry.date}): ${
                 entry.cancelled
-                  ? `fällt aus${entry.cancelReason ? ` (${entry.cancelReason})` : ''}`
+                  ? `${offWording(entry)}${entry.cancelReason ? ` (${entry.cancelReason})` : ''}`
                   : [
                       entry.host
                         ? `bei ${entry.host.name}${entry.hostAbsent ? ' (ist weg, jemand muss übernehmen)' : entry.hostIsDefault ? ' (Standard-Gastgeber, übernehmen geht)' : ''}`

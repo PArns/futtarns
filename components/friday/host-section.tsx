@@ -122,7 +122,8 @@ export function HostSection({
         <GlassCard variant="tile" className="p-5">
           <details open={view.cancelled || view.hostAbsent || !view.host}>
             <summary className="flex cursor-pointer list-none items-center gap-2 font-bold">
-              <Settings2 className="text-primary size-4" /> Gastgeber, Trinkgeld, Getränke, Absage
+              <Settings2 className="text-primary size-4" /> Gastgeber, Trinkgeld, Getränke, Absage,
+              Pause
             </summary>
             <div className="mt-4 space-y-5">
               <HostPicker
@@ -150,6 +151,7 @@ export function HostSection({
               <CancelToggle
                 date={view.date}
                 cancelled={view.cancelled}
+                paused={view.paused}
                 reason={view.cancelReason}
               />
             </div>

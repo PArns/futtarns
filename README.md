@@ -27,6 +27,9 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
   are not asked, and join a Friday when they say yes or someone invites them; then they
   order, pay and vote like everyone else.
 - **Flat-price Fridays** such as a barbecue: one price per person, no menu.
+- **Fridays without ordering** („Ohne Bestellsystem“): the evening takes place, but the group
+  fetches something itself, so the app stays quiet: no answers, orders, money or reminders,
+  just one message that it is paused.
 - **Pickup**: for restaurants that offer it, someone fetches the food at the menu prices,
   without fees or tip, and gets the food money; the drinks money still goes to the host.
 - **Calendar**: who hosts (substitutes per Friday), cancelled Fridays, everyone's absences,

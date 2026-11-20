@@ -49,6 +49,7 @@ import {
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
+import { offWording } from '@/lib/messages';
 import {
   eaterCount,
   estimateFees,
@@ -219,13 +220,23 @@ export async function takeOverFriday(
   return { before: answer?.status ?? null, from: usual ?? null };
 }
 
+/** Calls a Friday off, or back on; back on also ends a pause. */
 export async function setCancelled(
   db: Db,
   date: IsoDate,
   cancelled: boolean,
   reason: string | null
 ) {
-  await touch(db, date, { cancelled, cancelReason: cancelled ? reason : null });
+  await touch(db, date, { cancelled, paused: false, cancelReason: cancelled ? reason : null });
+}
+
+/**
+ * Pauses a Friday, or ends the pause: the evening takes place, but without the app (they
+ * fetch something themselves), so it is as quiet as a cancelled one, with its own message.
+ * The reason or note goes where a cancellation's reason goes.
+ */
+export async function setPaused(db: Db, date: IsoDate, paused: boolean, reason: string | null) {
+  await touch(db, date, { cancelled: paused, paused, cancelReason: paused ? reason : null });
 }
 
 export async function setFridayNote(db: Db, date: IsoDate, note: string | null) {
@@ -742,7 +753,7 @@ export async function resendPayLinks(db: Db, date: IsoDate, now: Date) {
   if (!row?.paymentReleasedAt || !row.paymentNotify) {
     throw new ServiceError('Erst die Zahlung mit Link freigeben');
   }
-  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   return correctPayLinks(db, date, now);
 }
 
@@ -766,7 +777,7 @@ export async function releasePayment(db: Db, date: IsoDate, notify: boolean, now
   const view = await loadFriday(db, date, now);
   const row = await getFridayRow(db, date);
   if (!row?.lockedAt) throw new ServiceError('Freigeben geht erst nach dem Bestellschluss');
-  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   // The links tell the amounts as they are when they first go out.
   const tellsNow = !row.paymentReleasedAt || (notify && !row.paymentNotify);
   await db
@@ -939,7 +950,9 @@ export type FridayView = {
   noHost: boolean;
   /** The host is away that day, so someone has to take over or the Friday is called off. */
   hostAbsent: boolean;
+  /** Called off for the app; with `paused` the evening still takes place (`setPaused`). */
   cancelled: boolean;
+  paused: boolean;
   cancelReason: string | null;
   note: string | null;
   mode: FridayMode;
@@ -1250,6 +1263,7 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     noHost: row?.noHost ?? false,
     hostAbsent: hostAway,
     cancelled,
+    paused: cancelled && (row?.paused ?? false),
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
     mode,
@@ -1310,6 +1324,7 @@ export type CalendarEntry = {
   /** Put at nobody's place by an admin; someone has to take it over. */
   noHost: boolean;
   cancelled: boolean;
+  paused: boolean;
   cancelReason: string | null;
   note: string | null;
   mode: FridayMode;
@@ -1419,6 +1434,7 @@ export async function loadCalendar(
       hostIsDefault: !row?.hostId && !row?.noHost,
       noHost: row?.noHost ?? false,
       cancelled: row?.cancelled ?? false,
+      paused: Boolean(row?.cancelled && row.paused),
       cancelReason: row?.cancelReason ?? null,
       note: row?.note ?? null,
       mode,
@@ -1496,7 +1512,9 @@ export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<
     const view = await loadFriday(db, date, now);
     if (!isBilled(view)) continue;
     const title = view.cancelled
-      ? 'abgesagt'
+      ? view.paused
+        ? 'ohne Bestellsystem'
+        : 'abgesagt'
       : view.mode === 'flat'
         ? (view.flatTitle ?? 'Pauschale')
         : (view.restaurant?.name ?? 'Freitag');

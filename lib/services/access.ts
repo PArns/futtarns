@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { isPastDeadline, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { attendance, type Member } from '@/lib/db/schema';
+import { offWording } from '@/lib/messages';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import { getFridayRow, hostIdFor } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
@@ -33,7 +34,7 @@ export async function requireOrderAccess(
     locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
     settled: Boolean(row?.settledAt),
   };
-  if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row?.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   if (
     !canEditOrderOf(viewer, { id: targetId, addedById: answer?.addedById ?? null }, hostId, state)
   ) {

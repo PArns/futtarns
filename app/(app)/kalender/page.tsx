@@ -19,6 +19,7 @@ import { calendarLink } from '@/lib/auth-tokens';
 import { isPastDeadline, todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatMonth } from '@/lib/format';
+import { offTitle } from '@/lib/messages';
 import { isHollandFriday } from '@/lib/pentecost';
 import { canClearHost, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
 import { getGroupContext } from '@/lib/session';
@@ -123,11 +124,11 @@ export default async function CalendarPage() {
                         <div
                           className={cn(
                             'group-hover:text-primary truncate font-bold transition-colors',
-                            entry.cancelled && 'text-error'
+                            entry.cancelled && !entry.paused && 'text-error'
                           )}
                         >
                           {entry.cancelled
-                            ? 'Fällt aus'
+                            ? offTitle(entry)
                             : entry.mode === 'flat'
                               ? (entry.flatTitle ?? 'Pauschale')
                               : (entry.restaurant?.name ?? 'Restaurant noch offen')}

@@ -17,6 +17,7 @@ import {
   setDrinksOptOut,
   setFlat,
   setHost,
+  setPaused,
   setRestaurant,
   settleDebt,
   settleFriday,
@@ -408,6 +409,40 @@ describe('a Friday', () => {
     await setCancelled(db, next, true, 'Feiertag');
     expect(await lockDueFridays(db, new Date('2026-10-23T17:35:00Z'))).toEqual([]);
     expect((await loadFriday(db, next, new Date('2026-10-23T17:35:00Z'))).locked).toBe(false);
+  });
+
+  it('pauses a Friday: it takes place, but as quiet as a cancelled one', async () => {
+    const { patrick, anna, pizzeria, salami } = await setup();
+    await setDefaultDish(db, anna.id, pizzeria.id, {
+      dishId: salami.id,
+      selection: {},
+      note: null,
+    });
+    await setPaused(db, FRIDAY, true, 'Wir holen Döner');
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    expect(view).toMatchObject({
+      cancelled: true,
+      paused: true,
+      cancelReason: 'Wir holen Döner',
+      drinksTotalCents: 0,
+    });
+    expect(view.participants.every((entry) => entry.money.dueCents === 0)).toBe(true);
+    expect(view.host?.id).toBe(patrick.id);
+    expect((await loadCalendar(db, FRIDAY, 1))[0]).toMatchObject({ cancelled: true, paused: true });
+    // Nobody orders, and at the deadline nobody gets a default dish.
+    await expect(
+      addItem(db, FRIDAY, anna.id, { dishId: salami.id, selection: {}, note: null, quantity: 1 })
+    ).rejects.toThrow('läuft ohne Bestellsystem');
+    expect(await lockDueFridays(db, AFTER)).toEqual([]);
+    const after = await loadFriday(db, FRIDAY, AFTER);
+    expect([after.locked, after.participants.flatMap((entry) => entry.items)]).toEqual([false, []]);
+
+    // Calling it off instead ends the pause; back on ends both.
+    await setCancelled(db, FRIDAY, true, 'Krank');
+    expect((await loadFriday(db, FRIDAY, BEFORE)).paused).toBe(false);
+    await setPaused(db, FRIDAY, true, null);
+    await setCancelled(db, FRIDAY, false, null);
+    expect(await loadFriday(db, FRIDAY, BEFORE)).toMatchObject({ cancelled: false, paused: false });
   });
 
   it('drops orders when someone backs out or the restaurant changes', async () => {
