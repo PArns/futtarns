@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { effectiveAttendance, hostLast } from '@/lib/attendance';
+import { effectiveAttendance, hostLast, isAway } from '@/lib/attendance';
 
 const member = { id: 1, kind: 'member' as const, active: true, core: true };
 const away = [{ memberId: 1, fromDate: '2026-10-10', toDate: '2026-10-20' }];
@@ -40,6 +40,20 @@ describe('effectiveAttendance', () => {
       reason: 'guest',
     });
     expect(effectiveAttendance(visitor, '2026-10-16', 'in', []).status).toBe('in');
+  });
+});
+
+describe('isAway', () => {
+  it('follows the absence while there is no yes for the day', () => {
+    expect(isAway(1, '2026-10-16', undefined, away)).toBe(true);
+    expect(isAway(1, '2026-10-16', 'out', away)).toBe(true);
+    expect(isAway(1, '2026-10-23', undefined, away)).toBe(false);
+    expect(isAway(2, '2026-10-16', undefined, away)).toBe(false);
+  });
+
+  it('lets a yes for the day beat the absence, with or without food', () => {
+    expect(isAway(1, '2026-10-16', 'in', away)).toBe(false);
+    expect(isAway(1, '2026-10-16', 'nofood', away)).toBe(false);
   });
 });
 

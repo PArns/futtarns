@@ -16,6 +16,7 @@ import {
   unitPriceCents,
   type SelectedOption,
 } from '@/lib/menu/options';
+import { offWording } from '@/lib/messages';
 import { castVote, currentRestaurantId, setAttendance, voteState } from '@/lib/services/fridays';
 import { ServiceError } from '@/lib/services/members';
 
@@ -64,7 +65,7 @@ export async function addItem(
   }: { from?: number; vote?: boolean; again?: boolean; now?: Date } = {}
 ) {
   const [friday] = await db.select().from(fridays).where(eq(fridays.date, date));
-  if (friday?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (friday?.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(friday)}`);
   if (friday?.mode === 'flat') throw new ServiceError('An diesem Freitag gibt es eine Pauschale');
   const currentId = await currentRestaurantId(db, date);
   const restaurantId = from ?? currentId;

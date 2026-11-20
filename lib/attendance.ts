@@ -52,6 +52,25 @@ export function effectiveAttendance(
 }
 
 /**
+ * Whether someone is away on a Friday: an absence covers the day and they have not said for
+ * that Friday that they come after all. An answer for the day beats an absence, as in
+ * `effectiveAttendance`, so a host who entered a trip and then says „Bin dabei“ (or orders)
+ * hosts again. Entering an absence takes back a yes given before (`addAbsence`), so the
+ * later word wins either way.
+ */
+export function isAway(
+  memberId: number,
+  friday: IsoDate,
+  answer: AttendanceStatus | undefined,
+  absences: Pick<Absence, 'memberId' | 'fromDate' | 'toDate'>[]
+): boolean {
+  if (answer === 'in' || answer === 'nofood') return false;
+  return absences.some(
+    (absence) => absence.memberId === memberId && isWithin(friday, absence.fromDate, absence.toDate)
+  );
+}
+
+/**
  * How a pill shows someone's answer: a yes, silence that counts as in, without food, no
  * answer yet where one is needed, or out.
  */

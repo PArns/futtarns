@@ -134,6 +134,13 @@
       "when": 1795003608680,
       "tag": "0018_assistant-readings",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795198022046,
+      "tag": "0019_friday-paused",
+      "breakpoints": true
     }
   ]
 }

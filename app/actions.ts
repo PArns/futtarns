@@ -53,6 +53,7 @@ import {
   setFlat,
   setFridayNote,
   setHost,
+  setPaused,
   setPickup,
   setRestaurant,
   setTip,
@@ -91,7 +92,7 @@ import {
   requireFridayManager as requireFridayManagerOf,
   requireOrderAccess,
 } from '@/lib/services/access';
-import { loginCodeText } from '@/lib/messages';
+import { loginCodeText, offWording } from '@/lib/messages';
 import {
   addMissingDish,
   createDish,
@@ -243,7 +244,7 @@ export async function setLateAction(input: {
       .parse(input);
     const db = await getDb();
     const row = await getFridayRow(db, data.date);
-    if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+    if (row?.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
     const [answer] = await db
       .select({ addedById: attendance.addedById })
       .from(attendance)
@@ -389,7 +390,7 @@ async function guestAccess(viewer: Member, date: IsoDate) {
   const row = await getFridayRow(db, date);
   const hostId = await hostIdFor(db, date);
   const closed = Boolean(row?.lockedAt) || isPastDeadline(date);
-  if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row?.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   if (closed && !canManageFriday(viewer, hostId)) {
     throw new ServiceError('Bestellschluss ist vorbei – der Gastgeber kann noch Gäste eintragen');
   }
@@ -588,6 +589,19 @@ export async function setCancelledAction(
     const day = fridayDate.parse(date);
     const { db } = await requireFridayManager(day);
     await setCancelled(db, day, flag.parse(cancelled), optionalText.parse(reason));
+  });
+}
+
+/** Pauses a Friday (the evening takes place without the app) or ends the pause. */
+export async function setPausedAction(
+  date: string,
+  paused: boolean,
+  reason: string
+): Promise<ActionResult> {
+  return run(async () => {
+    const day = fridayDate.parse(date);
+    const { db } = await requireFridayManager(day);
+    await setPaused(db, day, flag.parse(paused), optionalText.parse(reason));
   });
 }
 

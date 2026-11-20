@@ -11,6 +11,7 @@ import {
   setAttendance,
   setCancelled,
   setFlat,
+  setPaused,
   setPickup,
   setRestaurant,
   settleFriday,
@@ -567,6 +568,37 @@ describe('reminders', () => {
       '+491703333333',
     ]);
     expect(sent[0]!.text).toContain('fällt aus');
+  });
+
+  it('tells everyone once that a paused Friday takes place without ordering, and nothing else', async () => {
+    await setup();
+    await runScheduler(db, at('2026-10-14T10:05:00Z'), send, noPause);
+    await setPaused(db, FRIDAY, true, 'Wir holen Döner');
+    sent = [];
+    const noon = at('2026-10-14T10:05:00Z');
+    expect(
+      (await upcomingMessages(db, await loadFriday(db, FRIDAY, noon), noon)).map(
+        (message) => message.kind
+      )
+    ).toEqual(['Ohne Bestellsystem']);
+    await runScheduler(db, noon, send, noPause);
+    expect(sent.map((message) => message.to).sort()).toEqual([
+      '+491701111111',
+      '+491702222222',
+      '+491703333333',
+    ]);
+    expect(sent[0]!.text).toContain('läuft ohne Bestellsystem');
+    expect(sent[0]!.text).toContain('Wir holen Döner');
+    expect(sent[0]!.text).toContain('findet trotzdem statt bei Patrick');
+    // Nothing more until the evening is over: no reminders, no order list, no payments.
+    sent = [];
+    for (const iso of ['2026-10-15T08:05:00Z', '2026-10-16T15:00:00Z', '2026-10-17T08:05:00Z']) {
+      await runScheduler(db, at(iso), send, noPause);
+    }
+    expect(sent).toEqual([]);
+    expect(
+      await handleIncoming(db, '+491702222222', '1', at('2026-10-15T12:00:00Z'), send)
+    ).toContain('läuft ohne Bestellsystem');
   });
 
   it('understands WhatsApp replies', async () => {

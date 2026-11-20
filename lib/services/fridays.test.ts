@@ -17,6 +17,7 @@ import {
   setDrinksOptOut,
   setFlat,
   setHost,
+  setPaused,
   setRestaurant,
   settleDebt,
   settleFriday,
@@ -184,10 +185,57 @@ describe('a Friday', () => {
     );
 
     expect((await loadFriday(db, FRIDAY, BEFORE)).hostAbsent).toBe(false);
-    await addAbsence(db, patrick.id, '2026-10-14', '2026-10-18', 'Urlaub');
+    await addAbsence(db, patrick.id, '2026-10-14', '2026-10-18', 'Urlaub', BEFORE);
     expect((await loadFriday(db, FRIDAY, BEFORE)).hostAbsent).toBe(true);
     await setHost(db, FRIDAY, anna.id);
     expect((await loadFriday(db, FRIDAY, BEFORE)).hostAbsent).toBe(false);
+  });
+
+  it('lets a yes for the day beat an absence, and a later absence take the yes back', async () => {
+    const { patrick, anna, salami } = await setup();
+    const hostAway = async () => {
+      const [entry] = await loadCalendar(db, FRIDAY, 1);
+      return {
+        page: (await loadFriday(db, FRIDAY, BEFORE)).hostAbsent,
+        calendar: entry!.hostAbsent,
+        away: entry!.absentMemberIds,
+      };
+    };
+    await addAbsence(db, patrick.id, FRIDAY, FRIDAY, null, BEFORE);
+    expect(await hostAway()).toEqual({ page: true, calendar: true, away: [patrick.id] });
+    // The trip fell through: „Bin dabei“ makes the host host again.
+    await setAttendance(db, FRIDAY, patrick.id, 'in', BEFORE);
+    expect(await hostAway()).toEqual({ page: false, calendar: false, away: [] });
+    await expect(takeOverFriday(db, FRIDAY, anna.id, BEFORE)).resolves.toMatchObject({
+      from: { id: patrick.id },
+    });
+    await setHost(db, FRIDAY, null);
+    // Without food is a yes too; out is not.
+    await setAttendance(db, FRIDAY, patrick.id, 'nofood', BEFORE);
+    expect((await hostAway()).page).toBe(false);
+    await setAttendance(db, FRIDAY, patrick.id, 'out', BEFORE);
+    expect((await hostAway()).page).toBe(true);
+
+    // A yes with an order, then an absence: the absence is newer, so yes and order go.
+    await addItem(
+      db,
+      FRIDAY,
+      anna.id,
+      { dishId: salami.id, selection: {}, note: null, quantity: 1 },
+      { now: BEFORE }
+    );
+    expect(await addAbsence(db, anna.id, '2026-10-10', '2026-10-20', null, BEFORE)).toEqual([
+      FRIDAY,
+    ]);
+    const anne = (await loadFriday(db, FRIDAY, BEFORE)).participants.find(
+      (entry) => entry.member.id === anna.id
+    )!;
+    expect(anne.attendance).toEqual({ status: 'out', reason: 'absent' });
+    expect(anne.items).toEqual([]);
+    // Once the Friday is locked its answers stay as they were.
+    await setAttendance(db, FRIDAY, anna.id, 'in', BEFORE);
+    await lockFriday(db, FRIDAY, AFTER);
+    expect(await addAbsence(db, anna.id, FRIDAY, FRIDAY, null, AFTER)).toEqual([]);
   });
 
   it('orders from the host’s usual restaurant unless someone picks another', async () => {
@@ -361,6 +409,40 @@ describe('a Friday', () => {
     await setCancelled(db, next, true, 'Feiertag');
     expect(await lockDueFridays(db, new Date('2026-10-23T17:35:00Z'))).toEqual([]);
     expect((await loadFriday(db, next, new Date('2026-10-23T17:35:00Z'))).locked).toBe(false);
+  });
+
+  it('pauses a Friday: it takes place, but as quiet as a cancelled one', async () => {
+    const { patrick, anna, pizzeria, salami } = await setup();
+    await setDefaultDish(db, anna.id, pizzeria.id, {
+      dishId: salami.id,
+      selection: {},
+      note: null,
+    });
+    await setPaused(db, FRIDAY, true, 'Wir holen Döner');
+    const view = await loadFriday(db, FRIDAY, BEFORE);
+    expect(view).toMatchObject({
+      cancelled: true,
+      paused: true,
+      cancelReason: 'Wir holen Döner',
+      drinksTotalCents: 0,
+    });
+    expect(view.participants.every((entry) => entry.money.dueCents === 0)).toBe(true);
+    expect(view.host?.id).toBe(patrick.id);
+    expect((await loadCalendar(db, FRIDAY, 1))[0]).toMatchObject({ cancelled: true, paused: true });
+    // Nobody orders, and at the deadline nobody gets a default dish.
+    await expect(
+      addItem(db, FRIDAY, anna.id, { dishId: salami.id, selection: {}, note: null, quantity: 1 })
+    ).rejects.toThrow('läuft ohne Bestellsystem');
+    expect(await lockDueFridays(db, AFTER)).toEqual([]);
+    const after = await loadFriday(db, FRIDAY, AFTER);
+    expect([after.locked, after.participants.flatMap((entry) => entry.items)]).toEqual([false, []]);
+
+    // Calling it off instead ends the pause; back on ends both.
+    await setCancelled(db, FRIDAY, true, 'Krank');
+    expect((await loadFriday(db, FRIDAY, BEFORE)).paused).toBe(false);
+    await setPaused(db, FRIDAY, true, null);
+    await setCancelled(db, FRIDAY, false, null);
+    expect(await loadFriday(db, FRIDAY, BEFORE)).toMatchObject({ cancelled: false, paused: false });
   });
 
   it('drops orders when someone backs out or the restaurant changes', async () => {
@@ -601,7 +683,7 @@ describe('a Friday', () => {
     // Now Anna is entered for it, and keeps it while she is around.
     await expect(takeOverFriday(db, FRIDAY, ben.id, BEFORE)).rejects.toThrow('weg ist');
     // Once she is away, Ben may; nobody around to tell.
-    await addAbsence(db, anna.id, FRIDAY, FRIDAY, 'Hochzeit');
+    await addAbsence(db, anna.id, FRIDAY, FRIDAY, 'Hochzeit', BEFORE);
     expect((await takeOverFriday(db, FRIDAY, ben.id, BEFORE)).from).toBeNull();
     // Not after the deadline: then the order is due and the host was written down.
     await setHost(db, FRIDAY, null);
@@ -625,7 +707,7 @@ describe('a Friday', () => {
     await setAttendance(db, FRIDAY, anna.id, 'nofood', BEFORE);
     expect(await answerOf(anna.id)).toEqual({ status: 'nofood', reason: 'answered' });
     // Without food before: in after. Anna is away now, so Ben may take it over from her.
-    await addAbsence(db, anna.id, FRIDAY, FRIDAY, null);
+    await addAbsence(db, anna.id, FRIDAY, FRIDAY, null, BEFORE);
     await setAttendance(db, FRIDAY, ben.id, 'nofood', BEFORE);
     expect(await takeOverFriday(db, FRIDAY, ben.id, BEFORE)).toEqual({
       before: 'nofood',
@@ -633,7 +715,7 @@ describe('a Friday', () => {
     });
     expect(await answerOf(ben.id)).toEqual({ status: 'in', reason: 'answered' });
     // Silent before: now a real answer.
-    await addAbsence(db, ben.id, FRIDAY, FRIDAY, null);
+    await addAbsence(db, ben.id, FRIDAY, FRIDAY, null, BEFORE);
     expect(await takeOverFriday(db, FRIDAY, clara.id, BEFORE)).toEqual({
       before: null,
       from: null,

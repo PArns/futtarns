@@ -248,28 +248,44 @@ export function planReminders({
       ? { phone: phoneOf(entry.addedById), prefix: `Für deinen Gast ${entry.member.name}: ` }
       : { phone: entry.member.phone, prefix: '' };
 
+  // Called off, or paused (the evening takes place without the app): either way one message,
+  // from Wednesday noon on, and nothing else.
   if (view.cancelled) {
     if (between(now, berlinAt(date, -2, 12), view.deadline)) {
+      const kind = view.paused ? 'pause' : 'cancel';
       const text = (key: string) =>
-        [
-          pick(
-            [
-              `😢 ${bold(`Freitag (${day}) fällt aus.`)}`,
-              `🥲 ${bold(`Freitag (${day}) fällt leider ins Wasser.`)}`,
-              `💔 ${bold(`Diesen Freitag (${day}) gibt's kein freitach.`)}`,
-            ],
-            key
-          ),
-          view.cancelReason,
-          `Was als Nächstes ansteht: ${appUrl}/kalender`,
-        ]
+        (view.paused
+          ? [
+              pick(
+                [
+                  `🥡 ${bold(`Freitag (${day}) läuft ohne Bestellsystem.`)}`,
+                  `⏸️ ${bold(`Diesen Freitag (${day}) bestellen wir nicht über freitach.`)}`,
+                ],
+                key
+              ),
+              view.cancelReason,
+              `Der Abend findet trotzdem statt${view.host ? ` bei ${view.host.name}` : ''}, nur ohne Bestellen und Bezahlen hier.`,
+            ]
+          : [
+              pick(
+                [
+                  `😢 ${bold(`Freitag (${day}) fällt aus.`)}`,
+                  `🥲 ${bold(`Freitag (${day}) fällt leider ins Wasser.`)}`,
+                  `💔 ${bold(`Diesen Freitag (${day}) gibt's kein freitach.`)}`,
+                ],
+                key
+              ),
+              view.cancelReason,
+              `Was als Nächstes ansteht: ${appUrl}/kalender`,
+            ]
+        )
           .filter(Boolean)
           .join('\n');
       for (const entry of reachable) {
-        const key = `cancel:${date}:${entry.member.id}`;
+        const key = `${kind}:${date}:${entry.member.id}`;
         out.push({ key, to: entry.member.phone!, text: text(key) });
       }
-      if (group) out.push({ key: `cancel:${date}:group`, to: group, text: text('group') });
+      if (group) out.push({ key: `${kind}:${date}:group`, to: group, text: text('group') });
     }
     return out;
   }
@@ -1075,6 +1091,7 @@ export function previewReminders(
 
 const MESSAGE_KINDS: Record<string, string> = {
   cancel: 'Absage',
+  pause: 'Ohne Bestellsystem',
   hostaway: 'Gastgeber ist weg, wer übernimmt?',
   nohost: 'Wo sind wir Freitag?',
   found: 'Gastgeber gefunden',

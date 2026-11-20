@@ -1,12 +1,13 @@
 'use client';
 
-import { Ban, CalendarCheck, Save, ShoppingBag, Truck } from 'lucide-react';
+import { Ban, CalendarCheck, CirclePause, Save, ShoppingBag, Truck } from 'lucide-react';
 import { useState } from 'react';
 import {
   chooseRestaurantAction,
   setCancelledAction,
   setHostAction,
   setNoteAction,
+  setPausedAction,
   setPickupAction,
 } from '@/app/actions';
 import { Button } from '@/components/ui/button';
@@ -207,13 +208,19 @@ export function HostPicker({
   );
 }
 
+/**
+ * Calls the Friday off, or pauses it: the evening takes place, but without the app (they
+ * fetch something themselves). Both share the reason; either one is taken back with a tap.
+ */
 export function CancelToggle({
   date,
   cancelled,
+  paused,
   reason,
 }: {
   date: string;
   cancelled: boolean;
+  paused: boolean;
   reason: string | null;
 }) {
   const [text, setText] = useState(reason ?? '');
@@ -225,28 +232,41 @@ export function CancelToggle({
         disabled={pending}
         onClick={() => execute(() => setCancelledAction(date, false, ''))}
       >
-        <CalendarCheck /> Findet doch statt
+        <CalendarCheck /> {paused ? 'Doch mit Bestellsystem' : 'Findet doch statt'}
       </Button>
     );
   }
   return (
-    <form
-      className="flex flex-col gap-2 sm:flex-row"
-      onSubmit={(event) => {
-        event.preventDefault();
-        execute(() => setCancelledAction(date, true, text));
-      }}
-    >
+    <div className="space-y-2">
       <Input
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Grund (optional)"
+        placeholder="Grund (optional), z. B. „Wir holen Döner“"
+        aria-label="Grund"
         maxLength={200}
       />
-      <Button type="submit" variant="outline" className="text-destructive" disabled={pending}>
-        <Ban /> Freitag absagen
-      </Button>
-    </form>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          disabled={pending}
+          onClick={() => execute(() => setPausedAction(date, true, text))}
+        >
+          <CirclePause /> Ohne Bestellsystem
+        </Button>
+        <Button
+          variant="outline"
+          className="text-destructive"
+          disabled={pending}
+          onClick={() => execute(() => setCancelledAction(date, true, text))}
+        >
+          <Ban /> Freitag absagen
+        </Button>
+      </div>
+      <Hint>
+        Ohne Bestellsystem: Der Abend findet statt, aber hier wird nicht bestellt, gezahlt oder
+        erinnert. Alle bekommen einmal Bescheid.
+      </Hint>
+    </div>
   );
 }
 

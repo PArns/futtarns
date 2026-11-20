@@ -15,10 +15,11 @@ import {
 import type { Db } from '@/lib/db/client';
 import { adminNotes, members, type Member } from '@/lib/db/schema';
 import { formatDayList, formatDayShort, formatWeekdayTime } from '@/lib/format';
-import { bold } from '@/lib/messages';
+import { bold, offWording } from '@/lib/messages';
 import { canClearHost, canEditOrderOf } from '@/lib/permissions';
 import type { Outgoing } from '@/lib/reminders';
 import {
+  awayOn,
   clearHost,
   getFridayRow,
   hostIdFor,
@@ -29,12 +30,7 @@ import {
   setCancelled,
   setHost,
 } from '@/lib/services/fridays';
-import {
-  absencesOverlapping,
-  addAbsence,
-  getDefaultHost,
-  ServiceError,
-} from '@/lib/services/members';
+import { addAbsence, getDefaultHost, ServiceError } from '@/lib/services/members';
 
 /**
  * What reaches the admins by chat, and what they change by it: Claude passes on what a
@@ -154,7 +150,7 @@ export async function adminFacts(db: Db, now: Date): Promise<string[]> {
       (entry) =>
         `${entry.date} (${formatDayShort(entry.date)}): ${
           entry.cancelled
-            ? 'fällt aus'
+            ? offWording(entry)
             : entry.host
               ? `bei ${entry.host.name}${entry.hostAbsent ? ' (ist an dem Tag weg)' : ''}`
               : 'kein Gastgeber'
@@ -245,8 +241,7 @@ export async function runAdminChanges(
         const host = personOf(change.memberId);
         if (!host || !host.core) return fail('Gastgeber kann nur jemand aus der Stammtruppe sein.');
         if (current === host.id) return already(`Freitag (${day}) ist schon bei ${host.name}.`);
-        const away = await absencesOverlapping(db, date, date);
-        if (away.some((absence) => absence.memberId === host.id)) {
+        if ((await awayOn(db, date))(host.id)) {
           return fail(`${host.name} ist am ${day} als weg eingetragen.`);
         }
         return {
@@ -299,19 +294,28 @@ export async function runAdminChanges(
         if (!isIsoDate(date)) return fail(date);
         const day = formatDayShort(date);
         if (await closed(date)) return fail(`Freitag (${day}) ist schon geschlossen.`);
-        const cancelled = (await getFridayRow(db, date))?.cancelled ?? false;
+        const row = await getFridayRow(db, date);
+        const cancelled = row?.cancelled ?? false;
+        // A pause is called off for the app too; cancelling it calls the evening off.
+        const paused = cancelled && (row?.paused ?? false);
         if (change.kind === 'uncancel') {
           if (!cancelled) return already(`Freitag (${day}) fällt gar nicht aus.`);
           return {
             ok: true,
-            what: `Freitag (${day}) findet doch statt`,
+            what: paused
+              ? `Freitag (${day}) wieder mit Bestellsystem`
+              : `Freitag (${day}) findet doch statt`,
             apply: async () => {
               await setCancelled(db, date, false, null);
-              return { line: `Freitag (${day}) findet wieder statt.` };
+              return {
+                line: paused
+                  ? `Freitag (${day}) läuft wieder mit Bestellsystem.`
+                  : `Freitag (${day}) findet wieder statt.`,
+              };
             },
           };
         }
-        if (cancelled) return already(`Freitag (${day}) fällt schon aus.`);
+        if (cancelled && !paused) return already(`Freitag (${day}) fällt schon aus.`);
         const reason = change.text;
         return {
           ok: true,
@@ -335,7 +339,7 @@ export async function runAdminChanges(
         const status = change.status;
         if (!status) return fail(`Für ${target.name} fehlt, ob dabei, ohne Essen oder raus.`);
         const view = await loadFriday(db, date, now);
-        if (view.cancelled) return fail(`Freitag (${day}) fällt aus.`);
+        if (view.cancelled) return fail(`Freitag (${day}) ${offWording(view)}.`);
         if (view.locked || isPastDeadline(date, now)) {
           return fail(`Bestellschluss am ${day} ist vorbei, das geht nur noch auf der Seite.`);
         }
@@ -388,7 +392,7 @@ export async function runAdminChanges(
           ok: true,
           what: `${target.name} ${range} weg`,
           apply: async () => {
-            await addAbsence(db, target.id, start, to, null);
+            await addAbsence(db, target.id, start, to, null, now);
             const hosting = await hostedFridaysBetween(db, target.id, start, to, now);
             return {
               line: `${target.name} ist ${range} als weg eingetragen.${

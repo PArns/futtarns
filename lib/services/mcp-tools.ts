@@ -32,7 +32,7 @@ import {
   type AttendanceStatus,
   type Member,
 } from '@/lib/db/schema';
-import { bold } from '@/lib/messages';
+import { bold, offWording } from '@/lib/messages';
 import {
   canClearHost,
   canManageFriday,
@@ -43,6 +43,7 @@ import {
 import { requireFridayManager, requireOrderAccess } from '@/lib/services/access';
 import { chatOf, chatSummaries } from '@/lib/services/chats';
 import {
+  awayOn,
   castVote,
   clearHost,
   currentRestaurantId,
@@ -57,6 +58,7 @@ import {
   setCancelled,
   setHost,
   setLate,
+  setPaused,
   takeOverFriday,
   type FridayView,
 } from '@/lib/services/fridays';
@@ -151,7 +153,7 @@ const person = (entry: Pick<Member, 'id' | 'name'> | null) =>
 
 /** The phase a Friday is in, like the page's phase bar. */
 function phaseOf(view: FridayView, voting: boolean, now: Date) {
-  if (view.cancelled) return 'cancelled';
+  if (view.cancelled) return view.paused ? 'paused' : 'cancelled';
   if (voting) return 'vote';
   if (!view.locked && !isPastDeadline(view.date, now)) return 'order';
   return paymentOpen(view, now) ? 'pay' : 'eat';
@@ -189,7 +191,7 @@ export const TOOLS: McpTool[] = [
     name: 'list_fridays',
     title: 'Fridays',
     description:
-      'Fridays from a date on, one per week: host (or none, or away that day), cancelled with reason, restaurant or flat price, whether the vote runs (only known for the first), who is away, and everyone’s answer (status in = dabei, nofood = ohne Essen, out = raus; answered false means silence counts).',
+      'Fridays from a date on, one per week: host (or none, or away that day), cancelled with reason (paused: the evening takes place, only without ordering in the app), restaurant or flat price, whether the vote runs (only known for the first), who is away, and everyone’s answer (status in = dabei, nofood = ohne Essen, out = raus; answered false means silence counts).',
     readOnly: true,
     input: {
       from: fridayArg.optional(),
@@ -203,6 +205,7 @@ export const TOOLS: McpTool[] = [
       return entries.map((entry) => ({
         date: entry.date,
         cancelled: entry.cancelled,
+        paused: entry.paused,
         cancel_reason: entry.cancelReason,
         note: entry.note,
         host: person(entry.host),
@@ -233,7 +236,7 @@ export const TOOLS: McpTool[] = [
     name: 'get_friday',
     title: 'One Friday',
     description:
-      'One Friday in full: host, phase (vote, order, eat, pay, cancelled), deadline, restaurant or flat price, the vote, and everyone with their answer, „kommt später“, order lines (item ids for remove_order) and the default dish they get when silent. Money per person only for whoever runs the Friday (host, admins); everyone else sees their own.',
+      'One Friday in full: host, phase (vote, order, eat, pay, cancelled, paused: the evening takes place without ordering in the app), deadline, restaurant or flat price, the vote, and everyone with their answer, „kommt später“, order lines (item ids for remove_order) and the default dish they get when silent. Money per person only for whoever runs the Friday (host, admins); everyone else sees their own.',
     readOnly: true,
     input: { date: fridayArg.optional() },
     run: async (context, args) => {
@@ -249,11 +252,12 @@ export const TOOLS: McpTool[] = [
       const manages = canManageFriday(member, view.host?.id ?? null);
       const nameOf = (id: number) =>
         view.participants.find((entry) => entry.member.id === id)?.member.name ?? '?';
-      const absent = await absencesOverlapping(db, date, date);
+      const away = await awayOn(db, date);
       return {
         date,
         phase: phaseOf(view, voting, now),
         cancelled: view.cancelled,
+        paused: view.paused,
         cancel_reason: view.cancelReason,
         note: view.note,
         host: person(view.host),
@@ -326,7 +330,7 @@ export const TOOLS: McpTool[] = [
             hostId: view.host?.id ?? null,
             hostIsDefault: view.hostIsDefault,
             hostAbsent: view.hostAbsent,
-            viewerAbsent: absent.some((absence) => absence.memberId === member.id),
+            viewerAbsent: away(member.id),
             locked: view.locked || isPastDeadline(date, now),
             cancelled: view.cancelled,
           }),
@@ -828,7 +832,7 @@ export const TOOLS: McpTool[] = [
       const date = fridayOf(context, args.date);
       const target = await personOf(db, args.member_id ?? member.id);
       const row = await getFridayRow(db, date);
-      if (row?.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+      if (row?.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
       const [answer] = await db
         .select({ addedById: attendance.addedById })
         .from(attendance)
@@ -997,19 +1001,26 @@ export const TOOLS: McpTool[] = [
     name: 'set_cancelled',
     title: 'Cancel a Friday',
     description:
-      'Calls a Friday off (cancelled true, with an optional reason) or back on. Everyone then gets the cancellation from the bot. Only for whoever runs the Friday.',
+      'Calls a Friday off (cancelled true, with an optional reason) or back on. With paused true the evening still takes place, only without the app (they fetch something themselves): no answers, orders, money or reminders, just like a cancelled one. Everyone then gets the cancellation or the pause from the bot. Only for whoever runs the Friday.',
     readOnly: false,
     destructive: true,
     input: {
       date: requiredFridayArg,
       cancelled: z.boolean(),
+      paused: z
+        .boolean()
+        .optional()
+        .describe('With cancelled true: the evening takes place, only without ordering.'),
       reason: z.string().max(200).optional(),
     },
     run: async (context, args) => {
       const date = fridayOf(context, args.date);
       await requireFridayManager(context.db, context.member, date);
-      await setCancelled(context.db, date, args.cancelled, args.reason?.trim() || null);
-      return { date, cancelled: args.cancelled };
+      const reason = args.reason?.trim() || null;
+      const paused = args.cancelled && Boolean(args.paused);
+      if (paused) await setPaused(context.db, date, true, reason);
+      else await setCancelled(context.db, date, args.cancelled, reason);
+      return { date, cancelled: args.cancelled, paused };
     },
   }),
 
@@ -1032,7 +1043,7 @@ export const TOOLS: McpTool[] = [
       }
       if (!isIsoDate(args.from) || !isIsoDate(args.to)) throw new ServiceError('Ungültiges Datum');
       if (daysBetween(args.from, args.to) > 366) throw new ServiceError('Höchstens ein Jahr');
-      await addAbsence(db, target.id, args.from, args.to, args.note?.trim() || null);
+      await addAbsence(db, target.id, args.from, args.to, args.note?.trim() || null, now);
       const hosting = await hostedFridaysBetween(db, target.id, args.from, args.to, now);
       return { member: person(target), from: args.from, to: args.to, would_host: hosting };
     },
