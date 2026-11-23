@@ -34,3 +34,16 @@ export function loginCodeText(code: string, link?: string): string {
     link ? `Oder direkt anmelden:\n${link}` : 'Er gilt 10 Minuten.',
   ].join('\n');
 }
+
+/**
+ * What a called-off Friday is, to finish „Freitag (20.11.) …“: cancelled, or paused (the
+ * evening takes place, only without ordering in the app).
+ */
+export function offWording(friday: { paused: boolean }): string {
+  return friday.paused ? 'läuft ohne Bestellsystem' : 'fällt aus';
+}
+
+/** The headline of a called-off Friday. */
+export function offTitle(friday: { paused: boolean }): string {
+  return friday.paused ? 'Ohne Bestellsystem' : 'Fällt aus';
+}

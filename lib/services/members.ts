@@ -1,8 +1,16 @@
-import { and, asc, eq, gt, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { generateToken, hashToken, loginLink } from '@/lib/auth-tokens';
 import type { Db } from '@/lib/db/client';
-import { absences, attendance, members, sessions, type Member } from '@/lib/db/schema';
-import type { IsoDate } from '@/lib/dates';
+import { isPastDeadline, type IsoDate } from '@/lib/dates';
+import {
+  absences,
+  attendance,
+  fridays,
+  members,
+  orderItems,
+  sessions,
+  type Member,
+} from '@/lib/db/schema';
 
 export class ServiceError extends Error {}
 
@@ -331,15 +339,48 @@ export async function absencesOverlapping(db: Db, from: IsoDate, to: IsoDate) {
     .where(and(lte(absences.fromDate, to), gte(absences.toDate, from)));
 }
 
+/**
+ * Enters an absence. It is the newer word, so a yes given before for a Friday in it that is
+ * still open („Bin dabei“, „Ohne Essen“, an order) is taken back with what was ordered:
+ * otherwise that yes would beat the absence (`isAway`), and a host who goes away would
+ * still count as hosting. Saying yes again afterwards beats the absence once more. Returns
+ * the Fridays whose yes was taken back.
+ */
 export async function addAbsence(
   db: Db,
   memberId: number,
   fromDate: IsoDate,
   toDate: IsoDate,
-  note: string | null
-) {
+  note: string | null,
+  now: Date = new Date()
+): Promise<IsoDate[]> {
   if (toDate < fromDate) throw new ServiceError('Das Ende liegt vor dem Anfang');
-  await db.insert(absences).values({ memberId, fromDate, toDate, note });
+  return db.transaction(async (tx) => {
+    await tx.insert(absences).values({ memberId, fromDate, toDate, note });
+    const yeses = await tx
+      .select({ date: attendance.fridayDate })
+      .from(attendance)
+      .leftJoin(fridays, eq(fridays.date, attendance.fridayDate))
+      .where(
+        and(
+          eq(attendance.memberId, memberId),
+          gte(attendance.fridayDate, fromDate),
+          lte(attendance.fridayDate, toDate),
+          inArray(attendance.status, ['in', 'nofood']),
+          isNull(fridays.lockedAt)
+        )
+      );
+    const open = yeses.map((entry) => entry.date).filter((date) => !isPastDeadline(date, now));
+    if (open.length) {
+      await tx
+        .delete(attendance)
+        .where(and(eq(attendance.memberId, memberId), inArray(attendance.fridayDate, open)));
+      await tx
+        .delete(orderItems)
+        .where(and(eq(orderItems.memberId, memberId), inArray(orderItems.fridayDate, open)));
+    }
+    return open;
+  });
 }
 
 export async function removeAbsence(db: Db, memberId: number, absenceId: number) {

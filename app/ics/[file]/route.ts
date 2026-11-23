@@ -22,13 +22,16 @@ export async function GET(_request: Request, context: RouteContext<'/ics/[file]'
     const start = orderDeadline(entry.date);
     const away = entry.absentMemberIds.includes(member.id);
     const hosting = entry.host?.id === member.id;
-    const summary = entry.cancelled
-      ? 'Freitach fällt aus'
-      : `Freitach${entry.restaurant ? `: ${entry.restaurant.name}` : ''}${hosting ? ' (du bist Gastgeber)' : ''}`;
+    const summary =
+      entry.cancelled && !entry.paused
+        ? 'Freitach fällt aus'
+        : `Freitach${entry.paused ? ' ohne Bestellsystem' : entry.restaurant ? `: ${entry.restaurant.name}` : ''}${hosting ? ' (du bist Gastgeber)' : ''}`;
     const description = [
       entry.cancelled && entry.cancelReason ? entry.cancelReason : null,
       entry.host ? `Gastgeber: ${entry.host.name}` : null,
-      `Bestellschluss ${formatTime(start)}, Essen ca. ${formatTime(deliveryTime(entry.date))}`,
+      entry.paused
+        ? 'Diesmal ohne Bestellen und Bezahlen über freitach.'
+        : `Bestellschluss ${formatTime(start)}, Essen ca. ${formatTime(deliveryTime(entry.date))}`,
       away ? 'Du bist als abwesend eingetragen.' : null,
     ]
       .filter(Boolean)
@@ -40,7 +43,8 @@ export async function GET(_request: Request, context: RouteContext<'/ics/[file]'
       summary,
       description,
       url: `${appUrl()}/freitag/${entry.date}`,
-      cancelled: entry.cancelled,
+      // A paused Friday takes place, only without the app.
+      cancelled: entry.cancelled && !entry.paused,
     };
   });
 

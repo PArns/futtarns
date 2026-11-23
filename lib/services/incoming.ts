@@ -7,10 +7,13 @@ import {
   ERROR_REPLY,
   DailyLimit,
   LIMIT_TEXT,
+  newTrace,
+  readingError,
   understand,
   type Interpretation,
   type Interpreter,
 } from '@/lib/assistant';
+import { chatContext } from '@/lib/chat';
 import { HELP_TEXT, parseCommand, type Command } from '@/lib/commands';
 import { currentFriday, daysBetween, isPastDeadline, todayIso } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
@@ -23,7 +26,7 @@ import {
   type OrderItem,
 } from '@/lib/db/schema';
 import { formatDayList, formatDayShort, formatEuro, formatTime } from '@/lib/format';
-import { bold, loginCodeText } from '@/lib/messages';
+import { bold, loginCodeText, offWording } from '@/lib/messages';
 import { nudgeText, type Outgoing } from '@/lib/reminders';
 import { canEditOrderOf, canManageFriday } from '@/lib/permissions';
 import {
@@ -33,7 +36,9 @@ import {
   nudgeReason,
 } from '@/lib/services/assistant';
 import { reportToAdmins, runAdminChanges } from '@/lib/services/admin';
-import { askedWhere, deliver, pauseBetweenMessages } from '@/lib/services/scheduler';
+import { noteChatDetail, recentChat, recordChat } from '@/lib/services/chats';
+import { recordReading } from '@/lib/services/readings';
+import { askedWhere, deliver, pauseBetweenMessages, tellTakenOver } from '@/lib/services/scheduler';
 import { requestLoginCode } from '@/lib/services/auth';
 import {
   castVote,
@@ -148,7 +153,9 @@ async function answer(
 ): Promise<{ ok: true; reply: string; view: FridayView } | { ok: false; reply: string }> {
   const date = currentFriday(now);
   const view = await loadFriday(db, date, now);
-  if (view.cancelled) return { ok: false, reply: `Freitag (${formatDayShort(date)}) fällt aus.` };
+  if (view.cancelled) {
+    return { ok: false, reply: `Freitag (${formatDayShort(date)}) ${offWording(view)}.` };
+  }
   if (view.locked || isPastDeadline(date, now)) {
     return {
       ok: false,
@@ -226,7 +233,7 @@ async function vote(db: Db, memberId: number, letter: string, now: Date): Promis
 
 /** Why a member cannot change their own order or drinks right now, by the page's rules. */
 function orderBlocked(view: FridayView, member: Member, now: Date): string | null {
-  if (view.cancelled) return `Freitag (${formatDayShort(view.date)}) fällt aus.`;
+  if (view.cancelled) return `Freitag (${formatDayShort(view.date)}) ${offWording(view)}.`;
   const state = { locked: view.locked || isPastDeadline(view.date, now), settled: view.settled };
   if (canEditOrderOf(member, { id: member.id, addedById: null }, view.host?.id ?? null, state)) {
     return null;
@@ -255,12 +262,18 @@ type Send = (to: string, text: string) => Promise<SendResult>;
 /** Reminders asked for through the bot, sent one by one once the answer went back. */
 let outbox: Promise<unknown> = Promise.resolve();
 
-function sendLater(db: Db, messages: Outgoing[], send: Send, pause: () => Promise<unknown>) {
+function sendLater(
+  db: Db,
+  messages: Outgoing[],
+  send: Send,
+  pause: () => Promise<unknown>,
+  now: Date
+) {
   outbox = outbox.then(async () => {
     for (const [index, message] of messages.entries()) {
       if (index > 0) await pause();
       try {
-        await deliver(db, message, send);
+        await deliver(db, message, send, now);
       } catch (error) {
         console.error('[remind] could not send', error);
       }
@@ -283,6 +296,7 @@ const assistantLimit = new DailyLimit();
  * Answers a WhatsApp message from a member. Strangers get nothing at all, not even a
  * reading. A message no command matches goes to Claude (`lib/assistant.ts`), when a key is
  * set; without one, plain chat gets no reply. `interpreter` stands in for Claude in tests.
+ * The message and the answer go into the member's chat (`lib/services/chats.ts`).
  */
 export async function handleIncoming(
   db: Db,
@@ -301,7 +315,27 @@ export async function handleIncoming(
     .where(and(eq(members.phone, phone), eq(members.active, true), eq(members.kind, 'member')));
   if (!member) return null;
   const command = parseCommand(text);
-  if (command.kind !== 'unknown') return safely(runCommand(db, member, command, now, send, pause));
+  const known = command.kind !== 'unknown';
+  const chatId = await recordChat(
+    db,
+    {
+      memberId: member.id,
+      direction: 'in',
+      kind: known ? 'command' : 'text',
+      detail: known ? command.kind : null,
+      text,
+    },
+    now
+  );
+  /** Puts the answer into the chat too, once it is there. */
+  const answered = async (reply: string | null) => {
+    if (reply) {
+      const entry = { memberId: member.id, direction: 'out', kind: 'reply', text: reply } as const;
+      await recordChat(db, entry, now);
+    }
+    return reply;
+  };
+  if (known) return answered(await safely(runCommand(db, member, command, now, send, pause)));
 
   // The bot waits 20 seconds for the answer; the time counts from here.
   const started = Date.now();
@@ -310,9 +344,9 @@ export async function handleIncoming(
       ? interpreter
       : await getAssistantKey(db).then((key) => (key ? claudeInterpreter(key) : null));
   if (!interpret) return null;
-  if (!assistantLimit.take(String(member.id), now)) return LIMIT_TEXT;
+  if (!assistantLimit.take(String(member.id), now)) return answered(LIMIT_TEXT);
   const work = safely(
-    readWithClaude(db, member, text, now, interpret, started, send, pause),
+    readWithClaude(db, member, text, now, interpret, started, send, pause, chatId),
     'reading'
   );
   // When Claude takes longer than the bot waits, the answer follows as a message of its own
@@ -323,11 +357,14 @@ export async function handleIncoming(
   });
   const first = await Promise.race([work, late]);
   clearTimeout(timer);
-  if (first !== LATE) return first;
+  if (first !== LATE) return answered(first);
   void work.then(async (reply) => {
-    if (reply && (await send(member.phone!, reply)) === 'failed') {
+    if (!reply) return;
+    if ((await send(member.phone!, reply)) === 'failed') {
       console.error('[assistant] could not send a late answer');
+      return;
     }
+    await answered(reply);
   });
   return null;
 }
@@ -347,23 +384,44 @@ async function readWithClaude(
   interpret: Interpreter,
   started: number,
   send: Send,
-  pause: () => Promise<unknown>
+  pause: () => Promise<unknown>,
+  chatId: number | null
 ): Promise<string | null> {
   const { facts, restaurantIds } = await assistantFacts(db, member, text, now);
+  // The chat so far, so a follow-up („ja, mach“, „die andere“) makes sense.
+  const chat = chatContext(await recentChat(db, member.id, now, chatId), member.name);
+  // Everything about this reading is kept, so the prompt can be judged on it later.
+  const trace = newTrace();
+  const reading = { memberId: member.id, chatMessageId: chatId, message: text, facts, chat, trace };
+  const asked = Date.now();
   let result: Interpretation | null;
+  let failure: string | null = null;
   try {
     result = await interpret({
       facts,
+      chat,
       name: member.name,
       text,
       research: assistantResearch(db, member, now),
       until: started + ASSISTANT_BUDGET_MS,
+      trace,
     });
   } catch (error) {
     console.error('[assistant] reading failed', error);
+    failure = readingError(error);
     result = null;
   }
-  if (!result) return ERROR_REPLY;
+  const durationMs = Date.now() - asked;
+  if (!result) {
+    const error = failure ?? (trace.stop && trace.stop !== 'end_turn' ? trace.stop : 'no_answer');
+    await recordReading(
+      db,
+      { ...reading, interpretation: null, command: null, answer: ERROR_REPLY, durationMs, error },
+      now
+    );
+    return ERROR_REPLY;
+  }
+  await noteChatDetail(db, chatId, result.action);
   const understood = understand(result, {
     restaurantIds,
     confirmed: /\bsicher\b/i.test(text),
@@ -379,14 +437,27 @@ async function readWithClaude(
     try {
       const messages = await reportToAdmins(db, member, understood.adminNote, text, now);
       if (messages) {
-        sendLater(db, messages, send, pause);
+        sendLater(db, messages, send, pause, now);
         reported = '📨 Hab ich an die Admins weitergegeben.';
       }
     } catch (error) {
       console.error('[assistant] could not report to the admins', error);
     }
   }
-  return [understood.reply, outcome, reported].filter(Boolean).join('\n\n') || null;
+  const answer = [understood.reply, outcome, reported].filter(Boolean).join('\n\n') || null;
+  await recordReading(
+    db,
+    {
+      ...reading,
+      interpretation: result,
+      command: understood.command?.kind ?? null,
+      answer,
+      durationMs,
+      error: null,
+    },
+    now
+  );
+  return answer;
 }
 
 /**
@@ -441,8 +512,10 @@ async function runCommand(
     }
 
     case 'takeOver': {
+      let before: AttendanceStatus | null;
+      let from: Member | null;
       try {
-        await takeOverFriday(db, date, member.id, now);
+        ({ before, from } = await takeOverFriday(db, date, member.id, now));
       } catch (error) {
         if (error instanceof ServiceError) {
           const view = await loadFriday(db, date, now);
@@ -452,13 +525,23 @@ async function runCommand(
         }
         throw error;
       }
-      const tell = (await askedWhere(db, date)) ? ' Den anderen sag ich gleich Bescheid.' : '';
-      return `🏠 Danke! Freitag (${formatDayShort(date)}) ist jetzt ${bold('bei dir')}: Du bestellst, und das Geld geht an dich.${tell}\n${link}`;
+      const told = await tellTakenOver(db, date, from, member, send, now);
+      const tell = (await askedWhere(db, date))
+        ? ' Den anderen sag ich gleich Bescheid.'
+        : told
+          ? ` ${from!.name} hab ich Bescheid gesagt.`
+          : '';
+      // Taking over is a yes; whoever had said otherwise hears it, and can change it again.
+      const answer =
+        before === 'nofood' || before === 'out'
+          ? `\nDu bist jetzt auch wieder ${bold('dabei')} (vorher ${before === 'out' ? 'raus' : 'ohne Essen'}). Ändern geht jederzeit, z. B. ${bold('2')} für ohne Essen.`
+          : '';
+      return `🏠 Danke! Freitag (${formatDayShort(date)}) ist jetzt ${bold('bei dir')}: Du bestellst, und das Geld geht an dich.${tell}${answer}\n${link}`;
     }
 
     case 'usual': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
@@ -482,7 +565,7 @@ async function runCommand(
 
     case 'same': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return `Bestellschluss war um ${bold(formatTime(view.deadline))}. Sag ${view.host?.name ?? 'dem Gastgeber'} bitte direkt Bescheid.`;
       }
@@ -510,7 +593,7 @@ async function runCommand(
 
     case 'late': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.settled) return `Freitag (${formatDayShort(date)}) ist schon abgerechnet.`;
       await setLate(db, date, member.id, true, command.arrivesAt, now);
       const after = await loadFriday(db, date, now);
@@ -536,7 +619,7 @@ async function runCommand(
 
     case 'others': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       const vote = await runningVote(db, view, now);
       return `${othersText(view, vote && ((id) => vote.nameOf(id)))}\n\n${link}`;
     }
@@ -592,7 +675,7 @@ async function runCommand(
 
     case 'status': {
       const view = await loadFriday(db, date, now);
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       const me = view.participants.find((entry) => entry.member.id === member.id);
       const what =
         view.mode === 'flat'
@@ -768,7 +851,7 @@ async function runCommand(
       if (daysBetween(from, command.to) > 366) {
         return `So lange? Trag das bitte selbst ein:\n${appUrl()}/kalender#abwesend`;
       }
-      await addAbsence(db, member.id, from, command.to, null);
+      await addAbsence(db, member.id, from, command.to, null, now);
       const hosting = await hostedFridaysBetween(db, member.id, from, command.to, now);
       return [
         `✈️ Eingetragen: weg ${from === command.to ? `am ${formatDayShort(from)}` : `vom ${formatDayShort(from)} bis ${formatDayShort(command.to)}`}. An den Freitagen dazwischen bist du raus und bekommst nichts.`,
@@ -833,7 +916,7 @@ async function runCommand(
       if (!canManageFriday(member, view.host?.id ?? null)) {
         return 'Erinnerungen verschicken nur der Gastgeber und Admins.';
       }
-      if (view.cancelled) return `Freitag (${formatDayShort(date)}) fällt aus.`;
+      if (view.cancelled) return `Freitag (${formatDayShort(date)}) ${offWording(view)}.`;
       if (view.locked || isPastDeadline(date, now)) {
         return 'Bestellschluss ist vorbei, da bringt eine Erinnerung nichts mehr.';
       }
@@ -894,7 +977,7 @@ async function runCommand(
         });
       }
       // WhatsApp blocks bursts, so they go out one by one after this answer.
-      sendLater(db, messages, send, pause);
+      sendLater(db, messages, send, pause, now);
       const names = (list: string[]) => list.join(', ');
       return [
         messages.length
@@ -918,7 +1001,7 @@ async function runCommand(
     case 'admin': {
       const done = await runAdminChanges(db, member, command.changes, command.confirmed, now);
       // Whom it tells goes out one by one after this answer.
-      sendLater(db, done.messages, send, pause);
+      sendLater(db, done.messages, send, pause, now);
       return done.text;
     }
 

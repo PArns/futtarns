@@ -27,6 +27,9 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
   are not asked, and join a Friday when they say yes or someone invites them; then they
   order, pay and vote like everyone else.
 - **Flat-price Fridays** such as a barbecue: one price per person, no menu.
+- **Fridays without ordering** („Ohne Bestellsystem“): the evening takes place, but the group
+  fetches something itself, so the app stays quiet: no answers, orders, money or reminders,
+  just one message that it is paused.
 - **Pickup**: for restaurants that offer it, someone fetches the food at the menu prices,
   without fees or tip, and gets the food money; the drinks money still goes to the host.
 - **Calendar**: who hosts (substitutes per Friday), cancelled Fridays, everyone's absences,
@@ -38,6 +41,12 @@ and the host places one order on Lieferando. A WhatsApp bot does the chasing.
 - **Claude in the bot** (optional): members can just write („bestell mir das Übliche“, „ich
   will Tasty“, „ich raff das nicht“); Claude picks the matching action or answers, with read
   access to what the member may see and only the member's own rights.
+- **MCP server** (`/api/mcp`): a personal key from „Ich“ lets Claude (Claude Code, Claude
+  Desktop or any MCP client) read and run freitach for that member, with exactly their rights:
+  Fridays, orders, answers, taking a Friday over, hosts, cancellations, absences; admins also
+  read the bot's chats and the reports, message people through the bot, and work on the bot's
+  prompt with every reading Claude made (what it was given, did and cost; rated and compared
+  per prompt version).
 - **WhatsApp bot**: on Wednesday the question who comes, the invitation on Friday at 10:00,
   the order reminder then or, when the group votes, with the result at 16:00, the order list
   for the host at 19:30, everyone's payment link once the host releases paying, the settled amounts and daily payment

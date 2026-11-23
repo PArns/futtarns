@@ -3,6 +3,7 @@ import { parseArrival } from '@/lib/arrival';
 import {
   effectiveAttendance,
   hostLast,
+  isAway,
   type AttendancePerson,
   type EffectiveAttendance,
 } from '@/lib/attendance';
@@ -48,6 +49,7 @@ import {
   type Restaurant,
 } from '@/lib/db/schema';
 import { unitPriceCents } from '@/lib/menu/options';
+import { offWording } from '@/lib/messages';
 import {
   eaterCount,
   estimateFees,
@@ -62,6 +64,19 @@ import { hostRestaurant, restaurantHostIds, restaurantsForHost } from '@/lib/ser
 import { voteClosesAt, voteWinner, votingAt, type Vote } from '@/lib/vote';
 
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Who is away on a Friday (`isAway`): an absence covers it and no yes for that day beats it.
+ */
+export async function awayOn(db: Db, date: IsoDate): Promise<(memberId: number) => boolean> {
+  const absent = await absencesOverlapping(db, date, date);
+  const answers = await db
+    .select({ memberId: attendance.memberId, status: attendance.status })
+    .from(attendance)
+    .where(eq(attendance.fridayDate, date));
+  return (memberId) =>
+    isAway(memberId, date, answers.find((entry) => entry.memberId === memberId)?.status, absent);
+}
 
 async function ensureFridayRow(db: Db, date: IsoDate) {
   await db.insert(fridays).values({ date }).onConflictDoNothing();
@@ -155,39 +170,73 @@ export async function clearHost(db: Db, date: IsoDate) {
 }
 
 /**
- * A member steps in for a host who is away that day, or on a Friday without a host.
- * Checked here against the database, not the page: the host must be away or missing, the
- * member around and in the Stammtruppe.
+ * A member steps in for a host who is away that day, for the usual host (even while they are
+ * around), or on a Friday without a host. Checked here against the database, not the page:
+ * the host must be away, missing or only the usual one, the member around and in the
+ * Stammtruppe. Whoever takes it over is there, so their answer becomes „Bin dabei“ whatever
+ * it was; like any answer they can change it afterwards. Returns their answer from before
+ * (null: none), so the reply can say what changed, and the usual host it was taken from
+ * while they are around, who should hear about it.
  */
-export async function takeOverFriday(db: Db, date: IsoDate, memberId: number, now: Date) {
+export async function takeOverFriday(
+  db: Db,
+  date: IsoDate,
+  memberId: number,
+  now: Date
+): Promise<{ before: AttendanceStatus | null; from: Member | null }> {
   const row = await getFridayRow(db, date);
   const hostId = await resolveHostId(db, row);
-  const absent = await absencesOverlapping(db, date, date);
+  const away = await awayOn(db, date);
   const [viewer] = await db.select().from(members).where(eq(members.id, memberId));
+  const hostAbsent = hostId !== null && away(hostId);
+  const hostIsDefault = hostId !== null && !row?.hostId && !row?.noHost;
   const allowed =
     viewer &&
     canTakeOver(viewer, {
       hostId,
-      hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
-      viewerAbsent: absent.some((absence) => absence.memberId === memberId),
+      hostIsDefault,
+      hostAbsent,
+      viewerAbsent: away(memberId),
       locked: Boolean(row?.lockedAt) || isPastDeadline(date, now),
       cancelled: row?.cancelled ?? false,
     });
   if (!allowed) {
     throw new ServiceError(
-      'Übernehmen geht nur, wenn es keinen Gastgeber gibt oder er an dem Tag weg ist'
+      'Übernehmen geht nur vom Standard-Gastgeber, ohne Gastgeber oder wenn er an dem Tag weg ist'
     );
   }
-  await setHost(db, date, memberId);
+  const [answer] = await db
+    .select({ status: attendance.status })
+    .from(attendance)
+    .where(and(eq(attendance.fridayDate, date), eq(attendance.memberId, memberId)));
+  await db.transaction(async (tx) => {
+    await setHost(tx, date, memberId);
+    await setAttendance(tx, date, memberId, 'in', now);
+  });
+  const [usual] =
+    hostIsDefault && !hostAbsent
+      ? await db.select().from(members).where(eq(members.id, hostId!))
+      : [];
+  return { before: answer?.status ?? null, from: usual ?? null };
 }
 
+/** Calls a Friday off, or back on; back on also ends a pause. */
 export async function setCancelled(
   db: Db,
   date: IsoDate,
   cancelled: boolean,
   reason: string | null
 ) {
-  await touch(db, date, { cancelled, cancelReason: cancelled ? reason : null });
+  await touch(db, date, { cancelled, paused: false, cancelReason: cancelled ? reason : null });
+}
+
+/**
+ * Pauses a Friday, or ends the pause: the evening takes place, but without the app (they
+ * fetch something themselves), so it is as quiet as a cancelled one, with its own message.
+ * The reason or note goes where a cancellation's reason goes.
+ */
+export async function setPaused(db: Db, date: IsoDate, paused: boolean, reason: string | null) {
+  await touch(db, date, { cancelled: paused, paused, cancelReason: paused ? reason : null });
 }
 
 export async function setFridayNote(db: Db, date: IsoDate, note: string | null) {
@@ -549,11 +598,7 @@ export async function lockFriday(db: Db, date: IsoDate, now: Date): Promise<bool
     // Whatever is left from another restaurant was ordered ahead for a vote it lost.
     if (row.mode === 'delivery') await dropOrdersExcept(tx, date, [row.restaurantId]);
     // Without a host around nobody orders, so nobody gets a default dish to pay for.
-    const hostAway =
-      row.hostId === null ||
-      (await absencesOverlapping(tx, date, date)).some(
-        (absence) => absence.memberId === row.hostId
-      );
+    const hostAway = row.hostId === null || (await awayOn(tx, date))(row.hostId);
     if (row.mode === 'delivery' && row.restaurantId && !hostAway) {
       await applyDefaults(tx, date, row.restaurantId);
     }
@@ -708,7 +753,7 @@ export async function resendPayLinks(db: Db, date: IsoDate, now: Date) {
   if (!row?.paymentReleasedAt || !row.paymentNotify) {
     throw new ServiceError('Erst die Zahlung mit Link freigeben');
   }
-  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   return correctPayLinks(db, date, now);
 }
 
@@ -732,7 +777,7 @@ export async function releasePayment(db: Db, date: IsoDate, notify: boolean, now
   const view = await loadFriday(db, date, now);
   const row = await getFridayRow(db, date);
   if (!row?.lockedAt) throw new ServiceError('Freigeben geht erst nach dem Bestellschluss');
-  if (row.cancelled) throw new ServiceError('Dieser Freitag fällt aus');
+  if (row.cancelled) throw new ServiceError(`Dieser Freitag ${offWording(row)}`);
   // The links tell the amounts as they are when they first go out.
   const tellsNow = !row.paymentReleasedAt || (notify && !row.paymentNotify);
   await db
@@ -905,7 +950,9 @@ export type FridayView = {
   noHost: boolean;
   /** The host is away that day, so someone has to take over or the Friday is called off. */
   hostAbsent: boolean;
+  /** Called off for the app; with `paused` the evening still takes place (`setPaused`). */
   cancelled: boolean;
+  paused: boolean;
   cancelReason: string | null;
   note: string | null;
   mode: FridayMode;
@@ -1032,8 +1079,11 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
   const items = ordered.filter((item) => item.restaurantId === restaurantId);
   const preorders = ordered.filter((item) => item.restaurantId !== restaurantId);
   const absent = await absencesOverlapping(db, date, date);
+  const hostAway =
+    hostId !== null &&
+    isAway(hostId, date, answers.find((entry) => entry.memberId === hostId)?.status, absent);
   // The drinks money is the host's kitty; without a host around there is none to pay into.
-  const hostAround = hostId !== null && !absent.some((absence) => absence.memberId === hostId);
+  const hostAround = hostId !== null && !hostAway;
   const drinksFeeCents = hostAround ? (row?.drinksFeeCents ?? DRINKS_FEE_CENTS) : 0;
   const storedCharges = await db.select().from(charges).where(eq(charges.fridayDate, date));
   const settled = Boolean(row?.settledAt);
@@ -1211,8 +1261,9 @@ export async function loadFriday(db: Db, date: IsoDate, now: Date): Promise<Frid
     host,
     hostIsDefault: !row?.hostId && !row?.noHost,
     noHost: row?.noHost ?? false,
-    hostAbsent: hostId !== null && absent.some((absence) => absence.memberId === hostId),
+    hostAbsent: hostAway,
     cancelled,
+    paused: cancelled && (row?.paused ?? false),
     cancelReason: row?.cancelReason ?? null,
     note: row?.note ?? null,
     mode,
@@ -1273,6 +1324,7 @@ export type CalendarEntry = {
   /** Put at nobody's place by an admin; someone has to take it over. */
   noHost: boolean;
   cancelled: boolean;
+  paused: boolean;
   cancelReason: string | null;
   note: string | null;
   mode: FridayMode;
@@ -1334,19 +1386,22 @@ export async function loadCalendar(
     const row = rows.find((entry) => entry.date === date);
     const hostId = hostIdOf(row, defaultHost?.id ?? null);
     const host = everyone.find((member) => member.id === hostId) ?? null;
-    const absentMemberIds = [
-      ...new Set(
-        absent
-          .filter((absence) => absence.fromDate <= date && date <= absence.toDate)
-          .map((absence) => absence.memberId)
-      ),
-    ];
+    const dayAnswers = answers.filter((entry) => entry.fridayDate === date);
+    // Away unless they said yes for this Friday after all (`isAway`).
+    const absentMemberIds = [...new Set(absent.map((absence) => absence.memberId))].filter(
+      (memberId) =>
+        isAway(
+          memberId,
+          date,
+          dayAnswers.find((entry) => entry.memberId === memberId)?.status,
+          absent
+        )
+    );
     const mode = row?.mode ?? 'delivery';
     const defaultRestaurant =
       allRestaurants.find((entry) => entry.id === host?.defaultRestaurantId && !entry.archived) ??
       null;
     const restaurantId = mode === 'delivery' ? (row?.restaurantId ?? defaultRestaurant?.id) : null;
-    const dayAnswers = answers.filter((entry) => entry.fridayDate === date);
     // The same rule as the Friday page (loadFriday): silence means in, „nix“ as default means
     // coming without food, and a flat-price evening needs a yes.
     const people = everyone
@@ -1379,6 +1434,7 @@ export async function loadCalendar(
       hostIsDefault: !row?.hostId && !row?.noHost,
       noHost: row?.noHost ?? false,
       cancelled: row?.cancelled ?? false,
+      paused: Boolean(row?.cancelled && row.paused),
       cancelReason: row?.cancelReason ?? null,
       note: row?.note ?? null,
       mode,
@@ -1456,7 +1512,9 @@ export async function openBalances(db: Db, before: IsoDate, now: Date): Promise<
     const view = await loadFriday(db, date, now);
     if (!isBilled(view)) continue;
     const title = view.cancelled
-      ? 'abgesagt'
+      ? view.paused
+        ? 'ohne Bestellsystem'
+        : 'abgesagt'
       : view.mode === 'flat'
         ? (view.flatTitle ?? 'Pauschale')
         : (view.restaurant?.name ?? 'Freitag');

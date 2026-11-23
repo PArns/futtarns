@@ -35,6 +35,7 @@ describe('canTakeOver', () => {
   const anna = { id: 2, kind: 'member' as const, active: true, core: true };
   const away = {
     hostId: 1,
+    hostIsDefault: false,
     hostAbsent: true,
     viewerAbsent: false,
     locked: false,
@@ -52,7 +53,14 @@ describe('canTakeOver', () => {
     );
   });
 
-  it('only while the host is away, the Friday open and they are around themselves', () => {
+  it('lets them take it from the usual host even while the usual host is around', () => {
+    const usual = { ...away, hostAbsent: false, hostIsDefault: true };
+    expect(canTakeOver(anna, usual)).toBe(true);
+    expect(canTakeOver({ ...anna, id: 1 }, usual)).toBe(false);
+    expect(canTakeOver(anna, { ...usual, locked: true })).toBe(false);
+  });
+
+  it('only while the host is away or the usual one, the Friday open and they are around themselves', () => {
     expect(canTakeOver(anna, { ...away, hostAbsent: false })).toBe(false);
     expect(canTakeOver(anna, { ...away, viewerAbsent: true })).toBe(false);
     expect(canTakeOver(anna, { ...away, locked: true })).toBe(false);

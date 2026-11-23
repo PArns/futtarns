@@ -3,7 +3,11 @@ import { appUrl } from '@/lib/auth-tokens';
 import { addWeeks, currentFriday, type IsoDate } from '@/lib/dates';
 import type { Db } from '@/lib/db/client';
 import { getAssistantKey } from '@/lib/services/assistant';
-import { dishes, memberDefaults, notifications } from '@/lib/db/schema';
+import { pruneChats, recordSent } from '@/lib/services/chats';
+import { pruneReadings } from '@/lib/services/readings';
+import { dishes, memberDefaults, notifications, type Member } from '@/lib/db/schema';
+import { formatDayShort } from '@/lib/format';
+import { bold } from '@/lib/messages';
 import {
   planReminders,
   previewReminders,
@@ -66,9 +70,9 @@ async function sentKeysFor(db: Db, date: IsoDate): Promise<Set<string>> {
 /**
  * Sends a message unless its key went out before, and with it the keys of the messages it
  * stands in for (`also`). A refused send is retried next run; one that timed out is not,
- * because it may have arrived.
+ * because it may have arrived. What went out to a member goes into their chat.
  */
-export async function deliver(db: Db, message: Outgoing, send: Send) {
+export async function deliver(db: Db, message: Outgoing, send: Send, now: Date = new Date()) {
   const claimed = await db
     .insert(notifications)
     .values({ key: message.key })
@@ -87,6 +91,8 @@ export async function deliver(db: Db, message: Outgoing, send: Send) {
     await db.delete(notifications).where(inArray(notifications.key, keys));
     return false;
   }
+  // It went out: it belongs to that member's chat now.
+  await recordSent(db, message.to, message.text, message.key, now);
   return true;
 }
 
@@ -101,6 +107,31 @@ export async function askedWhere(db: Db, date: IsoDate): Promise<boolean> {
     .where(like(notifications.key, `nohost:${date}:%`))
     .limit(1);
   return Boolean(row);
+}
+
+/**
+ * Tells the usual host that someone took their Friday over while they are around, so they
+ * neither shop nor order for it. Says whether it went out.
+ */
+export async function tellTakenOver(
+  db: Db,
+  date: IsoDate,
+  from: Member | null,
+  taker: Pick<Member, 'id' | 'name'>,
+  send: Send,
+  now: Date
+): Promise<boolean> {
+  if (!from?.phone || from.id === taker.id) return false;
+  return deliver(
+    db,
+    {
+      key: `takenover:${date}:${from.id}:${now.getTime()}`,
+      to: from.phone,
+      text: `🙌 ${bold(`${taker.name} übernimmt Freitag (${formatDayShort(date)})!`)} Diesmal bist du nicht Gastgeber: ${taker.name} bestellt, und das Geld geht an ${taker.name}. Passt das nicht, sprecht euch kurz ab.\n${appUrl()}/freitag/${date}`,
+    },
+    send,
+    now
+  );
 }
 
 // A burst of identical-looking messages is what gets a linked device blocked.
@@ -118,6 +149,9 @@ export async function runScheduler(
   pause: () => Promise<unknown> = pauseBetweenMessages
 ): Promise<number> {
   await lockDueFridays(db, now);
+  await Promise.all([pruneChats(db, now), pruneReadings(db, now)]).catch((error: unknown) => {
+    console.error('[scheduler] could not forget old chats', error);
+  });
   const thisWeek = currentFriday(now);
   const dates: IsoDate[] = [addWeeks(thisWeek, -2), addWeeks(thisWeek, -1), thisWeek];
   const paidLink = await payLinkMaker(db);
@@ -143,7 +177,7 @@ export async function runScheduler(
         assistant,
       });
       for (const message of messages) {
-        if (await deliver(db, message, send)) {
+        if (await deliver(db, message, send, now)) {
           sent++;
           await pause();
         }

@@ -19,6 +19,7 @@ import { calendarLink } from '@/lib/auth-tokens';
 import { isPastDeadline, todayIso } from '@/lib/dates';
 import { getDb } from '@/lib/db';
 import { formatDayShort, formatEuro, formatMonth } from '@/lib/format';
+import { offTitle } from '@/lib/messages';
 import { isHollandFriday } from '@/lib/pentecost';
 import { canClearHost, canManageFriday, canSetHost, canTakeOver } from '@/lib/permissions';
 import { getGroupContext } from '@/lib/session';
@@ -91,6 +92,7 @@ export default async function CalendarPage() {
                 const needsSubstitute = (entry.hostAbsent || !entry.host) && !entry.cancelled;
                 const mayTakeOver = canTakeOver(viewer, {
                   hostId: entry.host?.id ?? null,
+                  hostIsDefault: entry.hostIsDefault,
                   hostAbsent: entry.hostAbsent,
                   viewerAbsent: entry.absentMemberIds.includes(viewer.id),
                   locked: isPastDeadline(entry.date, new Date(now)),
@@ -122,11 +124,11 @@ export default async function CalendarPage() {
                         <div
                           className={cn(
                             'group-hover:text-primary truncate font-bold transition-colors',
-                            entry.cancelled && 'text-error'
+                            entry.cancelled && !entry.paused && 'text-error'
                           )}
                         >
                           {entry.cancelled
-                            ? 'Fällt aus'
+                            ? offTitle(entry)
                             : entry.mode === 'flat'
                               ? (entry.flatTitle ?? 'Pauschale')
                               : (entry.restaurant?.name ?? 'Restaurant noch offen')}
@@ -188,6 +190,16 @@ export default async function CalendarPage() {
                           </span>
                         </span>
                       </Notice>
+                    )}
+                    {/* The usual host is around: anyone of the Stammtruppe may host instead. */}
+                    {mayTakeOver && !needsSubstitute && entry.host && (
+                      <div>
+                        <TakeOverButton
+                          date={entry.date}
+                          variant="ghost"
+                          confirm={`Freitag statt ${entry.host.name} Gastgeber sein? Du bestellst, das Geld geht an dich, und ${entry.host.name} bekommt Bescheid.`}
+                        />
+                      </div>
                     )}
                     {(entry.date === currentFriday ||
                       (!entry.hostIsDefault && entry.host && !entry.cancelled) ||

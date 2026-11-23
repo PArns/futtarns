@@ -109,7 +109,12 @@ export const fridays = pgTable('fridays', {
   // An admin put this Friday at nobody's place: no host, not even the default one, until
   // someone of the group takes it over.
   noHost: boolean('no_host').notNull().default(false),
+  // Called off for the app: no answers, orders, money or reminders.
   cancelled: boolean('cancelled').notNull().default(false),
+  // Only the app is off: the evening takes place without ordering (they fetch something
+  // themselves). Always set together with `cancelled`, so everything stays as quiet as on a
+  // cancelled Friday; only the wording differs („Ohne Bestellsystem“ instead of „Fällt aus“).
+  paused: boolean('paused').notNull().default(false),
   cancelReason: text('cancel_reason'),
   mode: text('mode').$type<FridayMode>().notNull().default('delivery'),
   flatTitle: text('flat_title'),
@@ -349,6 +354,115 @@ export const adminNotes = pgTable(
   (t) => [index('admin_notes_created_idx').on(t.createdAt)]
 );
 
+/** `in`: a member wrote to the bot; `out`: the bot wrote to them. */
+export type ChatDirection = 'in' | 'out';
+
+/**
+ * What a chat message was: a fixed `command` or free `text` from the member; the bot's
+ * `reply` to their message, or a `message` it sent on its own (a reminder, a nudge, news).
+ */
+export type ChatKind = 'command' | 'text' | 'reply' | 'message';
+
+/**
+ * The bot's WhatsApp chats with each member, kept for three months (`CHAT_DAYS`): Claude reads
+ * the latest ones along with a new message, and admins read them through the MCP tools.
+ * Login codes and links are blanked out before they are stored (`redactSecrets`).
+ */
+export const chatMessages = pgTable(
+  'chat_messages',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    direction: text('direction').$type<ChatDirection>().notNull(),
+    kind: text('kind').$type<ChatKind>().notNull(),
+    // The command or Claude's action for what the member wrote; the key of what the bot sent.
+    detail: text('detail'),
+    text: text('text').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('chat_messages_member_idx').on(t.memberId, t.createdAt),
+    index('chat_messages_created_idx').on(t.createdAt),
+  ]
+);
+
+/** A research tool Claude called while reading a message, with what it passed in. */
+export type ToolCall = { name: string; input: unknown };
+
+/**
+ * Every time Claude read a member's message (`lib/services/readings.ts`): everything it was
+ * given (the facts, the chat so far, the message), what it answered and looked up, what the
+ * member got back, tokens, time and errors, under the version of the prompt it ran on. Kept
+ * as long as the chats, so the prompt can be judged and improved on real messages, and a
+ * reading replayed with a changed one. Admins rate readings while they look through them.
+ */
+export const assistantReadings = pgTable(
+  'assistant_readings',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    // The member's message in their chat, while it is kept.
+    chatMessageId: integer('chat_message_id').references(() => chatMessages.id, {
+      onDelete: 'set null',
+    }),
+    message: text('message').notNull(),
+    facts: text('facts').notNull(),
+    chat: text('chat').notNull().default(''),
+    model: text('model').notNull(),
+    // Changes whenever the system prompt, the tools or the answer format change.
+    promptVersion: text('prompt_version').notNull(),
+    // Claude's answer as it came (`Interpretation`); null when there was none.
+    interpretation: jsonb('interpretation').$type<Record<string, unknown>>(),
+    action: text('action'),
+    // The command the app ran from it, if any; Claude's action can be turned down.
+    command: text('command'),
+    // Everything the member got back: Claude's words, the command's result, the report.
+    answer: text('answer'),
+    toolCalls: jsonb('tool_calls').$type<ToolCall[]>().notNull().default([]),
+    rounds: integer('rounds').notNull().default(0),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
+    cacheWriteTokens: integer('cache_write_tokens').notNull().default(0),
+    durationMs: integer('duration_ms').notNull().default(0),
+    // Why there was no usable answer (an error, a refusal, out of time); null when there was.
+    error: text('error'),
+    // An admin's verdict: 1 good, -1 bad, with what should have happened.
+    rating: integer('rating'),
+    ratingNote: text('rating_note'),
+    ratedById: integer('rated_by_id').references(() => members.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('assistant_readings_created_idx').on(t.createdAt),
+    index('assistant_readings_chat_idx').on(t.chatMessageId),
+  ]
+);
+
+/**
+ * Personal keys for the MCP server (`/api/mcp`): whoever holds one acts as that member,
+ * with that member's rights. Stored hashed, like sessions; shown once when made.
+ */
+export const mcpTokens = pgTable(
+  'mcp_tokens',
+  {
+    id: serial('id').primaryKey(),
+    memberId: integer('member_id')
+      .notNull()
+      .references(() => members.id, { onDelete: 'cascade' }),
+    // What the member called it, e.g. „Claude Desktop“, to tell their keys apart.
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (t) => [index('mcp_tokens_member_idx').on(t.memberId)]
+);
+
 /** Keys the app makes for itself on first use, such as the one that signs payment links. */
 export const appSecrets = pgTable('app_secrets', {
   name: text('name').primaryKey(),
@@ -366,3 +480,6 @@ export type MemberDefault = typeof memberDefaults.$inferSelect;
 export type Charge = typeof charges.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type AdminNote = typeof adminNotes.$inferSelect;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type McpToken = typeof mcpTokens.$inferSelect;
+export type AssistantReading = typeof assistantReadings.$inferSelect;

@@ -60,6 +60,7 @@ import {
 import type { Db } from '@/lib/db/client';
 import type { Member } from '@/lib/db/schema';
 import { formatDayShort, formatEuro, formatTime, formatWeekdayTime } from '@/lib/format';
+import { offTitle } from '@/lib/messages';
 import { sheetsByArrival } from '@/lib/order-sheet';
 import { debtLines, feeLines, toPayee } from '@/lib/balance';
 import { NAG_THRESHOLD_CENTS } from '@/lib/reminders';
@@ -394,6 +395,7 @@ export async function FridayScreen({
   const amHost = viewer.id === hostId;
   const mayTakeOver = canTakeOver(viewer, {
     hostId,
+    hostIsDefault: view.hostIsDefault,
     hostAbsent: view.hostAbsent,
     viewerAbsent: me?.attendance.reason === 'absent',
     locked: closed,
@@ -408,7 +410,7 @@ export async function FridayScreen({
   // While the group votes, the restaurant is not settled, so none stands at the top.
   const voteOpen = voting && restaurants.length > 1;
   const title = view.cancelled
-    ? 'Fällt aus'
+    ? offTitle(view)
     : flat
       ? (view.flatTitle ?? 'Pauschale')
       : voteOpen
@@ -715,7 +717,8 @@ export async function FridayScreen({
                 <Store /> {flat ? 'Restaurant oder Pauschale' : 'Restaurant festlegen'}
               </a>
             )}
-          {view.host && !view.cancelled && (
+          {/* A paused Friday still takes place at the host's. */}
+          {view.host && (!view.cancelled || view.paused) && (
             <span className="inline-flex items-center gap-2">
               <Avatar name={view.host.name} id={view.host.id} className="size-6 text-[10px]" />
               <span>
@@ -725,6 +728,14 @@ export async function FridayScreen({
                 <Badge variant="softWarning">
                   <TriangleAlert /> abwesend eingetragen
                 </Badge>
+              )}
+              {/* The usual host is around: anyone of the Stammtruppe may still host instead. */}
+              {mayTakeOver && !view.hostAbsent && (
+                <TakeOverButton
+                  date={date}
+                  variant="outline"
+                  confirm={`Statt ${view.host.name} Gastgeber sein? Du bestellst, das Geld geht an dich, und ${view.host.name} bekommt Bescheid.`}
+                />
               )}
             </span>
           )}
@@ -904,6 +915,11 @@ export async function FridayScreen({
         )}
         {view.cancelled && view.cancelReason && (
           <p className="hero-item text-muted-foreground mt-3">{view.cancelReason}</p>
+        )}
+        {view.paused && (
+          <p className="hero-item text-muted-foreground mt-3 text-sm">
+            Der Abend findet statt, nur ohne Bestellen und Bezahlen hier.
+          </p>
         )}
         {view.cancelled && (
           <Link
